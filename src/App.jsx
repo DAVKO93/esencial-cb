@@ -258,7 +258,11 @@ export default function App() {
   const [fNotas, setFNotas] = useState('')
 
   // Filtros historial
-  const hoy = (() => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}` })()
+  const hoy = (() => { 
+    const d = new Date()
+    d.setHours(d.getHours() - 5)
+    return d.toISOString().split('T')[0]
+  })()
   const [fDesde, setFDesde] = useState(hoy)
   const [fHasta, setFHasta] = useState(hoy)
   const [busqueda, setBusqueda] = useState('')
