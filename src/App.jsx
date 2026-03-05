@@ -258,7 +258,7 @@ export default function App() {
   const [fNotas, setFNotas] = useState('')
 
   // Filtros historial
-  const hoy = new Date().toISOString().split('T')[0]
+  const hoy = (() => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}` })()
   const [fDesde, setFDesde] = useState(hoy)
   const [fHasta, setFHasta] = useState(hoy)
   const [busqueda, setBusqueda] = useState('')
@@ -470,7 +470,7 @@ export default function App() {
   function getFecha(offsetDias) {
     const d = new Date()
     d.setDate(d.getDate() + offsetDias)
-    return d.toISOString().split('T')[0]
+    return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`
   }
 
   function getLunesSemana(offset=0) {
