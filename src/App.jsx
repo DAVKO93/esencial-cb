@@ -167,8 +167,8 @@ function Login() {
       <div style={{width:'100%',maxWidth:420}}>
         <div style={{textAlign:'center',marginBottom:32}}>
           <img src='/logo.png' alt='Logo' style={{height:60,objectFit:'contain',marginBottom:12}} />
-          <h1 style={{fontFamily:'Playfair Display,serif',fontSize:28,fontWeight:700,color:'#1a1a1a',letterSpacing:2}}>ESENCIAL CB</h1>
-          <p style={{fontSize:11,color:'#999',letterSpacing:3,textTransform:'uppercase',marginTop:4}}>Administracion</p>
+          <h1 style={{fontFamily:'Playfair Display,serif',fontSize:28,fontWeight:700,color:'#1a1a1a',letterSpacing:2}}>Esencial FC</h1>
+          
           <div style={{width:40,height:2,background:'#1a1a1a',margin:'14px auto 0'}}/>
         </div>
         <div style={{background:'#fff',border:'1px solid #e0e0e0',borderRadius:16,overflow:'hidden',boxShadow:'0 4px 24px rgba(0,0,0,0.08)'}}>
@@ -310,6 +310,7 @@ export default function App() {
   const [deferredPrompt, setDeferredPrompt] = useState(null)
   const [showInstall, setShowInstall] = useState(false)
   const [loadingMenu, setLoadingMenu] = useState(true)
+  const [nombreEmpleado, setNombreEmpleado] = useState('')
   // Comprobante camara
   const [fotoComprobante, setFotoComprobante] = useState({}) // {pedidoId: dataURL}
   const cameraRefs = useRef({})
@@ -344,9 +345,12 @@ export default function App() {
         const q = query(collection(db,'usuarios'), where('uid','==',u.uid))
         const snap = await getDocs(q)
         if (!snap.empty) {
-          setAprobado(snap.docs[0].data().estado === 'APROBADO')
+          const userData = snap.docs[0].data()
+          setAprobado(userData.estado === 'APROBADO')
+          setNombreEmpleado(userData.nombre || u.email)
         } else {
           setAprobado(true)
+          setNombreEmpleado(u.email)
         }
       }
     })
@@ -450,7 +454,7 @@ export default function App() {
     }
     const items = cart.map(x => ({ id:x.id, nombre:x.nombre, precio:x.precio, cantidad:x.cantidad }))
     const total = cartTotal
-    const pedido = { ...datos, items, total, estado:'EN PROCESO', creadoEn: serverTimestamp() }
+    const pedido = { ...datos, items, total, estado:'EN PROCESO', empleado: nombreEmpleado, creadoEn: serverTimestamp() }
 
     if (!isOnline) {
       const idLocal = 'LOCAL-' + Date.now()
@@ -495,11 +499,19 @@ export default function App() {
   // ---- ELIMINAR ----
   async function eliminarPedido() {
     if (!modalEliminar) return
-    try {
-      await deleteDoc(doc(db,'pedidos',modalEliminar))
-      showToast('ok','Pedido eliminado')
-    } catch(e) { showToast('err','Error al eliminar') }
+    const idEliminar = modalEliminar
     setModalEliminar(null)
+    // Quitar inmediatamente de la UI
+    setPedidosActivos(p => p.filter(x => x.id !== idEliminar))
+    setHistorial(p => p.filter(x => x.id !== idEliminar))
+    try {
+      await deleteDoc(doc(db,'pedidos', idEliminar))
+      showToast('ok','Pedido eliminado')
+    } catch(e) {
+      showToast('err','Error al eliminar')
+      // Si falla, recargar pedidos
+      setPedidosActivos(p => p)
+    }
   }
 
   // ---- CAMARA COMPROBANTE ----
@@ -623,10 +635,10 @@ export default function App() {
 
   // Iconos nav
   const navItems = [
-    { key:'menu', label:'Menu', icon:'☰' },
-    { key:'pedido', label:'Pedido', icon:'🛒', badge: cartCount },
-    { key:'proceso', label:'En Proceso', icon:'⏳', badge: pedidosActivos.length+pendientesSync.length },
-    { key:'historial', label:'Historial', icon:'📋' },
+    { key:'menu', label:'Menu' },
+    { key:'pedido', label:'Pedido', badge: cartCount },
+    { key:'proceso', label:'En Proceso', badge: pedidosActivos.length+pendientesSync.length },
+    { key:'historial', label:'Historial' },
   ]
 
   return (
@@ -643,8 +655,8 @@ export default function App() {
       {/* HEADER */}
       <header style={{background:'#1a1a1a',padding:'0 16px',position:'sticky',top:isOnline?0:34,zIndex:1000,display:'flex',alignItems:'center',justifyContent:'space-between',height:54}}>
         <div>
-          <h1 style={{fontFamily:'Playfair Display,serif',fontSize:16,fontWeight:700,color:'#fff',letterSpacing:2}}>ESENCIAL CB</h1>
-          <span style={{fontSize:9,color:'#ccc',letterSpacing:2,textTransform:'uppercase'}}>Administracion</span>
+          <h1 style={{fontFamily:'Playfair Display,serif',fontSize:16,fontWeight:700,color:'#fff',letterSpacing:2}}>Esencial FC</h1>
+          
         </div>
         <div style={{display:'flex',alignItems:'center',gap:8}}>
           {showInstall && (
@@ -714,7 +726,8 @@ export default function App() {
                     {/* Info — click para editar */}
                     <div style={{flex:1,cursor:'pointer'}} onClick={()=>setModalProducto(item)}>
                       <div style={{fontSize:13,fontWeight:600,color:'#1a1a1a'}}>{item.nombre}</div>
-                      <div style={{fontSize:11,color:'#999',marginTop:1}}>{item.categoria}</div>
+                      <div style={{fontSize:11,color:'#999',marginTop:1}}>{item.descripcion}</div>
+                      <span style={{display:'inline-block',marginTop:4,background:'#1a1a1a',color:'#fff',fontSize:9,fontWeight:700,letterSpacing:1,textTransform:'uppercase',padding:'2px 7px',borderRadius:100}}>{item.categoria}</span>
                     </div>
                     {/* Precio */}
                     <div style={{fontFamily:'Playfair Display,serif',fontSize:16,color:'#1a1a1a',minWidth:50,textAlign:'right'}}>
@@ -864,6 +877,7 @@ export default function App() {
                     <div style={{fontSize:13,fontWeight:600,marginBottom:2}}>{p.cliente}</div>
                     {p.mesa && <div style={{fontSize:11,color:'#666',marginBottom:2,fontWeight:600}}>{p.mesa}</div>}
                     {p.telefono && <div style={{fontSize:11,color:'#999',marginBottom:9}}>{p.telefono}</div>}
+                    {p.empleado && <div style={{fontSize:10,color:'#888',marginBottom:9,padding:'3px 8px',background:'#f4f4f4',borderRadius:5,display:'inline-block'}}>Tomado por: <strong>{p.empleado}</strong></div>}
                     {p.items?.map((it,i) => <div key={i} style={{display:'flex',justifyContent:'space-between',fontSize:12,color:'#666',padding:'3px 0',borderBottom:'1px solid #e0e0e0'}}><span>{it.cantidad}x {it.nombre}</span><span>${(it.precio*it.cantidad).toFixed(2)}</span></div>)}
                     {p.notas && <div style={{fontSize:11,color:'#666',background:'#fffdf0',border:'1px solid #e8e4c0',padding:'5px 9px',borderRadius:6,marginTop:7}}>Nota: {p.notas}</div>}
                     <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',paddingTop:9,borderTop:'1.5px solid #d0d0d0',marginTop:7}}>
@@ -1006,7 +1020,7 @@ export default function App() {
                     <table style={{width:'100%',borderCollapse:'collapse'}}>
                       <thead>
                         <tr>
-                          {['Hora','Cliente','Mesa','Productos','Total','Pago','Estado','Accion'].map(h => (
+                          {['Hora','Cliente','Mesa','Productos','Total','Pago','Estado','Empleado','Accion'].map(h => (
                             <th key={h} style={{background:'#f4f4f4',padding:'10px 14px',textAlign:'left',fontSize:9,letterSpacing:2,textTransform:'uppercase',color:'#999',fontWeight:600,borderBottom:'1px solid #e0e0e0'}}>{h}</th>
                           ))}
                         </tr>
@@ -1028,6 +1042,9 @@ export default function App() {
                               <span style={{background:p.estado==='EN PROCESO'?'#fff8e1':'#e8f5e9',color:p.estado==='EN PROCESO'?'#b8860b':'#2e7d32',border:`1px solid ${p.estado==='EN PROCESO'?'#e8d88a':'#a5d6a7'}`,padding:'3px 8px',borderRadius:100,fontSize:9,fontWeight:700}}>{p.estado}</span>
                             </td>
                             <td style={{padding:'10px 14px'}}>
+                              <span style={{fontSize:11,color:'#666'}}>{p.empleado||'—'}</span>
+                            </td>
+                            <td style={{padding:'10px 14px'}}>
                               <button onClick={()=>setModalEliminar(p.id)} style={{background:'none',border:'1px solid #ffcdd2',color:'#c62828',padding:'3px 9px',borderRadius:5,fontFamily:'DM Sans,sans-serif',fontSize:10,cursor:'pointer'}}>Eliminar</button>
                             </td>
                           </tr>
@@ -1046,12 +1063,11 @@ export default function App() {
       <nav style={{position:'fixed',bottom:0,left:0,right:0,background:'#fff',borderTop:'1.5px solid #e0e0e0',display:'flex',zIndex:1000,boxShadow:'0 -4px 16px rgba(0,0,0,0.08)'}}>
         {navItems.map(n => (
           <button key={n.key} onClick={()=>setTab(n.key)} style={{
-            flex:1,padding:'10px 4px 12px',display:'flex',flexDirection:'column',alignItems:'center',gap:3,
+            flex:1,padding:'14px 4px',display:'flex',flexDirection:'column',alignItems:'center',gap:2,
             border:'none',background:'none',cursor:'pointer',transition:'0.2s',
             borderTop: tab===n.key?'3px solid #1a1a1a':'3px solid transparent'
           }}>
-            <span style={{fontSize:18,lineHeight:1}}>{n.icon}</span>
-            <span style={{fontSize:9,fontWeight:600,letterSpacing:1,textTransform:'uppercase',color:tab===n.key?'#1a1a1a':'#999'}}>
+            <span style={{fontSize:10,fontWeight:700,letterSpacing:1,textTransform:'uppercase',color:tab===n.key?'#1a1a1a':'#999'}}>
               {n.label}
             </span>
             {n.badge > 0 && (
