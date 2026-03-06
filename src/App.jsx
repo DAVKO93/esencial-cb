@@ -313,6 +313,15 @@ export default function App() {
   const [showInstall, setShowInstall] = useState(false)
   const [loadingMenu, setLoadingMenu] = useState(true)
   const [nombreEmpleado, setNombreEmpleado] = useState('')
+  const [esAdmin, setEsAdmin] = useState(false)
+  const [fotoPerfil, setFotoPerfil] = useState(null)
+  const [modalPerfil, setModalPerfil] = useState(false)
+  const [modalAdmin, setModalAdmin] = useState(false)
+  const [empleadosPendientes, setEmpleadosPendientes] = useState([])
+  const [editNombre, setEditNombre] = useState('')
+  const [editFoto, setEditFoto] = useState(null)
+  const [loadingPerfil, setLoadingPerfil] = useState(false)
+  const fotoPerfRef = useRef(null)
   // Comprobante camara
   const [fotoComprobante, setFotoComprobante] = useState({}) // {pedidoId: dataURL}
   const [datosCliente, setDatosCliente] = useState({}) // {pedidoId: {tipo,id,nombre,tel,email}}
@@ -339,23 +348,39 @@ export default function App() {
   const [busqueda, setBusqueda] = useState('')
   const [periodoActivo, setPeriodoActivo] = useState('hoy')
 
+  const ADMIN_EMAIL = 'sega93david@gmail.com'
+
   // ---- AUTH ----
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, async (u) => {
       setUser(u)
-      setAuthReady(true)
       if (u) {
+        // Admin siempre aprobado
+        if (u.email === ADMIN_EMAIL) {
+          setAprobado(true)
+          setEsAdmin(true)
+          setNombreEmpleado('Admin')
+          setAuthReady(true)
+          return
+        }
         const q = query(collection(db,'usuarios'), where('uid','==',u.uid))
         const snap = await getDocs(q)
         if (!snap.empty) {
           const userData = snap.docs[0].data()
           setAprobado(userData.estado === 'APROBADO')
           setNombreEmpleado(userData.nombre || u.email)
+          setFotoPerfil(userData.foto || null)
+          setEditNombre(userData.nombre || '')
         } else {
           setAprobado(true)
           setNombreEmpleado(u.email)
+          setEditNombre(u.email)
         }
+      } else {
+        setAprobado(false)
+        setEsAdmin(false)
       }
+      setAuthReady(true)
     })
     return unsub
   }, [])
@@ -566,6 +591,58 @@ export default function App() {
         showToast('warn','Compartir no disponible — imagen descargada')
       }
     } catch(e) {}
+  }
+
+  // ---- PERFIL ----
+  async function guardarPerfil() {
+    setLoadingPerfil(true)
+    try {
+      const q = query(collection(db,'usuarios'), where('uid','==',user.uid))
+      const snap = await getDocs(q)
+      const datos = { nombre: editNombre }
+      if (editFoto) datos.foto = editFoto
+      if (!snap.empty) {
+        await updateDoc(doc(db,'usuarios', snap.docs[0].id), datos)
+      }
+      setNombreEmpleado(editNombre)
+      if (editFoto) setFotoPerfil(editFoto)
+      showToast('ok','Perfil actualizado')
+      setModalPerfil(false)
+    } catch(e) { showToast('err','Error al guardar') }
+    setLoadingPerfil(false)
+  }
+
+  function onFotoPerfilCapturada(e) {
+    const file = e.target.files[0]
+    if (!file) return
+    const reader = new FileReader()
+    reader.onload = (ev) => setEditFoto(ev.target.result)
+    reader.readAsDataURL(file)
+  }
+
+  // ---- ADMIN: CARGAR PENDIENTES ----
+  async function cargarEmpleadosPendientes() {
+    try {
+      const q = query(collection(db,'usuarios'), where('estado','==','PENDIENTE'))
+      const snap = await getDocs(q)
+      setEmpleadosPendientes(snap.docs.map(d => ({ id:d.id, ...d.data() })))
+    } catch(e) { showToast('err','Error al cargar empleados') }
+  }
+
+  async function aprobarEmpleado(docId) {
+    try {
+      await updateDoc(doc(db,'usuarios', docId), { estado:'APROBADO' })
+      setEmpleadosPendientes(p => p.filter(x => x.id !== docId))
+      showToast('ok','Empleado aprobado')
+    } catch(e) { showToast('err','Error al aprobar') }
+  }
+
+  async function rechazarEmpleado(docId) {
+    try {
+      await deleteDoc(doc(db,'usuarios', docId))
+      setEmpleadosPendientes(p => p.filter(x => x.id !== docId))
+      showToast('ok','Solicitud rechazada')
+    } catch(e) { showToast('err','Error al rechazar') }
   }
 
   // ---- GENERAR PDF ----
@@ -785,13 +862,14 @@ export default function App() {
 
   if (!user) return <><style>{G}</style><Login/><Toast/></>
 
-  if (!aprobado) return (
+  // Solo mostrar Cuenta Pendiente si ya terminó de cargar Y el usuario existe Y no está aprobado
+  if (authReady && user && !aprobado) return (
     <>
       <style>{G}</style>
       <div style={{display:'flex',alignItems:'center',justifyContent:'center',height:'100vh',flexDirection:'column',gap:16,padding:20,textAlign:'center'}}>
         <img src='/logo.png' alt='Logo' style={{height:60,objectFit:'contain'}}/>
         <h2 style={{fontFamily:'Playfair Display,serif',fontSize:22}}>Cuenta Pendiente</h2>
-        <p style={{color:'#999',fontSize:13,maxWidth:320}}>Tu solicitud está siendo revisada.</p>
+        <p style={{color:'#999',fontSize:13,maxWidth:320}}>Tu solicitud está siendo revisada por el administrador.</p>
         <Btn onClick={()=>signOut(auth)} variant='sec'>Cerrar Sesion</Btn>
       </div>
       <Toast/>
@@ -820,24 +898,46 @@ export default function App() {
       )}
 
       {/* HEADER */}
-      <header style={{background:'#1a1a1a',padding:'0 16px',position:'sticky',top:isOnline?0:34,zIndex:1000,display:'flex',alignItems:'center',justifyContent:'space-between',height:54}}>
+      <header style={{background:'#1a1a1a',padding:'0 16px',position:'sticky',top:isOnline?0:34,zIndex:1000,display:'flex',alignItems:'center',justifyContent:'space-between',height:58}}>
         <div>
           <h1 style={{fontFamily:'Playfair Display,serif',fontSize:16,fontWeight:700,color:'#fff',letterSpacing:2}}>Esencial FC</h1>
-          
         </div>
         <div style={{display:'flex',alignItems:'center',gap:8}}>
           {showInstall && (
             <button onClick={instalarApp} style={{background:'#fff',border:'none',color:'#1a1a1a',padding:'6px 11px',borderRadius:7,fontFamily:'DM Sans,sans-serif',fontSize:10,fontWeight:600,cursor:'pointer'}}>
-              Instalar App
+              Instalar
             </button>
           )}
           {pendientesSync.length > 0 && (
             <span style={{background:'#b8860b',color:'#fff',borderRadius:100,padding:'2px 8px',fontSize:9,fontWeight:700}}>
-              {pendientesSync.length} pendiente{pendientesSync.length>1?'s':''}
+              {pendientesSync.length} offline
             </span>
           )}
-          <button onClick={()=>signOut(auth)} style={{background:'none',border:'1px solid #555',color:'#ccc',padding:'5px 10px',borderRadius:6,cursor:'pointer',fontFamily:'DM Sans,sans-serif',fontSize:10}}>
-            Salir
+          {/* BOTON ADMIN - solo para admin */}
+          {esAdmin && (
+            <button onClick={()=>{setModalAdmin(true);cargarEmpleadosPendientes()}} style={{
+              background:'none',border:'1px solid #888',color:'#ccc',padding:'5px 10px',
+              borderRadius:6,cursor:'pointer',fontFamily:'DM Sans,sans-serif',fontSize:10,position:'relative'
+            }}>
+              Empleados
+              {empleadosPendientes.length>0 && (
+                <span style={{position:'absolute',top:-5,right:-5,background:'#c62828',color:'#fff',borderRadius:'50%',width:14,height:14,fontSize:9,fontWeight:700,display:'flex',alignItems:'center',justifyContent:'center'}}>
+                  {empleadosPendientes.length}
+                </span>
+              )}
+            </button>
+          )}
+          {/* FOTO PERFIL */}
+          <button onClick={()=>{setEditNombre(nombreEmpleado);setEditFoto(null);setModalPerfil(true)}} style={{
+            width:36,height:36,borderRadius:'50%',border:'2px solid #555',
+            background:'#333',cursor:'pointer',overflow:'hidden',padding:0,flexShrink:0
+          }}>
+            {fotoPerfil
+              ? <img src={fotoPerfil} alt='perfil' style={{width:'100%',height:'100%',objectFit:'cover'}}/>
+              : <span style={{color:'#ccc',fontSize:13,fontWeight:700,display:'flex',alignItems:'center',justifyContent:'center',height:'100%'}}>
+                  {nombreEmpleado?.charAt(0)?.toUpperCase()||'?'}
+                </span>
+            }
           </button>
         </div>
       </header>
@@ -1275,6 +1375,63 @@ export default function App() {
           </button>
         ))}
       </nav>
+
+      {/* MODAL PERFIL */}
+      <Modal open={modalPerfil} onClose={()=>setModalPerfil(false)}
+        title='Mi Perfil' sub={user?.email} icon='P'
+        footer={<><Btn variant='sec' onClick={()=>setModalPerfil(false)}>Cancelar</Btn><Btn onClick={guardarPerfil} disabled={loadingPerfil}>{loadingPerfil?'Guardando...':'Guardar'}</Btn></>}>
+        <div style={{textAlign:'center',marginBottom:20}}>
+          {/* Foto perfil */}
+          <div style={{width:90,height:90,borderRadius:'50%',border:'3px solid #e0e0e0',overflow:'hidden',margin:'0 auto 12px',background:'#f4f4f4',display:'flex',alignItems:'center',justifyContent:'center',cursor:'pointer'}}
+            onClick={()=>fotoPerfRef.current?.click()}>
+            {(editFoto||fotoPerfil)
+              ? <img src={editFoto||fotoPerfil} alt='perfil' style={{width:'100%',height:'100%',objectFit:'cover'}}/>
+              : <span style={{fontSize:32,fontWeight:700,color:'#999'}}>{nombreEmpleado?.charAt(0)?.toUpperCase()||'?'}</span>
+            }
+          </div>
+          <input type='file' accept='image/*' capture='user' style={{display:'none'}} ref={fotoPerfRef} onChange={onFotoPerfilCapturada}/>
+          <button onClick={()=>fotoPerfRef.current?.click()} style={{background:'none',border:'1px solid #d0d0d0',color:'#666',borderRadius:7,padding:'5px 14px',fontFamily:'DM Sans,sans-serif',fontSize:11,cursor:'pointer'}}>
+            Cambiar foto
+          </button>
+        </div>
+        <div style={{marginBottom:13}}>
+          <label style={{display:'block',fontSize:10,letterSpacing:2,textTransform:'uppercase',color:'#999',marginBottom:6,fontWeight:600}}>Nombre</label>
+          <input value={editNombre} onChange={e=>setEditNombre(e.target.value)}
+            style={{width:'100%',background:'#fff',border:'1.5px solid #d0d0d0',borderRadius:8,color:'#1a1a1a',fontFamily:'DM Sans,sans-serif',fontSize:13,padding:'10px 13px',outline:'none'}}/>
+        </div>
+        <div style={{padding:'10px 13px',background:'#f4f4f4',borderRadius:8,border:'1px solid #e0e0e0'}}>
+          <div style={{fontSize:10,color:'#999',letterSpacing:1,textTransform:'uppercase',fontWeight:600,marginBottom:3}}>Correo</div>
+          <div style={{fontSize:13,color:'#666'}}>{user?.email}</div>
+        </div>
+        <div style={{marginTop:14,paddingTop:14,borderTop:'1px solid #e0e0e0',textAlign:'center'}}>
+          <button onClick={()=>signOut(auth)} style={{background:'none',border:'1px solid #ffcdd2',color:'#c62828',borderRadius:7,padding:'8px 20px',fontFamily:'DM Sans,sans-serif',fontSize:11,fontWeight:600,cursor:'pointer'}}>
+            Cerrar Sesion
+          </button>
+        </div>
+      </Modal>
+
+      {/* MODAL ADMIN - EMPLEADOS */}
+      <Modal open={modalAdmin} onClose={()=>setModalAdmin(false)}
+        title='Gestión de Empleados' sub='Aprueba o rechaza accesos' icon='A'>
+        {empleadosPendientes.length === 0 ? (
+          <div style={{textAlign:'center',padding:'30px 0',color:'#999',fontSize:13}}>
+            No hay solicitudes pendientes
+          </div>
+        ) : empleadosPendientes.map(emp => (
+          <div key={emp.id} style={{padding:'13px',border:'1px solid #e0e0e0',borderRadius:10,marginBottom:10,background:'#fafafa'}}>
+            <div style={{fontWeight:600,fontSize:14,color:'#1a1a1a',marginBottom:3}}>{emp.nombre}</div>
+            <div style={{fontSize:12,color:'#666',marginBottom:10}}>{emp.email}</div>
+            <div style={{display:'flex',gap:8}}>
+              <button onClick={()=>aprobarEmpleado(emp.id)} style={{flex:1,padding:'9px',background:'#1a472a',color:'#fff',border:'none',borderRadius:7,fontFamily:'DM Sans,sans-serif',fontSize:11,fontWeight:600,cursor:'pointer'}}>
+                Aprobar acceso
+              </button>
+              <button onClick={()=>rechazarEmpleado(emp.id)} style={{flex:1,padding:'9px',background:'#fff',color:'#c62828',border:'1.5px solid #ffcdd2',borderRadius:7,fontFamily:'DM Sans,sans-serif',fontSize:11,fontWeight:600,cursor:'pointer'}}>
+                Rechazar
+              </button>
+            </div>
+          </div>
+        ))}
+      </Modal>
 
       {/* MODAL PRODUCTO */}
       <Modal
