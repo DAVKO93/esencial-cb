@@ -227,12 +227,13 @@ function FormProducto({ item, onClose, onSave }) {
   const [categoria, setCategoria] = useState(item?.categoria||'')
   const [imagen, setImagen] = useState(item?.imagen||'')
   const [disponible, setDisponible] = useState(item?.disponible!==false)
+  const [visibleClientes, setVisibleClientes] = useState(item?.visibleClientes!==false)
   const [loading, setLoading] = useState(false)
 
   async function guardar() {
     if (!nombre || !precio || !categoria) { showToast('err','Nombre, precio y categoria son obligatorios'); return }
     setLoading(true)
-    const datos = { nombre, descripcion, precio: parseFloat(precio), categoria, imagen, disponible }
+    const datos = { nombre, descripcion, precio: parseFloat(precio), categoria, imagen, disponible, visibleClientes }
     try {
       if (item?.id) {
         await updateDoc(doc(db,'menu',item.id), datos)
@@ -265,13 +266,25 @@ function FormProducto({ item, onClose, onSave }) {
       <Select label='Categoria *' value={categoria} onChange={setCategoria} options={cats}/>
       <Input label='Imagen (URL)' value={imagen} onChange={setImagen} placeholder='https://...'/>
       {imagen ? <img src={imagen} alt='preview' style={{width:'100%',height:100,objectFit:'contain',borderRadius:8,marginBottom:13,border:'1px solid #e0e0e0'}}/> : null}
-      <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:16,padding:'10px 13px',background:'#f4f4f4',borderRadius:8,border:'1px solid #e0e0e0'}}>
+      <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:10,padding:'10px 13px',background:'#f4f4f4',borderRadius:8,border:'1px solid #e0e0e0'}}>
         <span style={{fontSize:12,fontWeight:600,color:'#666'}}>Disponible en menu</span>
         <button onClick={()=>setDisponible(!disponible)} style={{
           width:44,height:24,borderRadius:12,border:'none',cursor:'pointer',transition:'0.2s',
           background:disponible?'#1a1a1a':'#ccc',position:'relative'
         }}>
           <div style={{position:'absolute',top:2,left:disponible?22:2,width:20,height:20,borderRadius:'50%',background:'#fff',transition:'0.2s'}}/>
+        </button>
+      </div>
+      <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:16,padding:'10px 13px',background:'#f0f4ff',borderRadius:8,border:'1px solid #c5d0e8'}}>
+        <div>
+          <span style={{fontSize:12,fontWeight:600,color:'#1a2e47'}}>Mostrar en Clientes</span>
+          <div style={{fontSize:10,color:'#888',marginTop:2}}>{visibleClientes?'Visible en app de clientes':'Oculto para clientes'}</div>
+        </div>
+        <button onClick={()=>setVisibleClientes(!visibleClientes)} style={{
+          width:44,height:24,borderRadius:12,border:'none',cursor:'pointer',transition:'0.2s',
+          background:visibleClientes?'#1a2e47':'#ccc',position:'relative',flexShrink:0
+        }}>
+          <div style={{position:'absolute',top:2,left:visibleClientes?22:2,width:20,height:20,borderRadius:'50%',background:'#fff',transition:'0.2s'}}/>
         </button>
       </div>
       <div style={{display:'flex',gap:8,flexDirection:'column'}}>
@@ -977,8 +990,10 @@ function AdminApp() {
 
       {/* OFFLINE BANNER */}
       {!isOnline && (
-        <div style={{background:'#b8860b',color:'#fff',textAlign:'center',padding:'8px 16px',fontSize:11,fontWeight:600,position:'fixed',top:0,left:0,right:0,zIndex:9999}}>
-          Sin conexion — Modo offline activo
+        <div style={{background:'#b8860b',color:'#fff',textAlign:'center',padding:'8px 16px',fontSize:11,fontWeight:600,position:'fixed',top:0,left:0,right:0,zIndex:9999,display:'flex',alignItems:'center',justifyContent:'center',gap:8}}>
+          <span style={{width:7,height:7,borderRadius:'50%',background:'#fff',display:'inline-block',flexShrink:0}}/>
+          Modo offline — Los cambios se sincronizaran al reconectar
+          {pendientesSync.length > 0 && <span style={{background:'rgba(0,0,0,0.3)',borderRadius:100,padding:'1px 7px'}}>{pendientesSync.length} pendiente{pendientesSync.length>1?'s':''}</span>}
         </div>
       )}
 
@@ -2021,8 +2036,26 @@ function ClienteApp({ onVolver }) {
     return () => { unsub(); unsub2() }
   }, [])
 
-  // Categorias
-  const cats = ['Todos', ...new Set(menu.map(x=>x.categoria).filter(Boolean))]
+  // Solo productos visibles para clientes
+  const menuVisible = menu.filter(x => x.visibleClientes !== false)
+
+  // Macro categorias
+  const MACRO = {
+    'Todos':    null,
+    'Frio':     ['Congelados','Bebidas'],
+    'Caliente': ['Mixtos','Dulce'],
+  }
+  const [macroActiva, setMacroActiva] = useState('Todos')
+
+  // Sub-categorias segun macro seleccionada
+  const subCats = macroActiva === 'Todos'
+    ? ['Todos', ...new Set(menuVisible.map(x=>x.categoria).filter(Boolean))]
+    : ['Todos', ...(MACRO[macroActiva] || [])]
+
+  // Productos filtrados
+  const menuBaseFiltrado = macroActiva === 'Todos'
+    ? menuVisible
+    : menuVisible.filter(x => (MACRO[macroActiva]||[]).includes(x.categoria))
 
   // Orden especifico para categoria Todos
   const ORDEN_NOMBRES = ['hamburguesa hawaiana','hamburguesa','burrito','picadita','waffles','creps']
@@ -2036,10 +2069,10 @@ function ClienteApp({ onVolver }) {
     return [...ordenados, ...restantes]
   }
 
-  // Items a mostrar: promociones primero, luego productos filtrados
   const menuFiltrado = catActiva==='Todos'
-    ? ordenarMenu(menu)
-    : menu.filter(x=>x.categoria===catActiva)
+    ? (macroActiva==='Todos' ? ordenarMenu(menuBaseFiltrado) : menuBaseFiltrado)
+    : menuBaseFiltrado.filter(x=>x.categoria===catActiva)
+
   const items = [...promociones.map(p=>({...p, _esPromo:true})), ...menuFiltrado]
 
   const prod = items[indice]
@@ -2195,15 +2228,47 @@ function ClienteApp({ onVolver }) {
           </div>
         )}
 
-        {/* CATEGORIAS */}
-        <div style={{overflowX:'auto',display:'flex',gap:8,padding:'12px 12px 4px',scrollbarWidth:'none'}}>
-          {cats.map(c=>(
-            <button key={c} onClick={()=>{setCatActiva(c);setIndice(0)}} style={{
-              flexShrink:0,padding:'6px 14px',borderRadius:100,border:'2px solid',fontFamily:'DM Sans,sans-serif',fontSize:11,fontWeight:500,cursor:'pointer',transition:'0.2s',
-              background:catActiva===c?'#1a1a1a':'#fff',color:catActiva===c?'#fff':'#666',borderColor:catActiva===c?'#1a1a1a':'#d0d0d0'
-            }}>{c}</button>
-          ))}
+        {/* MACRO CATEGORIAS */}
+        <div style={{display:'flex',gap:0,padding:'10px 12px 0',borderBottom:'1px solid #e0e0e0',background:'#fff'}}>
+          {Object.keys(MACRO).map(m => {
+            const colores = {
+              'Todos':    {bg:'#1a1a1a', border:'#1a1a1a'},
+              'Frio':     {bg:'#1565c0', border:'#1565c0'},
+              'Caliente': {bg:'#e65100', border:'#e65100'},
+            }
+            const activo = macroActiva === m
+            return (
+              <button key={m} onClick={()=>{setMacroActiva(m);setCatActiva('Todos');setIndice(0)}} style={{
+                flex:1,padding:'9px 6px',border:'none',borderBottom: activo?`3px solid ${colores[m].border}`:'3px solid transparent',
+                fontFamily:'DM Sans,sans-serif',fontSize:11,fontWeight:700,letterSpacing:1,
+                textTransform:'uppercase',cursor:'pointer',transition:'0.2s',background:'#fff',
+                color: activo ? colores[m].bg : '#aaa'
+              }}>{m}</button>
+            )
+          })}
         </div>
+        {/* SUB-CATEGORIAS */}
+        {subCats.length > 1 && (
+          <div style={{overflowX:'auto',display:'flex',gap:8,padding:'10px 12px 6px',scrollbarWidth:'none',background:'#fafafa',borderBottom:'1px solid #e8e8e8'}}>
+            {subCats.map(c => {
+              const coloresSub = macroActiva==='Frio'
+                ? {bg:'#1565c0',border:'#1565c0'}
+                : macroActiva==='Caliente'
+                  ? {bg:'#e65100',border:'#e65100'}
+                  : {bg:'#1a1a1a',border:'#1a1a1a'}
+              const activo = catActiva === c
+              return (
+                <button key={c} onClick={()=>{setCatActiva(c);setIndice(0)}} style={{
+                  flexShrink:0,padding:'5px 13px',borderRadius:100,
+                  border:`2px solid ${activo?coloresSub.border:'#d0d0d0'}`,
+                  fontFamily:'DM Sans,sans-serif',fontSize:10,fontWeight:600,cursor:'pointer',transition:'0.2s',
+                  background:activo?coloresSub.bg:'#fff',
+                  color:activo?'#fff':'#666'
+                }}>{c}</button>
+              )
+            })}
+          </div>
+        )}
 
         {/* DETALLE PRODUCTO */}
         {prod && (

@@ -1,36 +1,26 @@
-{
-  "hosting": {
-    "public": "dist",
-    "ignore": [
-      "firebase.json",
-      "**/.*",
-      "**/node_modules/**"
-    ],
-    "rewrites": [
-      {
-        "source": "**",
-        "destination": "/index.html"
-      }
-    ],
-    "headers": [
-      {
-        "source": "/sw.js",
-        "headers": [
-          {
-            "key": "Cache-Control",
-            "value": "no-cache"
-          }
-        ]
-      },
-      {
-        "source": "**/*.@(js|css|png|jpg|jpeg|gif|svg|ico|woff|woff2)",
-        "headers": [
-          {
-            "key": "Cache-Control",
-            "value": "max-age=31536000"
-          }
-        ]
-      }
-    ]
-  }
+import { initializeApp } from 'firebase/app'
+import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager } from 'firebase/firestore'
+import { getAuth, setPersistence, browserLocalPersistence } from 'firebase/auth'
+
+const firebaseConfig = {
+  apiKey: "AIzaSyD86yCDTkQnhl26o_sy3iERZE003keD3sA",
+  authDomain: "esencial-cb.firebaseapp.com",
+  projectId: "esencial-cb",
+  storageBucket: "esencial-cb.firebasestorage.app",
+  messagingSenderId: "756744308004",
+  appId: "1:756744308004:web:4f295bfc2e78b69f059fb1"
 }
+
+const app = initializeApp(firebaseConfig)
+
+// Cache persistente en IndexedDB - sobrevive recargas y trabaja 100% offline
+export const db = initializeFirestore(app, {
+  localCache: persistentLocalCache({
+    tabManager: persistentMultipleTabManager()
+  })
+})
+
+export const auth = getAuth(app)
+
+// Mantener sesión activa aunque no haya internet
+setPersistence(auth, browserLocalPersistence).catch(() => {})
