@@ -2247,8 +2247,8 @@ function ClienteApp({ onVolver }) {
             )
           })}
         </div>
-        {/* SUB-CATEGORIAS */}
-        {subCats.length > 1 && (
+        {/* SUB-CATEGORIAS - solo si no es Todos */}
+        {macroActiva !== 'Todos' && subCats.length > 1 && (
           <div style={{overflowX:'auto',display:'flex',gap:8,padding:'10px 12px 6px',scrollbarWidth:'none',background:'#fafafa',borderBottom:'1px solid #e8e8e8'}}>
             {subCats.map(c => {
               const coloresSub = macroActiva==='Frio'
