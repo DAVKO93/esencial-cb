@@ -2019,6 +2019,8 @@ function ClienteApp({ onVolver }) {
   const [animDir, setAnimDir] = useState(null)
   const [imgError, setImgError] = useState({})
   const [copiado, setCopiado] = useState(null)
+  const [modalPromos, setModalPromos] = useState(false)
+  const promosMostradas = useRef(false)
   const touchStartX = useRef(null)
   const touchStartY = useRef(null)
 
@@ -2031,7 +2033,13 @@ function ClienteApp({ onVolver }) {
     )
     const unsub2 = onSnapshot(collection(db,'promociones'), snap => {
       const hoy = (() => { const d=new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}` })()
-      setPromociones(snap.docs.map(d=>({id:d.id,...d.data()})).filter(p=>p.fecha===hoy))
+      const activas = snap.docs.map(d=>({id:d.id,...d.data()})).filter(p=>p.fecha===hoy)
+      setPromociones(activas)
+      // Abrir modal automaticamente solo la primera vez si hay promociones
+      if (activas.length > 0 && !promosMostradas.current) {
+        promosMostradas.current = true
+        setModalPromos(true)
+      }
     })
     return () => { unsub(); unsub2() }
   }, [])
@@ -2039,7 +2047,7 @@ function ClienteApp({ onVolver }) {
   // Solo productos visibles para clientes
   const menuVisible = menu.filter(x => x.visibleClientes !== false)
 
-  // Macro categorias
+  // Macro categorias - solo 3, sin subcategorias
   const MACRO = {
     'Todos':    null,
     'Frio':     ['Congelados','Bebidas'],
@@ -2047,12 +2055,7 @@ function ClienteApp({ onVolver }) {
   }
   const [macroActiva, setMacroActiva] = useState('Todos')
 
-  // Sub-categorias segun macro seleccionada
-  const subCats = macroActiva === 'Todos'
-    ? ['Todos', ...new Set(menuVisible.map(x=>x.categoria).filter(Boolean))]
-    : ['Todos', ...(MACRO[macroActiva] || [])]
-
-  // Productos filtrados
+  // Productos filtrados por macro
   const menuBaseFiltrado = macroActiva === 'Todos'
     ? menuVisible
     : menuVisible.filter(x => (MACRO[macroActiva]||[]).includes(x.categoria))
@@ -2069,11 +2072,8 @@ function ClienteApp({ onVolver }) {
     return [...ordenados, ...restantes]
   }
 
-  const menuFiltrado = catActiva==='Todos'
-    ? (macroActiva==='Todos' ? ordenarMenu(menuBaseFiltrado) : menuBaseFiltrado)
-    : menuBaseFiltrado.filter(x=>x.categoria===catActiva)
-
-  const items = [...promociones.map(p=>({...p, _esPromo:true})), ...menuFiltrado]
+  const menuFiltrado = macroActiva === 'Todos' ? ordenarMenu(menuBaseFiltrado) : menuBaseFiltrado
+  const items = [...menuFiltrado]
 
   const prod = items[indice]
 
@@ -2228,47 +2228,46 @@ function ClienteApp({ onVolver }) {
           </div>
         )}
 
-        {/* MACRO CATEGORIAS */}
-        <div style={{display:'flex',gap:0,padding:'10px 12px 0',borderBottom:'1px solid #e0e0e0',background:'#fff'}}>
-          {Object.keys(MACRO).map(m => {
-            const colores = {
-              'Todos':    {bg:'#1a1a1a', border:'#1a1a1a'},
-              'Frio':     {bg:'#1565c0', border:'#1565c0'},
-              'Caliente': {bg:'#e65100', border:'#e65100'},
-            }
-            const activo = macroActiva === m
-            return (
-              <button key={m} onClick={()=>{setMacroActiva(m);setCatActiva('Todos');setIndice(0)}} style={{
-                flex:1,padding:'9px 6px',border:'none',borderBottom: activo?`3px solid ${colores[m].border}`:'3px solid transparent',
-                fontFamily:'DM Sans,sans-serif',fontSize:11,fontWeight:700,letterSpacing:1,
-                textTransform:'uppercase',cursor:'pointer',transition:'0.2s',background:'#fff',
-                color: activo ? colores[m].bg : '#aaa'
-              }}>{m}</button>
-            )
-          })}
-        </div>
-        {/* SUB-CATEGORIAS - solo si no es Todos */}
-        {macroActiva !== 'Todos' && subCats.length > 1 && (
-          <div style={{overflowX:'auto',display:'flex',gap:8,padding:'10px 12px 6px',scrollbarWidth:'none',background:'#fafafa',borderBottom:'1px solid #e8e8e8'}}>
-            {subCats.map(c => {
-              const coloresSub = macroActiva==='Frio'
-                ? {bg:'#1565c0',border:'#1565c0'}
-                : macroActiva==='Caliente'
-                  ? {bg:'#e65100',border:'#e65100'}
-                  : {bg:'#1a1a1a',border:'#1a1a1a'}
-              const activo = catActiva === c
+        {/* CATEGORIAS + BOTON PROMOCIONES */}
+        <div style={{background:'#fff',borderBottom:'1px solid #e0e0e0'}}>
+          {/* 3 tabs principales */}
+          <div style={{display:'flex',gap:0}}>
+            {[
+              {key:'Todos',    color:'#1a1a1a'},
+              {key:'Frio',     color:'#1565c0'},
+              {key:'Caliente', color:'#e65100'},
+            ].map(({key,color}) => {
+              const activo = macroActiva === key
               return (
-                <button key={c} onClick={()=>{setCatActiva(c);setIndice(0)}} style={{
-                  flexShrink:0,padding:'5px 13px',borderRadius:100,
-                  border:`2px solid ${activo?coloresSub.border:'#d0d0d0'}`,
-                  fontFamily:'DM Sans,sans-serif',fontSize:10,fontWeight:600,cursor:'pointer',transition:'0.2s',
-                  background:activo?coloresSub.bg:'#fff',
-                  color:activo?'#fff':'#666'
-                }}>{c}</button>
+                <button key={key} onClick={()=>{setMacroActiva(key);setIndice(0)}} style={{
+                  flex:1,padding:'11px 6px',border:'none',
+                  borderBottom: activo?`3px solid ${color}`:'3px solid transparent',
+                  fontFamily:'DM Sans,sans-serif',fontSize:11,fontWeight:700,letterSpacing:1,
+                  textTransform:'uppercase',cursor:'pointer',transition:'0.2s',background:'#fff',
+                  color: activo ? color : '#bbb'
+                }}>{key}</button>
               )
             })}
           </div>
-        )}
+          {/* Botón Promociones */}
+          <div style={{padding:'8px 12px'}}>
+            <button onClick={()=>setModalPromos(true)} style={{
+              display:'flex',alignItems:'center',gap:8,padding:'8px 16px',
+              background: promociones.length>0 ? '#1a1a1a' : '#f4f4f4',
+              color: promociones.length>0 ? '#fff' : '#bbb',
+              border:'none',borderRadius:100,fontFamily:'DM Sans,sans-serif',
+              fontSize:11,fontWeight:700,letterSpacing:1,textTransform:'uppercase',
+              cursor:'pointer',position:'relative'
+            }}>
+              Promociones
+              {promociones.length > 0 && (
+                <span style={{background:'#c62828',color:'#fff',borderRadius:100,minWidth:18,height:18,fontSize:9,fontWeight:700,display:'flex',alignItems:'center',justifyContent:'center',padding:'0 5px'}}>
+                  {promociones.length}
+                </span>
+              )}
+            </button>
+          </div>
+        </div>
 
         {/* DETALLE PRODUCTO */}
         {prod && (
@@ -2350,6 +2349,52 @@ function ClienteApp({ onVolver }) {
           </button>
         </div>
       </div>
+
+      {/* MODAL PROMOCIONES CLIENTES */}
+      {modalPromos && (
+        <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.55)',zIndex:1000,display:'flex',alignItems:'flex-end'}}
+          onClick={e=>{if(e.target===e.currentTarget)setModalPromos(false)}}>
+          <div style={{background:'#fff',borderRadius:'20px 20px 0 0',width:'100%',maxWidth:480,margin:'0 auto',maxHeight:'88vh',overflowY:'auto',padding:'20px 20px 36px'}}>
+            <div style={{width:40,height:4,background:'#e0e0e0',borderRadius:2,margin:'0 auto 16px'}}/>
+            <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:16}}>
+              <div>
+                <h3 style={{fontFamily:'Playfair Display,serif',fontSize:20}}>Promociones</h3>
+                <p style={{fontSize:11,color:'#999',marginTop:2}}>Solo por hoy</p>
+              </div>
+              <button onClick={()=>setModalPromos(false)} style={{background:'none',border:'none',fontSize:22,cursor:'pointer',color:'#bbb'}}>×</button>
+            </div>
+            {promociones.length === 0 ? (
+              <div style={{textAlign:'center',padding:'30px 0',color:'#999',fontSize:13}}>Sin promociones activas hoy</div>
+            ) : promociones.map(p => (
+              <div key={p.id} style={{border:'2px solid #1a1a1a',borderRadius:13,overflow:'hidden',marginBottom:14}}>
+                {p.imagen && <img src={p.imagen} alt={p.nombre} style={{width:'100%',height:160,objectFit:'cover',display:'block'}}/>}
+                <div style={{padding:'14px 16px'}}>
+                  <div style={{display:'flex',alignItems:'flex-start',justifyContent:'space-between',marginBottom:6}}>
+                    <div style={{flex:1}}>
+                      <div style={{fontWeight:700,fontSize:16,color:'#1a1a1a'}}>{p.nombre}</div>
+                      {p.descripcion && <div style={{fontSize:12,color:'#666',marginTop:4,lineHeight:1.5}}>{p.descripcion}</div>}
+                    </div>
+                    <span style={{fontFamily:'Playfair Display,serif',fontSize:20,fontWeight:700,color:'#1a1a1a',marginLeft:12}}>${parseFloat(p.precio).toFixed(2)}</span>
+                  </div>
+                  <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginTop:12,paddingTop:12,borderTop:'1px solid #e0e0e0'}}>
+                    <span style={{fontSize:12,fontWeight:600,color:'#666',letterSpacing:1,textTransform:'uppercase'}}>Cantidad</span>
+                    <div style={{display:'flex',alignItems:'center',gap:12}}>
+                      <button onClick={()=>addCant(p.id,-1)} style={{width:34,height:34,borderRadius:'50%',border:'2px solid #d0d0d0',background:'#fff',fontSize:20,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',color:'#666'}}>-</button>
+                      <span style={{fontSize:18,fontWeight:700,minWidth:24,textAlign:'center'}}>{cantidades[p.id]||0}</span>
+                      <button onClick={()=>addCant(p.id,1)} style={{width:34,height:34,borderRadius:'50%',border:'none',background:'#1a1a1a',fontSize:20,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',color:'#fff'}}>+</button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ))}
+            <button onClick={()=>setModalPromos(false)} style={{
+              width:'100%',padding:'13px',background:'#1a1a1a',color:'#fff',border:'none',borderRadius:11,
+              fontFamily:'DM Sans,sans-serif',fontSize:12,fontWeight:700,letterSpacing:2,
+              textTransform:'uppercase',cursor:'pointer',marginTop:4
+            }}>Ver menu completo</button>
+          </div>
+        </div>
+      )}
 
       {/* MODAL PEDIDO */}
       {modalPedido && (
