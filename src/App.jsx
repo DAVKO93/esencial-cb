@@ -1,4 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
+import jsPDF from 'jspdf'
+import autoTable from 'jspdf-autotable'
 import { db, auth } from './firebase'
 import {
   collection, addDoc, getDocs, doc, updateDoc, deleteDoc,
@@ -313,6 +315,7 @@ export default function App() {
   const [nombreEmpleado, setNombreEmpleado] = useState('')
   // Comprobante camara
   const [fotoComprobante, setFotoComprobante] = useState({}) // {pedidoId: dataURL}
+  const [datosCliente, setDatosCliente] = useState({}) // {pedidoId: {tipo,id,nombre,tel,email}}
   const cameraRefs = useRef({})
 
   // Form cliente
@@ -444,14 +447,8 @@ export default function App() {
   // ---- CREAR PEDIDO ----
   async function confirmarPedido() {
     let datos = {}
-    if (tipoCliente === 'cliente') {
-      if (!cNombre) { showToast('err','Ingresa el nombre del cliente'); return }
-      if (!cMesa) { showToast('err','Selecciona mesa o servicio'); return }
-      datos = { tipoCliente:'Cliente', idDocumento:cId, cliente:cNombre, telefono:cTel, email:cEmail, mesa:cMesa, notas:cNotas }
-    } else {
-      if (!fMesa) { showToast('err','Selecciona mesa o servicio'); return }
-      datos = { tipoCliente:'Consumidor Final', idDocumento:fId||'9999999999999', cliente:'Consumidor Final', telefono:'', email:'', mesa:fMesa, notas:fNotas }
-    }
+    if (!cMesa) { showToast('err','Selecciona mesa o servicio'); return }
+    datos = { tipoCliente:'Pendiente', idDocumento:'', cliente:'Pendiente', telefono:'', email:'', mesa:cMesa, notas:cNotas }
     const items = cart.map(x => ({ id:x.id, nombre:x.nombre, precio:x.precio, cantidad:x.cantidad }))
     const total = cartTotal
     const pedido = { ...datos, items, total, estado:'EN PROCESO', empleado: nombreEmpleado, creadoEn: serverTimestamp() }
@@ -467,6 +464,8 @@ export default function App() {
 
     try {
       const ref = await addDoc(collection(db,'pedidos'), pedido)
+      const nuevoPedido = { id: ref.id, ...datos, items, total, estado:'EN PROCESO', empleado: nombreEmpleado, creadoEn: { toDate: () => new Date() } }
+      setPedidosActivos(prev => [nuevoPedido, ...prev])
       setModalConfirm({ idPedido: ref.id, offline:false, datos:{ ...datos, items, total } })
       setCart([]); limpiarForm()
     } catch(e) {
@@ -488,12 +487,35 @@ export default function App() {
   // ---- MARCAR LISTO ----
   async function marcarListo(id) {
     if (!pagoSel[id]) { showToast('err','Selecciona forma de pago'); return }
+    const formaPago = pagoSel[id]
+    const dc = datosCliente[id] || {}
+    const updateData = {
+      estado:'LISTO',
+      formaPago,
+      tipoCliente: dc.tipo==='cliente' ? 'Cliente' : dc.tipo==='final' ? 'Consumidor Final' : 'Pendiente',
+      idDocumento: dc.id || '',
+      cliente: dc.tipo==='cliente' ? (dc.nombre||'Sin nombre') : dc.tipo==='final' ? 'Consumidor Final' : 'Pendiente',
+      telefono: dc.tel || '',
+      email: dc.email || ''
+    }
+    // Quitar inmediatamente de EN PROCESO
+    setPedidosActivos(p => p.filter(x => x.id !== id))
+    setPagoSel(p => { const n={...p}; delete n[id]; return n })
+    setFotoComprobante(p => { const n={...p}; delete n[id]; return n })
+    setDatosCliente(p => { const n={...p}; delete n[id]; return n })
     try {
-      await updateDoc(doc(db,'pedidos',id), { estado:'LISTO', formaPago: pagoSel[id] })
+      await updateDoc(doc(db,'pedidos',id), updateData)
       showToast('ok','Pedido marcado como listo')
-      setPagoSel(p => { const n={...p}; delete n[id]; return n })
-      setFotoComprobante(p => { const n={...p}; delete n[id]; return n })
-    } catch(e) { showToast('err','Error al actualizar') }
+    } catch(e) {
+      showToast('err','Error al actualizar')
+    }
+  }
+
+  function setDcField(pedidoId, field, value) {
+    setDatosCliente(prev => ({
+      ...prev,
+      [pedidoId]: { ...(prev[pedidoId]||{tipo:'cliente'}), [field]: value }
+    }))
   }
 
   // ---- ELIMINAR ----
@@ -544,6 +566,151 @@ export default function App() {
         showToast('warn','Compartir no disponible — imagen descargada')
       }
     } catch(e) {}
+  }
+
+  // ---- GENERAR PDF ----
+  async function generarPDF(filtrados, periodoLabel, totalSum) {
+    const doc = new jsPDF({ orientation:'portrait', unit:'mm', format:'a4' })
+    const pageW = doc.internal.pageSize.getWidth()
+    const pageH = doc.internal.pageSize.getHeight()
+    const fecha = new Date().toLocaleDateString('es-EC', { day:'2-digit', month:'long', year:'numeric' })
+    const hora = new Date().toLocaleTimeString('es-EC', { hour:'2-digit', minute:'2-digit' })
+
+    // Fondo header
+    doc.setFillColor(26, 26, 26)
+    doc.rect(0, 0, pageW, 42, 'F')
+
+    // Logo si hay
+    try {
+      const img = new Image()
+      img.crossOrigin = 'anonymous'
+      img.src = '/logo.png'
+      await new Promise((res) => { img.onload = res; img.onerror = res; setTimeout(res, 2000) })
+      if (img.complete && img.naturalWidth > 0) {
+        const canvas = document.createElement('canvas')
+        canvas.width = img.naturalWidth; canvas.height = img.naturalHeight
+        canvas.getContext('2d').drawImage(img, 0, 0)
+        const dataUrl = canvas.toDataURL('image/png')
+        doc.addImage(dataUrl, 'PNG', 8, 6, 28, 28)
+      }
+    } catch(e) {}
+
+    // Nombre empresa
+    doc.setTextColor(255, 255, 255)
+    doc.setFont('helvetica', 'bold')
+    doc.setFontSize(20)
+    doc.text('Esencial FC', 42, 18)
+    doc.setFontSize(9)
+    doc.setFont('helvetica', 'normal')
+    doc.setTextColor(180, 180, 180)
+    doc.text('Reporte de Pedidos', 42, 25)
+    doc.text(`Generado: ${fecha} ${hora}`, 42, 31)
+
+    // Periodo en header derecha
+    doc.setTextColor(255, 255, 255)
+    doc.setFontSize(11)
+    doc.setFont('helvetica', 'bold')
+    doc.text(periodoLabel.toUpperCase(), pageW - 10, 18, { align:'right' })
+    doc.setFontSize(8)
+    doc.setFont('helvetica', 'normal')
+    doc.setTextColor(180, 180, 180)
+    doc.text(`${fDesde} al ${fHasta}`, pageW - 10, 25, { align:'right' })
+    doc.text(`${filtrados.length} pedido${filtrados.length!==1?'s':''}`, pageW - 10, 31, { align:'right' })
+
+    // Linea separadora
+    doc.setDrawColor(200, 200, 200)
+    doc.setLineWidth(0.3)
+    doc.line(10, 46, pageW - 10, 46)
+
+    // Resumen total en caja
+    doc.setFillColor(245, 245, 245)
+    doc.roundedRect(10, 49, pageW - 20, 18, 3, 3, 'F')
+    doc.setTextColor(100, 100, 100)
+    doc.setFontSize(8)
+    doc.setFont('helvetica', 'normal')
+    doc.text('TOTAL DEL PERÍODO', 16, 56)
+    doc.text('PEDIDOS', pageW/2, 56, { align:'center' })
+
+    const ef = filtrados.filter(p => p.formaPago==='Efectivo').reduce((s,p)=>s+parseFloat(p.total||0),0)
+    const tr = filtrados.filter(p => p.formaPago==='Transferencia').reduce((s,p)=>s+parseFloat(p.total||0),0)
+
+    doc.setTextColor(26, 26, 26)
+    doc.setFontSize(16)
+    doc.setFont('helvetica', 'bold')
+    doc.text(`$${totalSum.toFixed(2)}`, 16, 63)
+    doc.setFontSize(10)
+    doc.text(`${filtrados.length}`, pageW/2, 63, { align:'center' })
+
+    // Desglose pago
+    doc.setFontSize(7)
+    doc.setFont('helvetica', 'normal')
+    doc.setTextColor(100, 100, 100)
+    doc.text(`Efectivo: $${ef.toFixed(2)}`, pageW - 16, 57, { align:'right' })
+    doc.text(`Transferencia: $${tr.toFixed(2)}`, pageW - 16, 63, { align:'right' })
+
+    // Tabla pedidos
+    const rows = filtrados.map(p => {
+      const hora = p.creadoEn?.toDate?.()?.toLocaleTimeString('es-EC',{hour:'2-digit',minute:'2-digit'})||'—'
+      const prods = p.items?.map(it=>`${it.cantidad}x ${it.nombre}`).join(', ') || '—'
+      return [
+        hora,
+        p.cliente || '—',
+        p.mesa || '—',
+        prods.length > 40 ? prods.slice(0,40)+'...' : prods,
+        `$${parseFloat(p.total||0).toFixed(2)}`,
+        p.formaPago || '—',
+        p.empleado || '—',
+        p.estado || '—'
+      ]
+    })
+
+    autoTable(doc, {
+      startY: 72,
+      head: [['Hora','Cliente','Mesa','Productos','Total','Pago','Empleado','Estado']],
+      body: rows,
+      styles: { fontSize:7, cellPadding:2.5, font:'helvetica' },
+      headStyles: { fillColor:[26,26,26], textColor:255, fontStyle:'bold', fontSize:7 },
+      alternateRowStyles: { fillColor:[248,248,248] },
+      columnStyles: {
+        0: { cellWidth:14 },
+        1: { cellWidth:28 },
+        2: { cellWidth:18 },
+        3: { cellWidth:50 },
+        4: { cellWidth:16, halign:'right' },
+        5: { cellWidth:22 },
+        6: { cellWidth:24 },
+        7: { cellWidth:18 }
+      },
+      margin: { left:10, right:10 },
+      didDrawPage: (data) => {
+        // Footer en cada página
+        doc.setFontSize(7)
+        doc.setTextColor(150,150,150)
+        doc.setFont('helvetica','normal')
+        doc.text('Esencial FC — Reporte generado automaticamente', 10, pageH - 8)
+        doc.text(`Página ${data.pageNumber}`, pageW - 10, pageH - 8, { align:'right' })
+      }
+    })
+
+    // Guardar o compartir
+    const pdfBlob = doc.output('blob')
+    const nombreArchivo = `esencial-fc-reporte-${fDesde}.pdf`
+
+    if (navigator.share) {
+      try {
+        const file = new File([pdfBlob], nombreArchivo, { type:'application/pdf' })
+        if (navigator.canShare({ files:[file] })) {
+          await navigator.share({ files:[file], title:'Reporte Esencial FC' })
+          return
+        }
+      } catch(e) {}
+    }
+    // Fallback: descargar
+    const url = URL.createObjectURL(pdfBlob)
+    const a = document.createElement('a')
+    a.href = url; a.download = nombreArchivo; a.click()
+    URL.revokeObjectURL(url)
+    showToast('ok', 'PDF generado y descargado')
   }
 
   // ---- HISTORIAL ----
@@ -761,7 +928,7 @@ export default function App() {
                   <button onClick={()=>setCart([])} style={{background:'none',border:'1px solid #e0e0e0',color:'#666',fontSize:11,cursor:'pointer',fontFamily:'DM Sans,sans-serif',padding:'3px 9px',borderRadius:6}}>Limpiar</button>
                 </div>
                 {!cart.length ? (
-                  <div style={{padding:36,textAlign:'center',color:'#999',fontSize:12}}>Pedido vacío. Ve al menú y agrega productos.</div>
+                  <div style={{padding:36,textAlign:'center',color:'#999',fontSize:12}}>Pedido vacio. Ve al menu y agrega productos.</div>
                 ) : cart.map(it => (
                   <div key={it.id} style={{padding:'10px 16px',borderBottom:'1px solid #e0e0e0',display:'flex',alignItems:'center',gap:10}}>
                     <div style={{flex:1}}>
@@ -778,47 +945,22 @@ export default function App() {
                 ))}
               </div>
 
-              {/* Formulario */}
+              {/* Solo Mesa y Notas */}
               <div style={{background:'#fff',border:'1px solid #e0e0e0',borderRadius:13,overflow:'hidden',boxShadow:'0 2px 8px rgba(0,0,0,0.05)'}}>
-                <div style={{display:'flex',borderBottom:'1px solid #e0e0e0'}}>
-                  {['cliente','final'].map(t => (
-                    <button key={t} onClick={()=>setTipoCliente(t)} style={{
-                      flex:1,padding:'11px 7px',fontSize:10,fontWeight:600,letterSpacing:1,textTransform:'uppercase',
-                      color:tipoCliente===t?'#1a1a1a':'#999',cursor:'pointer',border:'none',
-                      borderBottom:tipoCliente===t?'3px solid #1a1a1a':'3px solid transparent',
-                      background:tipoCliente===t?'#fff':'#f4f4f4',transition:'0.2s'
-                    }}>{t==='cliente'?'Cliente':'Cons. Final'}</button>
-                  ))}
+                <div style={{padding:'12px 16px',borderBottom:'1px solid #e0e0e0',background:'#f4f4f4'}}>
+                  <span style={{fontSize:10,letterSpacing:2,textTransform:'uppercase',color:'#666',fontWeight:600}}>Datos del pedido</span>
                 </div>
                 <div style={{padding:'14px 16px'}}>
-                  {tipoCliente==='cliente' ? (
-                    <>
-                      <Input label='ID / Documento' value={cId} onChange={setCId} placeholder='Cedula o RUC'/>
-                      <Input label='Nombre *' value={cNombre} onChange={setCNombre} placeholder='Nombre completo'/>
-                      <Input label='Telefono' type='tel' value={cTel} onChange={setCTel} placeholder='09XXXXXXXX'/>
-                      <Input label='Correo' type='email' value={cEmail} onChange={setCEmail} placeholder='correo@ejemplo.com'/>
-                      <Select label='Mesa / Servicio *' value={cMesa} onChange={setCMesa} options={mesaOpts}/>
-                      <div style={{marginBottom:13}}>
-                        <label style={{display:'block',fontSize:10,letterSpacing:2,textTransform:'uppercase',color:'#999',marginBottom:6,fontWeight:600}}>Notas</label>
-                        <textarea value={cNotas} onChange={e=>setCNotas(e.target.value)} placeholder='Sin cebolla...'
-                          style={{width:'100%',background:'#fff',border:'1.5px solid #d0d0d0',borderRadius:8,color:'#1a1a1a',fontFamily:'DM Sans,sans-serif',fontSize:13,padding:'10px 13px',outline:'none',minHeight:50,resize:'vertical'}}/>
-                      </div>
-                    </>
-                  ) : (
-                    <>
-                      <Input label='ID / Documento' value={fId} onChange={setFId} placeholder='9999999999999'/>
-                      <Select label='Mesa / Servicio *' value={fMesa} onChange={setFMesa} options={mesaOpts}/>
-                      <div style={{marginBottom:13}}>
-                        <label style={{display:'block',fontSize:10,letterSpacing:2,textTransform:'uppercase',color:'#999',marginBottom:6,fontWeight:600}}>Notas</label>
-                        <textarea value={fNotas} onChange={e=>setFNotas(e.target.value)} placeholder='Sin cebolla...'
-                          style={{width:'100%',background:'#fff',border:'1.5px solid #d0d0d0',borderRadius:8,color:'#1a1a1a',fontFamily:'DM Sans,sans-serif',fontSize:13,padding:'10px 13px',outline:'none',minHeight:50,resize:'vertical'}}/>
-                      </div>
-                    </>
-                  )}
+                  <Select label='Mesa / Servicio *' value={cMesa} onChange={setCMesa} options={mesaOpts}/>
+                  <div style={{marginBottom:13}}>
+                    <label style={{display:'block',fontSize:10,letterSpacing:2,textTransform:'uppercase',color:'#999',marginBottom:6,fontWeight:600}}>Notas</label>
+                    <textarea value={cNotas} onChange={e=>setCNotas(e.target.value)} placeholder='Sin cebolla, extra salsa...'
+                      style={{width:'100%',background:'#fff',border:'1.5px solid #d0d0d0',borderRadius:8,color:'#1a1a1a',fontFamily:'DM Sans,sans-serif',fontSize:13,padding:'10px 13px',outline:'none',minHeight:60,resize:'vertical'}}/>
+                  </div>
                 </div>
                 {!isOnline && (
                   <div style={{margin:'0 16px 12px',padding:'9px 13px',background:'#fff8e1',border:'1px solid #e8d88a',borderRadius:8,fontSize:11,color:'#b8860b',fontWeight:600}}>
-                    Sin internet — Pedido se guardará localmente
+                    Sin internet - Pedido se guardara localmente
                   </div>
                 )}
                 <div style={{margin:'0 16px 12px',padding:12,background:'#f4f4f4',borderRadius:9,border:'1px solid #e0e0e0'}}>
@@ -883,6 +1025,53 @@ export default function App() {
                     <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',paddingTop:9,borderTop:'1.5px solid #d0d0d0',marginTop:7}}>
                       <span style={{fontSize:10,letterSpacing:2,textTransform:'uppercase',color:'#999',fontWeight:600}}>Total</span>
                       <span style={{fontFamily:'Playfair Display,serif',fontSize:17}}>${parseFloat(p.total).toFixed(2)}</span>
+                    </div>
+
+                    {/* DATOS CLIENTE / FACTURACION */}
+                    <div style={{marginTop:12,background:'#f8f8f8',border:'1px solid #e0e0e0',borderRadius:9,overflow:'hidden'}}>
+                      <div style={{padding:'9px 13px',borderBottom:'1px solid #e0e0e0',background:'#f0f0f0',display:'flex',gap:0}}>
+                        {['cliente','final'].map(t => (
+                          <button key={t} onClick={()=>setDcField(p.id,'tipo',t)} style={{
+                            flex:1,padding:'7px 4px',fontSize:10,fontWeight:600,letterSpacing:1,textTransform:'uppercase',
+                            cursor:'pointer',border:'none',transition:'0.2s',
+                            borderBottom:(datosCliente[p.id]?.tipo||'cliente')===t?'2px solid #1a1a1a':'2px solid transparent',
+                            background:(datosCliente[p.id]?.tipo||'cliente')===t?'#fff':'transparent',
+                            color:(datosCliente[p.id]?.tipo||'cliente')===t?'#1a1a1a':'#999'
+                          }}>{t==='cliente'?'Cliente':'Cons. Final'}</button>
+                        ))}
+                      </div>
+                      <div style={{padding:'10px 13px'}}>
+                        {(datosCliente[p.id]?.tipo||'cliente')==='cliente' ? (
+                          <>
+                            <div style={{marginBottom:8}}>
+                              <label style={{display:'block',fontSize:9,letterSpacing:2,textTransform:'uppercase',color:'#999',marginBottom:4,fontWeight:600}}>ID / Documento</label>
+                              <input value={datosCliente[p.id]?.id||''} onChange={e=>setDcField(p.id,'id',e.target.value)} placeholder='Cedula o RUC'
+                                style={{width:'100%',background:'#fff',border:'1.5px solid #d0d0d0',borderRadius:7,color:'#1a1a1a',fontFamily:'DM Sans,sans-serif',fontSize:12,padding:'7px 10px',outline:'none'}}/>
+                            </div>
+                            <div style={{marginBottom:8}}>
+                              <label style={{display:'block',fontSize:9,letterSpacing:2,textTransform:'uppercase',color:'#999',marginBottom:4,fontWeight:600}}>Nombre *</label>
+                              <input value={datosCliente[p.id]?.nombre||''} onChange={e=>setDcField(p.id,'nombre',e.target.value)} placeholder='Nombre completo'
+                                style={{width:'100%',background:'#fff',border:'1.5px solid #d0d0d0',borderRadius:7,color:'#1a1a1a',fontFamily:'DM Sans,sans-serif',fontSize:12,padding:'7px 10px',outline:'none'}}/>
+                            </div>
+                            <div style={{marginBottom:8}}>
+                              <label style={{display:'block',fontSize:9,letterSpacing:2,textTransform:'uppercase',color:'#999',marginBottom:4,fontWeight:600}}>Telefono</label>
+                              <input value={datosCliente[p.id]?.tel||''} onChange={e=>setDcField(p.id,'tel',e.target.value)} placeholder='09XXXXXXXX' type='tel'
+                                style={{width:'100%',background:'#fff',border:'1.5px solid #d0d0d0',borderRadius:7,color:'#1a1a1a',fontFamily:'DM Sans,sans-serif',fontSize:12,padding:'7px 10px',outline:'none'}}/>
+                            </div>
+                            <div>
+                              <label style={{display:'block',fontSize:9,letterSpacing:2,textTransform:'uppercase',color:'#999',marginBottom:4,fontWeight:600}}>Correo</label>
+                              <input value={datosCliente[p.id]?.email||''} onChange={e=>setDcField(p.id,'email',e.target.value)} placeholder='correo@ejemplo.com' type='email'
+                                style={{width:'100%',background:'#fff',border:'1.5px solid #d0d0d0',borderRadius:7,color:'#1a1a1a',fontFamily:'DM Sans,sans-serif',fontSize:12,padding:'7px 10px',outline:'none'}}/>
+                            </div>
+                          </>
+                        ) : (
+                          <div>
+                            <label style={{display:'block',fontSize:9,letterSpacing:2,textTransform:'uppercase',color:'#999',marginBottom:4,fontWeight:600}}>ID / Documento</label>
+                            <input value={datosCliente[p.id]?.id||''} onChange={e=>setDcField(p.id,'id',e.target.value)} placeholder='9999999999999'
+                              style={{width:'100%',background:'#fff',border:'1.5px solid #d0d0d0',borderRadius:7,color:'#1a1a1a',fontFamily:'DM Sans,sans-serif',fontSize:12,padding:'7px 10px',outline:'none'}}/>
+                          </div>
+                        )}
+                      </div>
                     </div>
 
                     {/* PAGO */}
@@ -956,9 +1145,11 @@ export default function App() {
         {/* ===== HISTORIAL ===== */}
         {tab==='historial' && (
           <div style={{animation:'fadeIn 0.3s ease'}}>
-            <div style={{marginBottom:16,paddingBottom:12,borderBottom:'2px solid #e0e0e0'}}>
-              <h2 style={{fontFamily:'Playfair Display,serif',fontSize:22,fontWeight:600}}>Historial</h2>
-              <p style={{fontSize:11,color:'#999',marginTop:2}}>Pedidos de hoy por defecto</p>
+            <div style={{marginBottom:16,paddingBottom:12,borderBottom:'2px solid #e0e0e0',display:'flex',alignItems:'center',justifyContent:'space-between',flexWrap:'wrap',gap:10}}>
+              <div>
+                <h2 style={{fontFamily:'Playfair Display,serif',fontSize:22,fontWeight:600}}>Historial</h2>
+                <p style={{fontSize:11,color:'#999',marginTop:2}}>Pedidos de hoy por defecto</p>
+              </div>
             </div>
 
             {/* Botones periodo */}
@@ -1007,6 +1198,12 @@ export default function App() {
               const totalSum = filtrados.reduce((s,p)=>s+parseFloat(p.total||0),0)
               return (
                 <>
+                  <div style={{display:'flex',justifyContent:'flex-end',marginBottom:10}}>
+                    <button onClick={()=>generarPDF(filtrados, periodoActivo==='hoy'?'Hoy':periodoActivo==='ayer'?'Ayer':periodoActivo==='semana'?'Semana actual':periodoActivo==='semana_ant'?'Semana anterior':periodoActivo==='mes'?'Este mes':'Período', totalSum)}
+                      style={{background:'#1a1a1a',color:'#fff',border:'none',borderRadius:9,padding:'10px 18px',fontFamily:'DM Sans,sans-serif',fontSize:11,fontWeight:600,letterSpacing:1,textTransform:'uppercase',cursor:'pointer',display:'flex',alignItems:'center',gap:8}}>
+                      Exportar PDF
+                    </button>
+                  </div>
                   <div style={{background:'#1a1a1a',borderRadius:13,padding:'14px 20px',marginBottom:13,display:'flex',alignItems:'center',justifyContent:'space-between',flexWrap:'wrap',gap:10}}>
                     <div>
                       <div style={{fontSize:10,letterSpacing:2,textTransform:'uppercase',color:'#888',fontWeight:600}}>
@@ -1063,18 +1260,18 @@ export default function App() {
       <nav style={{position:'fixed',bottom:0,left:0,right:0,background:'#fff',borderTop:'1.5px solid #e0e0e0',display:'flex',zIndex:1000,boxShadow:'0 -4px 16px rgba(0,0,0,0.08)'}}>
         {navItems.map(n => (
           <button key={n.key} onClick={()=>setTab(n.key)} style={{
-            flex:1,padding:'14px 4px',display:'flex',flexDirection:'column',alignItems:'center',gap:2,
-            border:'none',background:'none',cursor:'pointer',transition:'0.2s',
+            flex:1,padding:'18px 4px 14px',display:'flex',flexDirection:'column',alignItems:'center',gap:4,
+            border:'none',background:'none',cursor:'pointer',transition:'0.2s',position:'relative',
             borderTop: tab===n.key?'3px solid #1a1a1a':'3px solid transparent'
           }}>
-            <span style={{fontSize:10,fontWeight:700,letterSpacing:1,textTransform:'uppercase',color:tab===n.key?'#1a1a1a':'#999'}}>
-              {n.label}
-            </span>
             {n.badge > 0 && (
-              <span style={{position:'absolute',top:6,background:'#c62828',color:'#fff',borderRadius:100,minWidth:16,height:16,fontSize:9,fontWeight:700,display:'flex',alignItems:'center',justifyContent:'center',padding:'0 4px'}}>
+              <span style={{position:'absolute',top:6,right:'15%',background:'#c62828',color:'#fff',borderRadius:100,minWidth:17,height:17,fontSize:9,fontWeight:700,display:'flex',alignItems:'center',justifyContent:'center',padding:'0 4px'}}>
                 {n.badge}
               </span>
             )}
+            <span style={{fontSize:10,fontWeight:700,letterSpacing:1,textTransform:'uppercase',color:tab===n.key?'#1a1a1a':'#999'}}>
+              {n.label}
+            </span>
           </button>
         ))}
       </nav>
