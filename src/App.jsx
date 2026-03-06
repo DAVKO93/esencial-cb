@@ -326,6 +326,7 @@ function AdminApp() {
   const [editNombre, setEditNombre] = useState('')
   const [editFoto, setEditFoto] = useState(null)
   const [loadingPerfil, setLoadingPerfil] = useState(false)
+  const [empleadosActivos, setEmpleadosActivos] = useState([])
   const fotoPerfRef = useRef(null)
   // Comprobante camara
   const [fotoComprobante, setFotoComprobante] = useState({}) // {pedidoId: dataURL}
@@ -628,6 +629,38 @@ function AdminApp() {
     } catch(e) {}
   }
 
+  // ---- DOMICILIO: MARCAR ENTREGADO ----
+  async function marcarEntregado(p) {
+    try {
+      // Guardar en historial/pedidos como pedido entregado
+      await addDoc(collection(db,'pedidos'), {
+        cliente: p.cliente || 'Cliente',
+        telefono: p.telefono || '',
+        direccion: p.direccion || '',
+        referencia: p.referencia || '',
+        mesa: 'A Domicilio',
+        items: p.items || [],
+        subtotal: p.subtotal || 0,
+        total: p.total || 0,
+        estado: 'LISTO',
+        tipoCliente: 'Domicilio',
+        formaPago: 'Transferencia',
+        empleado: nombreEmpleado,
+        creadoEn: p.creadoEn || serverTimestamp()
+      })
+      // Eliminar de domicilio
+      await deleteDoc(doc(db,'domicilio', p.id))
+      showToast('ok','Pedido marcado como entregado')
+    } catch(e) { showToast('err','Error al marcar entregado') }
+  }
+
+  async function eliminarDomicilio(id) {
+    try {
+      await deleteDoc(doc(db,'domicilio', id))
+      showToast('ok','Pedido eliminado')
+    } catch(e) { showToast('err','Error al eliminar') }
+  }
+
   // ---- PERFIL ----
   async function guardarPerfil() {
     setLoadingPerfil(true)
@@ -656,6 +689,22 @@ function AdminApp() {
   }
 
   // ---- ADMIN: CARGAR PENDIENTES ----
+  async function cargarEmpleadosActivos() {
+    try {
+      const q = query(collection(db,'usuarios'), where('estado','==','APROBADO'))
+      const snap = await getDocs(q)
+      setEmpleadosActivos(snap.docs.map(d => ({ id:d.id, ...d.data() })).filter(e => e.email !== ADMIN_EMAIL))
+    } catch(e) { showToast('err','Error al cargar empleados') }
+  }
+
+  async function desvincularEmpleado(docId) {
+    try {
+      await updateDoc(doc(db,'usuarios', docId), { estado:'DESVINCULADO' })
+      setEmpleadosActivos(p => p.filter(x => x.id !== docId))
+      showToast('ok','Empleado desvinculado')
+    } catch(e) { showToast('err','Error al desvincular') }
+  }
+
   async function cargarEmpleadosPendientes() {
     try {
       const q = query(collection(db,'usuarios'), where('estado','==','PENDIENTE'))
@@ -964,7 +1013,7 @@ function AdminApp() {
             </button>
           )}
           {/* FOTO PERFIL */}
-          <button onClick={()=>{setEditNombre(nombreEmpleado);setEditFoto(null);setModalPerfil(true)}} style={{
+          <button onClick={()=>{setEditNombre(nombreEmpleado);setEditFoto(null);setModalPerfil(true);if(esAdmin)cargarEmpleadosActivos()}} style={{
             width:36,height:36,borderRadius:'50%',border:'2px solid #555',
             background:'#333',cursor:'pointer',overflow:'hidden',padding:0,flexShrink:0
           }}>
@@ -1335,6 +1384,18 @@ function AdminApp() {
                         <span style={{fontFamily:'Playfair Display,serif',fontSize:17}}>${parseFloat(p.total||0).toFixed(2)}</span>
                       </div>
                       {p.notas && <div style={{fontSize:11,color:'#666',background:'#fffdf0',border:'1px solid #e8e4c0',padding:'5px 9px',borderRadius:6,marginTop:7}}>Nota: {p.notas}</div>}
+                      <div style={{display:'flex',gap:8,marginTop:12}}>
+                        <button onClick={()=>marcarEntregado(p)} style={{
+                          flex:2,padding:'10px',background:'#1a472a',color:'#fff',border:'none',
+                          borderRadius:8,fontFamily:'DM Sans,sans-serif',fontSize:11,fontWeight:700,
+                          letterSpacing:1,textTransform:'uppercase',cursor:'pointer'
+                        }}>Entregado</button>
+                        <button onClick={()=>eliminarDomicilio(p.id)} style={{
+                          flex:1,padding:'10px',background:'#fff',color:'#c62828',
+                          border:'1.5px solid #ffcdd2',borderRadius:8,fontFamily:'DM Sans,sans-serif',
+                          fontSize:11,fontWeight:700,cursor:'pointer'
+                        }}>Eliminar</button>
+                      </div>
                     </div>
                   </div>
                 ))}
@@ -1506,6 +1567,30 @@ function AdminApp() {
         </div>
         {esAdmin && (
           <div style={{marginTop:14,paddingTop:14,borderTop:'1px solid #e0e0e0'}}>
+            {/* Lista empleados activos */}
+            <div style={{fontSize:10,letterSpacing:2,textTransform:'uppercase',color:'#999',fontWeight:600,marginBottom:10}}>
+              Empleados con acceso
+            </div>
+            {empleadosActivos.length === 0 ? (
+              <div style={{fontSize:12,color:'#ccc',textAlign:'center',padding:'10px 0',marginBottom:12}}>Sin empleados registrados</div>
+            ) : (
+              <div style={{display:'flex',flexDirection:'column',gap:8,marginBottom:14}}>
+                {empleadosActivos.map(emp => (
+                  <div key={emp.id} style={{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'10px 12px',background:'#f8f8f8',borderRadius:9,border:'1px solid #e0e0e0'}}>
+                    <div style={{flex:1,minWidth:0}}>
+                      <div style={{fontSize:13,fontWeight:600,color:'#1a1a1a',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{emp.nombre||'Sin nombre'}</div>
+                      <div style={{fontSize:11,color:'#999',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{emp.email}</div>
+                    </div>
+                    <button onClick={()=>desvincularEmpleado(emp.id)} style={{
+                      flexShrink:0,marginLeft:10,padding:'6px 12px',background:'#fff',color:'#c62828',
+                      border:'1.5px solid #ffcdd2',borderRadius:7,fontFamily:'DM Sans,sans-serif',
+                      fontSize:10,fontWeight:700,cursor:'pointer'
+                    }}>Desvincular</button>
+                  </div>
+                ))}
+              </div>
+            )}
+            {/* Botón gestionar promociones */}
             <button onClick={()=>{setModalPerfil(false);setModalPromocion('nueva')}} style={{
               width:'100%',padding:'11px',background:'#fff',color:'#1a1a1a',
               border:'2px solid #1a1a1a',borderRadius:9,fontFamily:'DM Sans,sans-serif',
@@ -1939,8 +2024,22 @@ function ClienteApp({ onVolver }) {
   // Categorias
   const cats = ['Todos', ...new Set(menu.map(x=>x.categoria).filter(Boolean))]
 
+  // Orden especifico para categoria Todos
+  const ORDEN_NOMBRES = ['hamburguesa hawaiana','hamburguesa','burrito','picadita','waffles','creps']
+  function ordenarMenu(lista) {
+    const ordenados = []
+    const restantes = [...lista]
+    ORDEN_NOMBRES.forEach(key => {
+      const idx = restantes.findIndex(x => x.nombre?.toLowerCase().includes(key))
+      if (idx !== -1) { ordenados.push(restantes.splice(idx, 1)[0]) }
+    })
+    return [...ordenados, ...restantes]
+  }
+
   // Items a mostrar: promociones primero, luego productos filtrados
-  const menuFiltrado = catActiva==='Todos' ? menu : menu.filter(x=>x.categoria===catActiva)
+  const menuFiltrado = catActiva==='Todos'
+    ? ordenarMenu(menu)
+    : menu.filter(x=>x.categoria===catActiva)
   const items = [...promociones.map(p=>({...p, _esPromo:true})), ...menuFiltrado]
 
   const prod = items[indice]
