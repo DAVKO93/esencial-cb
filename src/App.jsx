@@ -305,6 +305,11 @@ function AdminApp() {
   const [modalEliminar, setModalEliminar] = useState(null)
   const [modalConfirm, setModalConfirm] = useState(null)
   const [modalProducto, setModalProducto] = useState(null) // null | 'nuevo' | {item}
+  const [modalPromocion, setModalPromocion] = useState(null) // null | 'nueva' | {item} -- solo admin
+  const [modalVerPromociones, setModalVerPromociones] = useState(false) // todos los empleados
+  const [promociones, setPromociones] = useState([])
+  const [pedidosDomicilio, setPedidosDomicilio] = useState([])
+  const [pedidosDomicilioHoy, setPedidosDomicilioHoy] = useState([])
   const [historial, setHistorial] = useState([])
   const [loadingHist, setLoadingHist] = useState(false)
   const [isOnline, setIsOnline] = useState(navigator.onLine)
@@ -429,6 +434,36 @@ function AdminApp() {
   }
 
   useEffect(() => { setPendientesSync(getPendientes()) }, [])
+
+  // ---- PROMOCIONES (tiempo real) ----
+  useEffect(() => {
+    if (!user || !aprobado) return
+    const unsub = onSnapshot(collection(db,'promociones'), snap => {
+      setPromociones(snap.docs.map(d => ({id:d.id,...d.data()})))
+    })
+    return unsub
+  }, [user, aprobado])
+
+  // ---- DOMICILIO (tiempo real, solo hoy) ----
+  useEffect(() => {
+    if (!user || !aprobado) return
+    const unsub = onSnapshot(
+      query(collection(db,'domicilio'), orderBy('creadoEn','desc')),
+      snap => {
+        const todos = snap.docs.map(d => ({id:d.id,...d.data()}))
+        const hoyStr = (() => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}` })()
+        const hoy = todos.filter(p => {
+          if (!p.creadoEn) return false
+          const f = p.creadoEn.toDate ? p.creadoEn.toDate() : new Date(p.creadoEn)
+          const fStr = `${f.getFullYear()}-${String(f.getMonth()+1).padStart(2,'0')}-${String(f.getDate()).padStart(2,'0')}`
+          return fStr === hoyStr
+        })
+        setPedidosDomicilio(todos)
+        setPedidosDomicilioHoy(hoy)
+      }
+    )
+    return unsub
+  }, [user, aprobado])
 
   // ---- MENU (tiempo real) ----
   useEffect(() => {
@@ -883,6 +918,7 @@ function AdminApp() {
     { key:'menu', label:'Menu' },
     { key:'pedido', label:'Pedido', badge: cartCount },
     { key:'proceso', label:'En Proceso', badge: pedidosActivos.length+pendientesSync.length },
+    { key:'domicilio', label:'Domicilio', badge: pedidosDomicilioHoy.length },
     { key:'historial', label:'Historial' },
   ]
 
@@ -900,7 +936,7 @@ function AdminApp() {
       {/* HEADER */}
       <header style={{background:'#1a1a1a',padding:'0 16px',position:'sticky',top:isOnline?0:34,zIndex:1000,display:'flex',alignItems:'center',justifyContent:'space-between',height:58}}>
         <div>
-          <h1 style={{fontFamily:'Playfair Display,serif',fontSize:16,fontWeight:700,color:'#fff',letterSpacing:2}}>Esencial FC</h1>
+          <h1 onClick={()=>{localStorage.removeItem('esencial_modo');window.location.reload()}} style={{fontFamily:'Playfair Display,serif',fontSize:16,fontWeight:700,color:'#fff',letterSpacing:2,cursor:'pointer'}}>Esencial FC</h1>
         </div>
         <div style={{display:'flex',alignItems:'center',gap:8}}>
           {showInstall && (
@@ -953,13 +989,33 @@ function AdminApp() {
                 <h2 style={{fontFamily:'Playfair Display,serif',fontSize:22,fontWeight:600}}>Menu</h2>
                 <p style={{fontSize:11,color:'#999',marginTop:2}}>{menuItems.length} productos</p>
               </div>
-              <button onClick={()=>setModalProducto('nuevo')} style={{
-                background:'#1a1a1a',color:'#fff',border:'none',borderRadius:9,padding:'10px 16px',
-                fontFamily:'DM Sans,sans-serif',fontSize:11,fontWeight:600,cursor:'pointer',
-                display:'flex',alignItems:'center',gap:6
-              }}>
-                <span style={{fontSize:18,fontWeight:300}}>+</span> Agregar
-              </button>
+              <div style={{display:'flex',gap:8}}>
+                {(() => {
+                  const hoy = (() => { const d=new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}` })()
+                  const promoHoy = promociones.filter(p => p.fecha === hoy).length
+                  return (
+                    <button onClick={()=>setModalVerPromociones(true)} style={{
+                      background:'#fff',color:'#1a1a1a',border:'2px solid #1a1a1a',borderRadius:9,padding:'10px 14px',
+                      fontFamily:'DM Sans,sans-serif',fontSize:11,fontWeight:600,cursor:'pointer',
+                      display:'flex',alignItems:'center',gap:6,position:'relative'
+                    }}>
+                      Promociones
+                      {promoHoy > 0 && (
+                        <span style={{position:'absolute',top:-6,right:-6,background:'#c62828',color:'#fff',borderRadius:'50%',width:16,height:16,fontSize:9,fontWeight:700,display:'flex',alignItems:'center',justifyContent:'center'}}>
+                          {promoHoy}
+                        </span>
+                      )}
+                    </button>
+                  )
+                })()}
+                <button onClick={()=>setModalProducto('nuevo')} style={{
+                  background:'#1a1a1a',color:'#fff',border:'none',borderRadius:9,padding:'10px 16px',
+                  fontFamily:'DM Sans,sans-serif',fontSize:11,fontWeight:600,cursor:'pointer',
+                  display:'flex',alignItems:'center',gap:6
+                }}>
+                  <span style={{fontSize:18,fontWeight:300}}>+</span> Agregar
+                </button>
+              </div>
             </div>
 
             {/* Categorias */}
@@ -1242,6 +1298,51 @@ function AdminApp() {
           </div>
         )}
 
+        {/* ===== A DOMICILIO ===== */}
+        {tab==='domicilio' && (
+          <div style={{animation:'fadeIn 0.3s ease'}}>
+            <div style={{marginBottom:16,paddingBottom:12,borderBottom:'2px solid #e0e0e0'}}>
+              <h2 style={{fontFamily:'Playfair Display,serif',fontSize:22,fontWeight:600}}>A Domicilio</h2>
+              <p style={{fontSize:11,color:'#999',marginTop:2}}>Pedidos del dia de hoy</p>
+            </div>
+            {pedidosDomicilioHoy.length === 0 ? (
+              <div style={{textAlign:'center',padding:'60px 20px',color:'#ccc'}}>
+                <div style={{fontSize:13}}>Sin pedidos a domicilio hoy</div>
+              </div>
+            ) : (
+              <div style={{display:'flex',flexDirection:'column',gap:12}}>
+                {pedidosDomicilioHoy.map(p => (
+                  <div key={p.id} style={{background:'#fff',border:'1px solid #e0e0e0',borderRadius:13,overflow:'hidden',boxShadow:'0 2px 8px rgba(0,0,0,0.05)'}}>
+                    <div style={{background:'#f0f4ff',padding:'11px 15px',display:'flex',alignItems:'center',justifyContent:'space-between',borderBottom:'1px solid #dde4f5'}}>
+                      <div>
+                        <div style={{fontFamily:'Playfair Display,serif',fontSize:13,color:'#1a1a1a'}}>{p.cliente||'Cliente'}</div>
+                        <div style={{fontSize:10,color:'#999',marginTop:1}}>{p.creadoEn?.toDate?.()?.toLocaleTimeString('es-EC',{hour:'2-digit',minute:'2-digit'})||''}</div>
+                      </div>
+                      <span style={{background:'#1a2e47',color:'#fff',padding:'3px 9px',borderRadius:100,fontSize:9,fontWeight:700}}>A DOMICILIO</span>
+                    </div>
+                    <div style={{padding:'12px 15px'}}>
+                      {p.telefono && <div style={{fontSize:11,color:'#666',marginBottom:4}}>Tel: {p.telefono}</div>}
+                      {p.direccion && <div style={{fontSize:11,color:'#666',marginBottom:4}}>Dir: {p.direccion}</div>}
+                      {p.referencia && <div style={{fontSize:11,color:'#999',marginBottom:8}}>Ref: {p.referencia}</div>}
+                      {p.items?.map((it,i) => (
+                        <div key={i} style={{display:'flex',justifyContent:'space-between',fontSize:12,color:'#666',padding:'3px 0',borderBottom:'1px solid #f0f0f0'}}>
+                          <span>{it.cantidad}x {it.nombre}</span>
+                          <span>${(it.precio*it.cantidad).toFixed(2)}</span>
+                        </div>
+                      ))}
+                      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',paddingTop:9,borderTop:'1.5px solid #d0d0d0',marginTop:7}}>
+                        <span style={{fontSize:10,letterSpacing:2,textTransform:'uppercase',color:'#999',fontWeight:600}}>Total</span>
+                        <span style={{fontFamily:'Playfair Display,serif',fontSize:17}}>${parseFloat(p.total||0).toFixed(2)}</span>
+                      </div>
+                      {p.notas && <div style={{fontSize:11,color:'#666',background:'#fffdf0',border:'1px solid #e8e4c0',padding:'5px 9px',borderRadius:6,marginTop:7}}>Nota: {p.notas}</div>}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
         {/* ===== HISTORIAL ===== */}
         {tab==='historial' && (
           <div style={{animation:'fadeIn 0.3s ease'}}>
@@ -1403,7 +1504,18 @@ function AdminApp() {
           <div style={{fontSize:10,color:'#999',letterSpacing:1,textTransform:'uppercase',fontWeight:600,marginBottom:3}}>Correo</div>
           <div style={{fontSize:13,color:'#666'}}>{user?.email}</div>
         </div>
-        <div style={{marginTop:14,paddingTop:14,borderTop:'1px solid #e0e0e0',textAlign:'center'}}>
+        {esAdmin && (
+          <div style={{marginTop:14,paddingTop:14,borderTop:'1px solid #e0e0e0'}}>
+            <button onClick={()=>{setModalPerfil(false);setModalPromocion('nueva')}} style={{
+              width:'100%',padding:'11px',background:'#fff',color:'#1a1a1a',
+              border:'2px solid #1a1a1a',borderRadius:9,fontFamily:'DM Sans,sans-serif',
+              fontSize:11,fontWeight:700,letterSpacing:2,textTransform:'uppercase',cursor:'pointer'
+            }}>
+              Gestionar Promociones
+            </button>
+          </div>
+        )}
+        <div style={{marginTop:12,paddingTop:12,borderTop:'1px solid #e0e0e0',textAlign:'center'}}>
           <button onClick={()=>signOut(auth)} style={{background:'none',border:'1px solid #ffcdd2',color:'#c62828',borderRadius:7,padding:'8px 20px',fontFamily:'DM Sans,sans-serif',fontSize:11,fontWeight:600,cursor:'pointer'}}>
             Cerrar Sesion
           </button>
@@ -1431,6 +1543,65 @@ function AdminApp() {
             </div>
           </div>
         ))}
+      </Modal>
+
+      {/* MODAL PROMOCIONES */}
+      {modalPromocion !== null && (
+        <FormPromocion
+          initial={modalPromocion==='nueva' ? null : modalPromocion}
+          promocionesHoy={promociones.filter(p => { const hoy = (() => { const d=new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}` })(); return p.fecha===hoy })}
+          onClose={()=>setModalPromocion(null)}
+        />
+      )}
+
+      {/* MODAL VER PROMOCIONES - todos los empleados */}
+      <Modal open={modalVerPromociones} onClose={()=>setModalVerPromociones(false)}
+        title='Promociones' sub='Promociones activas del dia' icon='P'>
+        {(() => {
+          const hoy = (() => { const d=new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}` })()
+          const activas = promociones.filter(p => p.fecha === hoy)
+          const proximas = promociones.filter(p => p.fecha > hoy)
+          return (
+            <>
+              {activas.length === 0 && proximas.length === 0 && (
+                <div style={{textAlign:'center',padding:'30px 0',color:'#999',fontSize:13}}>No hay promociones registradas</div>
+              )}
+              {activas.length > 0 && (
+                <>
+                  <div style={{fontSize:10,letterSpacing:2,textTransform:'uppercase',color:'#c62828',fontWeight:700,marginBottom:10}}>Activas hoy</div>
+                  {activas.map(p => (
+                    <div key={p.id} style={{border:'2px solid #c62828',borderRadius:11,overflow:'hidden',marginBottom:12}}>
+                      {p.imagen && <img src={p.imagen} alt={p.nombre} style={{width:'100%',height:140,objectFit:'cover',display:'block'}}/>}
+                      <div style={{padding:'12px 14px'}}>
+                        <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start'}}>
+                          <div style={{fontWeight:700,fontSize:15,color:'#1a1a1a'}}>{p.nombre}</div>
+                          <span style={{fontFamily:'Playfair Display,serif',fontSize:18,color:'#c62828',fontWeight:700}}>${parseFloat(p.precio).toFixed(2)}</span>
+                        </div>
+                        {p.descripcion && <div style={{fontSize:12,color:'#666',marginTop:5,lineHeight:1.5}}>{p.descripcion}</div>}
+                        <span style={{display:'inline-block',marginTop:8,background:'#c62828',color:'#fff',fontSize:9,fontWeight:700,letterSpacing:1,textTransform:'uppercase',padding:'3px 9px',borderRadius:100}}>Activa hoy</span>
+                      </div>
+                    </div>
+                  ))}
+                </>
+              )}
+              {proximas.length > 0 && (
+                <>
+                  <div style={{fontSize:10,letterSpacing:2,textTransform:'uppercase',color:'#999',fontWeight:700,marginBottom:10,marginTop:activas.length?16:0}}>Proximas</div>
+                  {proximas.map(p => (
+                    <div key={p.id} style={{border:'1px solid #e0e0e0',borderRadius:11,padding:'12px 14px',marginBottom:10,background:'#fafafa'}}>
+                      <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start'}}>
+                        <div style={{fontWeight:600,fontSize:14,color:'#1a1a1a'}}>{p.nombre}</div>
+                        <span style={{fontFamily:'Playfair Display,serif',fontSize:16}}>${parseFloat(p.precio).toFixed(2)}</span>
+                      </div>
+                      {p.descripcion && <div style={{fontSize:12,color:'#666',marginTop:4}}>{p.descripcion}</div>}
+                      <div style={{fontSize:11,color:'#999',marginTop:6}}>Fecha: {p.fecha}</div>
+                    </div>
+                  ))}
+                </>
+              )}
+            </>
+          )
+        })()}
       </Modal>
 
       {/* MODAL PRODUCTO */}
@@ -1488,6 +1659,102 @@ function AdminApp() {
   )
 }
 
+
+// ==========================================
+// FORM PROMOCION (componente separado)
+// ==========================================
+function FormPromocion({ initial, promocionesHoy, onClose }) {
+  const [nombre, setNombre] = useState(initial?.nombre||'')
+  const [fecha, setFecha] = useState(initial?.fecha || (() => { const d=new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}` })())
+  const [precio, setPrecio] = useState(initial?.precio||'')
+  const [descripcion, setDescripcion] = useState(initial?.descripcion||'')
+  const [imagen, setImagen] = useState(initial?.imagen||'')
+  const [saving, setSaving] = useState(false)
+  const [vista, setVista] = useState('lista') // 'lista' | 'nueva'
+
+  async function guardar() {
+    if (!nombre || !fecha || !precio) { showToast('err','Nombre, fecha y precio son obligatorios'); return }
+    setSaving(true)
+    try {
+      const data = { nombre, fecha, precio: parseFloat(precio), descripcion, imagen }
+      if (initial?.id) await updateDoc(doc(db,'promociones',initial.id), data)
+      else await addDoc(collection(db,'promociones'), data)
+      showToast('ok', initial?.id ? 'Promocion actualizada' : 'Promocion creada')
+      setVista('lista')
+      if (!initial?.id) { setNombre(''); setPrecio(''); setDescripcion(''); setImagen('') }
+    } catch(e) { showToast('err','Error al guardar') }
+    setSaving(false)
+  }
+
+  async function eliminar(id) {
+    try { await deleteDoc(doc(db,'promociones',id)); showToast('ok','Eliminada') }
+    catch(e) { showToast('err','Error') }
+  }
+
+  return (
+    <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.5)',zIndex:3000,display:'flex',alignItems:'flex-end',justifyContent:'center'}}>
+      <div style={{background:'#fff',borderRadius:'20px 20px 0 0',width:'100%',maxWidth:480,maxHeight:'90vh',overflowY:'auto',padding:'20px 20px 40px'}}>
+        <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:16}}>
+          <h3 style={{fontFamily:'Playfair Display,serif',fontSize:20}}>Promociones</h3>
+          <button onClick={onClose} style={{background:'none',border:'none',fontSize:20,cursor:'pointer',color:'#999'}}>×</button>
+        </div>
+
+        {vista==='lista' ? (
+          <>
+            <button onClick={()=>setVista('nueva')} style={{width:'100%',padding:'12px',background:'#1a1a1a',color:'#fff',border:'none',borderRadius:9,fontFamily:'DM Sans,sans-serif',fontSize:11,fontWeight:700,letterSpacing:2,textTransform:'uppercase',cursor:'pointer',marginBottom:16}}>
+              + Nueva promocion
+            </button>
+            {promocionesHoy.length > 0 && (
+              <div style={{marginBottom:12}}>
+                <div style={{fontSize:10,letterSpacing:2,textTransform:'uppercase',color:'#999',fontWeight:600,marginBottom:8}}>Activas hoy</div>
+                {promocionesHoy.map(p => (
+                  <div key={p.id} style={{border:'1px solid #e0e0e0',borderRadius:10,padding:'12px',marginBottom:8,background:'#fffdf5',position:'relative'}}>
+                    <div style={{fontWeight:600,fontSize:13}}>{p.nombre}</div>
+                    <div style={{fontSize:12,color:'#666',marginTop:2}}>{p.descripcion}</div>
+                    <div style={{fontFamily:'Playfair Display,serif',fontSize:16,marginTop:4}}>${parseFloat(p.precio).toFixed(2)}</div>
+                    <button onClick={()=>eliminar(p.id)} style={{position:'absolute',top:10,right:10,background:'none',border:'1px solid #ffcdd2',color:'#c62828',borderRadius:6,padding:'3px 8px',fontSize:10,cursor:'pointer',fontFamily:'DM Sans,sans-serif'}}>Eliminar</button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </>
+        ) : (
+          <>
+            <button onClick={()=>setVista('lista')} style={{background:'none',border:'none',fontSize:13,color:'#999',cursor:'pointer',marginBottom:16,fontFamily:'DM Sans,sans-serif'}}>← Volver</button>
+            <div style={{marginBottom:13}}>
+              <label style={{display:'block',fontSize:10,letterSpacing:2,textTransform:'uppercase',color:'#999',marginBottom:6,fontWeight:600}}>Nombre *</label>
+              <input value={nombre} onChange={e=>setNombre(e.target.value)} placeholder='Nombre de la promocion'
+                style={{width:'100%',border:'1.5px solid #d0d0d0',borderRadius:8,fontFamily:'DM Sans,sans-serif',fontSize:13,padding:'10px 13px',outline:'none'}}/>
+            </div>
+            <div style={{marginBottom:13}}>
+              <label style={{display:'block',fontSize:10,letterSpacing:2,textTransform:'uppercase',color:'#999',marginBottom:6,fontWeight:600}}>Fecha *</label>
+              <input type='date' value={fecha} onChange={e=>setFecha(e.target.value)}
+                style={{width:'100%',border:'1.5px solid #d0d0d0',borderRadius:8,fontFamily:'DM Sans,sans-serif',fontSize:13,padding:'10px 13px',outline:'none'}}/>
+            </div>
+            <div style={{marginBottom:13}}>
+              <label style={{display:'block',fontSize:10,letterSpacing:2,textTransform:'uppercase',color:'#999',marginBottom:6,fontWeight:600}}>Precio *</label>
+              <input type='number' value={precio} onChange={e=>setPrecio(e.target.value)} placeholder='0.00'
+                style={{width:'100%',border:'1.5px solid #d0d0d0',borderRadius:8,fontFamily:'DM Sans,sans-serif',fontSize:13,padding:'10px 13px',outline:'none'}}/>
+            </div>
+            <div style={{marginBottom:13}}>
+              <label style={{display:'block',fontSize:10,letterSpacing:2,textTransform:'uppercase',color:'#999',marginBottom:6,fontWeight:600}}>Descripcion</label>
+              <textarea value={descripcion} onChange={e=>setDescripcion(e.target.value)} placeholder='Describe la promocion...' rows={3}
+                style={{width:'100%',border:'1.5px solid #d0d0d0',borderRadius:8,fontFamily:'DM Sans,sans-serif',fontSize:13,padding:'10px 13px',outline:'none',resize:'vertical'}}/>
+            </div>
+            <div style={{marginBottom:20}}>
+              <label style={{display:'block',fontSize:10,letterSpacing:2,textTransform:'uppercase',color:'#999',marginBottom:6,fontWeight:600}}>URL de imagen</label>
+              <input value={imagen} onChange={e=>setImagen(e.target.value)} placeholder='https://...'
+                style={{width:'100%',border:'1.5px solid #d0d0d0',borderRadius:8,fontFamily:'DM Sans,sans-serif',fontSize:13,padding:'10px 13px',outline:'none'}}/>
+            </div>
+            <button onClick={guardar} disabled={saving} style={{width:'100%',padding:'13px',background:'#1a1a1a',color:'#fff',border:'none',borderRadius:9,fontFamily:'DM Sans,sans-serif',fontSize:11,fontWeight:700,letterSpacing:2,textTransform:'uppercase',cursor:'pointer'}}>
+              {saving ? 'Guardando...' : 'Guardar promocion'}
+            </button>
+          </>
+        )}
+      </div>
+    </div>
+  )
+}
 
 // ==========================================
 // IMAGENES PROFESIONALES POR CATEGORIA
@@ -1630,92 +1897,149 @@ function ClienteRegistro({ onRegistrado, onSinRegistro, onVolver }) {
 // APP CLIENTE
 // ==========================================
 function ClienteApp({ onVolver }) {
+  const DOMICILIO_COSTO = 1.50
+  const WA_NUM = '593996368109'
+  const CUENTA = '2207515308'
+
   const [menu, setMenu] = useState([])
+  const [promociones, setPromociones] = useState([])
   const [loadingMenu, setLoadingMenu] = useState(true)
   const [indice, setIndice] = useState(0)
+  const [catActiva, setCatActiva] = useState('Todos')
   const [cantidades, setCantidades] = useState({})
   const [modalPedido, setModalPedido] = useState(false)
   const [modalRegistro, setModalRegistro] = useState(false)
+  const [modalImportante, setModalImportante] = useState(false)
   const [cliente, setCliente] = useState(() => {
-    try { return JSON.parse(localStorage.getItem('esencial_cliente')) } catch(e) { return null }
+    try { return JSON.parse(localStorage.getItem('esencial_cliente')) } catch { return null }
   })
-  // Datos cliente sin registro (para el modal de pedido)
   const [tmpNombre, setTmpNombre] = useState('')
   const [tmpTel, setTmpTel] = useState('')
   const [tmpDir, setTmpDir] = useState('')
-  // Swipe
-  const touchStartX = useRef(null)
-  const touchStartY = useRef(null)
   const [animDir, setAnimDir] = useState(null)
   const [imgError, setImgError] = useState({})
-  // Editar perfil desde cliente
-  const [editando, setEditando] = useState(false)
+  const [copiado, setCopiado] = useState(null)
+  const touchStartX = useRef(null)
+  const touchStartY = useRef(null)
 
+  // Cargar menu + promociones en tiempo real
   useEffect(() => {
-    const q = query(collection(db,'menu'), where('disponible','==',true))
-    const unsub = onSnapshot(q, snap => {
-      setMenu(snap.docs.map(d => ({id:d.id,...d.data()})))
-      setLoadingMenu(false)
-    }, () => setLoadingMenu(false))
-    return unsub
+    const unsub = onSnapshot(
+      query(collection(db,'menu'), where('disponible','==',true)),
+      snap => { setMenu(snap.docs.map(d=>({id:d.id,...d.data()}))); setLoadingMenu(false) },
+      () => setLoadingMenu(false)
+    )
+    const unsub2 = onSnapshot(collection(db,'promociones'), snap => {
+      const hoy = (() => { const d=new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}` })()
+      setPromociones(snap.docs.map(d=>({id:d.id,...d.data()})).filter(p=>p.fecha===hoy))
+    })
+    return () => { unsub(); unsub2() }
   }, [])
 
-  const prod = menu[indice]
+  // Categorias
+  const cats = ['Todos', ...new Set(menu.map(x=>x.categoria).filter(Boolean))]
+
+  // Items a mostrar: promociones primero, luego productos filtrados
+  const menuFiltrado = catActiva==='Todos' ? menu : menu.filter(x=>x.categoria===catActiva)
+  const items = [...promociones.map(p=>({...p, _esPromo:true})), ...menuFiltrado]
+
+  const prod = items[indice]
+
   const carrito = Object.entries(cantidades).filter(([,c])=>c>0).map(([id,cant])=>{
-    const item = menu.find(m=>m.id===id)
-    return item ? {...item, cantidad: cant} : null
+    const item = items.find(m=>m.id===id)
+    return item ? {...item, cantidad:cant} : null
   }).filter(Boolean)
-  const total = carrito.reduce((s,x)=>s+x.precio*x.cantidad,0)
+  const subtotal = carrito.reduce((s,x)=>s+parseFloat(x.precio)*x.cantidad,0)
+  const total = subtotal + DOMICILIO_COSTO
   const totalItems = carrito.reduce((s,x)=>s+x.cantidad,0)
 
   function addCant(id, delta) {
     setCantidades(p => ({...p, [id]: Math.max(0,(p[id]||0)+delta)}))
   }
 
+  function irA(newIdx) {
+    if (newIdx < 0 || newIdx >= items.length) return
+    setAnimDir(newIdx > indice ? 'left' : 'right')
+    setIndice(newIdx)
+    setTimeout(()=>setAnimDir(null), 350)
+  }
+
   function onTouchStart(e) {
     touchStartX.current = e.touches[0].clientX
     touchStartY.current = e.touches[0].clientY
   }
-
   function onTouchEnd(e) {
     if (touchStartX.current === null) return
     const dx = e.changedTouches[0].clientX - touchStartX.current
     const dy = Math.abs(e.changedTouches[0].clientY - touchStartY.current)
     if (Math.abs(dx) < 50 || dy > 80) return
-    if (dx < 0 && indice < menu.length-1) { setAnimDir('left'); setIndice(i=>i+1) }
-    else if (dx > 0 && indice > 0) { setAnimDir('right'); setIndice(i=>i-1) }
+    if (dx < 0) irA(indice+1)
+    else irA(indice-1)
     touchStartX.current = null
-    setTimeout(()=>setAnimDir(null),300)
   }
 
-  function enviarWhatsApp() {
+  function copiar(texto, key) {
+    navigator.clipboard.writeText(texto).then(()=>{
+      setCopiado(key)
+      setTimeout(()=>setCopiado(null), 2000)
+    })
+  }
+
+  async function confirmarEnvio() {
+    const n = cliente?.nombre || tmpNombre
+    const tel = cliente?.telefono || tmpTel
+    if (!n || !tel) { showToast('warn','Completa nombre y telefono'); return }
+    if (carrito.length===0) { showToast('warn','Agrega productos'); return }
+    setModalImportante(true)
+  }
+
+  async function enviarWhatsApp() {
     const n = cliente?.nombre || tmpNombre
     const tel = cliente?.telefono || tmpTel
     const dir = cliente?.direccion || tmpDir
-    if (!n || !tel) { showToast('warn','Completa tu nombre y teléfono'); return }
-    if (carrito.length===0) { showToast('warn','Agrega productos al pedido'); return }
-    const lineas = carrito.map(x=>`  • ${x.cantidad}x ${x.nombre} — $${(x.precio*x.cantidad).toFixed(2)}`).join('%0A')
+
+    // Guardar en Firestore coleccion domicilio
+    const itemsData = carrito.map(x=>({nombre:x.nombre, cantidad:x.cantidad, precio:parseFloat(x.precio)}))
+    try {
+      await addDoc(collection(db,'domicilio'), {
+        cliente: n, telefono: tel, direccion: dir,
+        referencia: cliente?.referencia||'',
+        items: itemsData, subtotal, total,
+        estado: 'A DOMICILIO',
+        creadoEn: serverTimestamp()
+      })
+    } catch(e) {}
+
+    const lineas = carrito.map(x=>`  • ${x.cantidad}x ${x.nombre} — $${(parseFloat(x.precio)*x.cantidad).toFixed(2)}`).join('%0A')
     const msg = [
-      '*PEDIDO - Esencial FC*',
+      '*PEDIDO A DOMICILIO - Esencial FC*',
       '----------------------------',
       '*Cliente:* ' + n,
       '*Telefono:* ' + tel,
       dir ? '*Direccion:* ' + dir : '',
       cliente?.referencia ? '*Referencia:* ' + cliente.referencia : '',
-      cliente?.cedula ? '*ID:* ' + cliente.cedula : '',
+      cliente?.cedula ? '*Cedula:* ' + cliente.cedula : '',
       '----------------------------',
       '*Productos:*',
       lineas,
       '----------------------------',
-      '*TOTAL: $' + total.toFixed(2) + '*',
+      `*Subtotal: $${subtotal.toFixed(2)}*`,
+      `*Envio: $${DOMICILIO_COSTO.toFixed(2)}*`,
+      `*TOTAL: $${total.toFixed(2)}*`,
       '',
-      'Pedido enviado desde la app Esencial FC'
+      'Enviado desde la app Esencial FC'
     ].filter(Boolean).join('%0A')
-    window.open(`https://wa.me/593996368109?text=${msg}`, '_blank')
+
+    window.open(`https://wa.me/${WA_NUM}?text=${msg}`, '_blank')
+    setModalImportante(false)
     setModalPedido(false)
     setCantidades({})
     showToast('ok','Pedido enviado por WhatsApp')
   }
+
+  const imgSrc = prod ? (imgError[prod.id]
+    ? (IMGS_CATEGORIA[prod.categoria]||IMGS_CATEGORIA['default'])
+    : getImgProducto(prod)) : null
 
   if (loadingMenu) return (
     <div style={{display:'flex',alignItems:'center',justifyContent:'center',height:'100vh',flexDirection:'column',gap:13}}>
@@ -1724,38 +2048,19 @@ function ClienteApp({ onVolver }) {
     </div>
   )
 
-  const imgSrc = prod ? (imgError[prod.id] ? (IMGS_CATEGORIA[prod.categoria]||IMGS_CATEGORIA['default']) : getImgProducto(prod)) : null
-
   return (
-    <div style={{minHeight:'100vh',background:'#f7f7f7',display:'flex',flexDirection:'column',maxWidth:480,margin:'0 auto'}}>
+    <div style={{minHeight:'100vh',background:'#f7f7f7',display:'flex',flexDirection:'column',maxWidth:480,margin:'0 auto',position:'relative'}}>
       <style>{`
         @keyframes slideLeft{from{opacity:0;transform:translateX(60px)}to{opacity:1;transform:translateX(0)}}
         @keyframes slideRight{from{opacity:0;transform:translateX(-60px)}to{opacity:1;transform:translateX(0)}}
       `}</style>
 
-      {/* HEADER CLIENTE */}
-      <header style={{background:'#1a1a1a',padding:'0 16px',height:54,display:'flex',alignItems:'center',justifyContent:'space-between',position:'sticky',top:0,zIndex:100}}>
-        <div style={{display:'flex',alignItems:'center',gap:10}}>
-          <button onClick={onVolver} style={{background:'none',border:'none',color:'#888',fontSize:18,cursor:'pointer',padding:'0 4px 0 0'}}>←</button>
-          <h1 style={{fontFamily:'Playfair Display,serif',fontSize:16,fontWeight:700,color:'#fff',letterSpacing:2}}>Esencial FC</h1>
-        </div>
-        <button onClick={()=>cliente?setEditando(true):setModalRegistro(true)} style={{
-          width:36,height:36,borderRadius:'50%',border:'2px solid #555',
-          background:'#333',cursor:'pointer',overflow:'hidden',padding:0,flexShrink:0,
-          display:'flex',alignItems:'center',justifyContent:'center'
-        }}>
-          <span style={{color:'#ccc',fontSize:13,fontWeight:700}}>
-            {cliente ? cliente.nombre?.charAt(0)?.toUpperCase() : '+'}
-          </span>
-        </button>
-      </header>
+      {/* CONTENIDO PRINCIPAL (arriba del header fijo) */}
+      <div style={{flex:1,overflowY:'auto',paddingBottom:130}}>
 
-      {/* CONTENIDO PRINCIPAL */}
-      <div style={{flex:1,overflowY:'auto',paddingBottom:90}}>
-
-        {/* IMAGEN GRANDE - CARRUSEL */}
-        {prod && (
-          <div style={{position:'relative',background:'#111',userSelect:'none'}}
+        {/* IMAGEN GRANDE CARRUSEL */}
+        {prod ? (
+          <div style={{position:'relative',background:'#111',userSelect:'none',aspectRatio:'1/1',maxHeight:'50vh',overflow:'hidden'}}
             onTouchStart={onTouchStart} onTouchEnd={onTouchEnd}>
             <img
               key={prod.id}
@@ -1763,45 +2068,58 @@ function ClienteApp({ onVolver }) {
               alt={prod.nombre}
               onError={()=>setImgError(p=>({...p,[prod.id]:true}))}
               style={{
-                width:'100%',height:280,objectFit:'cover',display:'block',
-                animation: animDir==='left'?'slideLeft 0.3s ease':animDir==='right'?'slideRight 0.3s ease':'none'
+                width:'100%',height:'100%',objectFit:'cover',display:'block',
+                animation: animDir==='left'?'slideLeft 0.35s ease':animDir==='right'?'slideRight 0.35s ease':'none'
               }}
             />
-            {/* Overlay degradado */}
-            <div style={{position:'absolute',bottom:0,left:0,right:0,height:80,background:'linear-gradient(transparent,rgba(0,0,0,0.6))'}}/>
+            {prod._esPromo && (
+              <div style={{position:'absolute',top:12,left:12,background:'#c62828',color:'#fff',padding:'4px 12px',borderRadius:100,fontSize:10,fontWeight:700,letterSpacing:1,textTransform:'uppercase'}}>
+                Promocion
+              </div>
+            )}
+            <div style={{position:'absolute',bottom:0,left:0,right:0,height:80,background:'linear-gradient(transparent,rgba(0,0,0,0.65))'}}/>
             {/* Indicadores */}
-            <div style={{position:'absolute',bottom:12,left:0,right:0,display:'flex',justifyContent:'center',gap:5}}>
-              {menu.map((_,i)=>(
-                <div key={i} onClick={()=>setIndice(i)} style={{
-                  width: i===indice?20:6, height:6, borderRadius:3,
-                  background: i===indice?'#fff':'rgba(255,255,255,0.4)',
-                  transition:'0.3s',cursor:'pointer'
+            <div style={{position:'absolute',bottom:12,left:0,right:0,display:'flex',justifyContent:'center',gap:5,flexWrap:'wrap',padding:'0 20px'}}>
+              {items.map((_,i)=>(
+                <div key={i} onClick={()=>irA(i)} style={{
+                  width:i===indice?18:6,height:6,borderRadius:3,cursor:'pointer',transition:'0.3s',
+                  background:i===indice?'#fff':'rgba(255,255,255,0.35)'
                 }}/>
               ))}
             </div>
-            {/* Flechas */}
-            {indice > 0 && (
-              <button onClick={()=>setIndice(i=>i-1)} style={{position:'absolute',left:10,top:'50%',transform:'translateY(-50%)',background:'rgba(0,0,0,0.4)',border:'none',color:'#fff',width:36,height:36,borderRadius:'50%',fontSize:18,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center'}}>‹</button>
-            )}
-            {indice < menu.length-1 && (
-              <button onClick={()=>setIndice(i=>i+1)} style={{position:'absolute',right:10,top:'50%',transform:'translateY(-50%)',background:'rgba(0,0,0,0.4)',border:'none',color:'#fff',width:36,height:36,borderRadius:'50%',fontSize:18,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center'}}>›</button>
-            )}
+            {indice>0 && <button onClick={()=>irA(indice-1)} style={{position:'absolute',left:10,top:'50%',transform:'translateY(-50%)',background:'rgba(0,0,0,0.4)',border:'none',color:'#fff',width:38,height:38,borderRadius:'50%',fontSize:20,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center'}}>‹</button>}
+            {indice<items.length-1 && <button onClick={()=>irA(indice+1)} style={{position:'absolute',right:10,top:'50%',transform:'translateY(-50%)',background:'rgba(0,0,0,0.4)',border:'none',color:'#fff',width:38,height:38,borderRadius:'50%',fontSize:20,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center'}}>›</button>}
+          </div>
+        ) : (
+          <div style={{aspectRatio:'1/1',maxHeight:'50vh',background:'#e0e0e0',display:'flex',alignItems:'center',justifyContent:'center'}}>
+            <span style={{color:'#bbb',fontSize:13}}>Sin productos disponibles</span>
           </div>
         )}
 
+        {/* CATEGORIAS */}
+        <div style={{overflowX:'auto',display:'flex',gap:8,padding:'12px 12px 4px',scrollbarWidth:'none'}}>
+          {cats.map(c=>(
+            <button key={c} onClick={()=>{setCatActiva(c);setIndice(0)}} style={{
+              flexShrink:0,padding:'6px 14px',borderRadius:100,border:'2px solid',fontFamily:'DM Sans,sans-serif',fontSize:11,fontWeight:500,cursor:'pointer',transition:'0.2s',
+              background:catActiva===c?'#1a1a1a':'#fff',color:catActiva===c?'#fff':'#666',borderColor:catActiva===c?'#1a1a1a':'#d0d0d0'
+            }}>{c}</button>
+          ))}
+        </div>
+
         {/* DETALLE PRODUCTO */}
         {prod && (
-          <div key={prod.id} style={{background:'#fff',margin:'12px 12px 0',borderRadius:14,padding:'16px',border:'1px solid #e0e0e0',boxShadow:'0 2px 8px rgba(0,0,0,0.05)',
-            animation: animDir==='left'?'slideLeft 0.3s ease':animDir==='right'?'slideRight 0.3s ease':'none'}}>
+          <div key={prod.id} style={{background:'#fff',margin:'8px 12px 0',borderRadius:14,padding:'16px',border:'1px solid #e0e0e0',boxShadow:'0 2px 8px rgba(0,0,0,0.05)',
+            animation:animDir==='left'?'slideLeft 0.35s ease':animDir==='right'?'slideRight 0.35s ease':'none'}}>
             <div style={{display:'flex',alignItems:'flex-start',justifyContent:'space-between',marginBottom:6}}>
               <div style={{flex:1}}>
-                <h2 style={{fontFamily:'Playfair Display,serif',fontSize:20,fontWeight:700,color:'#1a1a1a',marginBottom:4}}>{prod.nombre}</h2>
-                <span style={{background:'#1a1a1a',color:'#fff',fontSize:9,fontWeight:700,letterSpacing:1,textTransform:'uppercase',padding:'3px 9px',borderRadius:100}}>{prod.categoria}</span>
+                <h2 style={{fontFamily:'Playfair Display,serif',fontSize:20,fontWeight:700,color:'#1a1a1a',marginBottom:6}}>{prod.nombre}</h2>
+                <span style={{background:prod._esPromo?'#c62828':'#1a1a1a',color:'#fff',fontSize:9,fontWeight:700,letterSpacing:1,textTransform:'uppercase',padding:'3px 9px',borderRadius:100}}>
+                  {prod._esPromo ? 'Promocion' : prod.categoria}
+                </span>
               </div>
               <span style={{fontFamily:'Playfair Display,serif',fontSize:26,color:'#1a1a1a',fontWeight:700,marginLeft:12}}>${parseFloat(prod.precio).toFixed(2)}</span>
             </div>
             {prod.descripcion && <p style={{fontSize:13,color:'#666',lineHeight:1.6,marginTop:10}}>{prod.descripcion}</p>}
-            {/* Cantidad */}
             <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginTop:14,paddingTop:14,borderTop:'1px solid #e0e0e0'}}>
               <span style={{fontSize:12,fontWeight:600,color:'#666',letterSpacing:1,textTransform:'uppercase'}}>Cantidad</span>
               <div style={{display:'flex',alignItems:'center',gap:12}}>
@@ -1813,10 +2131,10 @@ function ClienteApp({ onVolver }) {
           </div>
         )}
 
-        {/* RESUMEN PEDIDO FIJO */}
-        <div style={{background:'#fff',margin:'12px 12px 0',borderRadius:14,padding:'14px 16px',border:'1px solid #e0e0e0',boxShadow:'0 2px 8px rgba(0,0,0,0.05)'}}>
+        {/* RESUMEN PEDIDO */}
+        <div style={{background:'#fff',margin:'10px 12px 0',borderRadius:14,padding:'14px 16px',border:'1px solid #e0e0e0',boxShadow:'0 2px 8px rgba(0,0,0,0.05)'}}>
           <div style={{fontSize:10,letterSpacing:2,textTransform:'uppercase',color:'#999',fontWeight:600,marginBottom:10}}>Tu pedido</div>
-          {carrito.length === 0 ? (
+          {carrito.length===0 ? (
             <p style={{fontSize:12,color:'#ccc',textAlign:'center',padding:'10px 0'}}>Desliza y agrega productos</p>
           ) : (
             <>
@@ -1827,12 +2145,18 @@ function ClienteApp({ onVolver }) {
                     <span style={{fontSize:11,color:'#999',marginLeft:8}}>x{x.cantidad}</span>
                   </div>
                   <div style={{display:'flex',alignItems:'center',gap:8}}>
-                    <span style={{fontSize:13,fontWeight:600}}>${(x.precio*x.cantidad).toFixed(2)}</span>
-                    <button onClick={()=>addCant(x.id,-x.cantidad)} style={{background:'none',border:'none',color:'#ccc',fontSize:16,cursor:'pointer',padding:'0 2px'}}>×</button>
+                    <span style={{fontSize:13,fontWeight:600}}>${(parseFloat(x.precio)*x.cantidad).toFixed(2)}</span>
+                    <button onClick={()=>addCant(x.id,-x.cantidad)} style={{background:'none',border:'none',color:'#ccc',fontSize:16,cursor:'pointer'}}>×</button>
                   </div>
                 </div>
               ))}
-              <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',paddingTop:10,marginTop:4}}>
+              <div style={{display:'flex',justifyContent:'space-between',fontSize:12,color:'#666',padding:'8px 0 4px',borderTop:'1px solid #e0e0e0',marginTop:6}}>
+                <span>Subtotal</span><span>${subtotal.toFixed(2)}</span>
+              </div>
+              <div style={{display:'flex',justifyContent:'space-between',fontSize:12,color:'#666',padding:'4px 0'}}>
+                <span>Envio a domicilio</span><span>${DOMICILIO_COSTO.toFixed(2)}</span>
+              </div>
+              <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',paddingTop:8,borderTop:'1.5px solid #d0d0d0',marginTop:4}}>
                 <span style={{fontSize:10,letterSpacing:2,textTransform:'uppercase',color:'#666',fontWeight:600}}>Total</span>
                 <span style={{fontFamily:'Playfair Display,serif',fontSize:22,fontWeight:700}}>${total.toFixed(2)}</span>
               </div>
@@ -1841,38 +2165,77 @@ function ClienteApp({ onVolver }) {
         </div>
       </div>
 
-      {/* BOTON REALIZAR PEDIDO */}
-      <div style={{position:'fixed',bottom:0,left:'50%',transform:'translateX(-50%)',width:'100%',maxWidth:480,padding:'12px 16px',background:'#fff',borderTop:'1px solid #e0e0e0',boxShadow:'0 -4px 16px rgba(0,0,0,0.08)'}}>
-        <button onClick={()=>{if(carrito.length===0){showToast('warn','Agrega productos primero');return}setModalPedido(true)}} style={{
-          width:'100%',padding:'15px',background: carrito.length>0?'#1a1a1a':'#e0e0e0',
-          color: carrito.length>0?'#fff':'#999',border:'none',borderRadius:11,
-          fontFamily:'DM Sans,sans-serif',fontSize:13,fontWeight:700,letterSpacing:2,
-          textTransform:'uppercase',cursor: carrito.length>0?'pointer':'not-allowed'
-        }}>
-          Realizar pedido {totalItems>0?`(${totalItems})`:''}
-        </button>
+      {/* HEADER FIJO ABAJO */}
+      <div style={{position:'fixed',bottom:0,left:'50%',transform:'translateX(-50%)',width:'100%',maxWidth:480,zIndex:200}}>
+        {/* Barra nombre + perfil */}
+        <div style={{background:'#1a1a1a',padding:'10px 16px',display:'flex',alignItems:'center',justifyContent:'space-between'}}>
+          <h1 onClick={()=>{localStorage.removeItem('esencial_modo');window.location.reload()}} style={{fontFamily:'Playfair Display,serif',fontSize:15,fontWeight:700,color:'#fff',letterSpacing:2,cursor:'pointer'}}>Esencial FC</h1>
+          <button onClick={()=>cliente?null:setModalRegistro(true)} style={{width:34,height:34,borderRadius:'50%',border:'2px solid #555',background:'#333',cursor:'pointer',overflow:'hidden',padding:0,display:'flex',alignItems:'center',justifyContent:'center'}}>
+            <span style={{color:'#ccc',fontSize:12,fontWeight:700}}>{cliente?cliente.nombre?.charAt(0)?.toUpperCase():'+'}</span>
+          </button>
+        </div>
+        {/* Boton realizar pedido */}
+        <div style={{background:'#fff',padding:'10px 12px',borderTop:'1px solid #e0e0e0',boxShadow:'0 -4px 16px rgba(0,0,0,0.08)'}}>
+          <button onClick={()=>{if(carrito.length===0){showToast('warn','Agrega productos primero');return}setModalPedido(true)}} style={{
+            width:'100%',padding:'14px',background:carrito.length>0?'#1a1a1a':'#e0e0e0',
+            color:carrito.length>0?'#fff':'#999',border:'none',borderRadius:11,
+            fontFamily:'DM Sans,sans-serif',fontSize:13,fontWeight:700,letterSpacing:2,
+            textTransform:'uppercase',cursor:carrito.length>0?'pointer':'not-allowed'
+          }}>
+            Realizar pedido{totalItems>0?` (${totalItems})`:''}
+          </button>
+        </div>
       </div>
 
       {/* MODAL PEDIDO */}
       {modalPedido && (
-        <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.5)',zIndex:2000,display:'flex',alignItems:'flex-end'}}
+        <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.5)',zIndex:1000,display:'flex',alignItems:'flex-end'}}
           onClick={e=>{if(e.target===e.currentTarget)setModalPedido(false)}}>
-          <div style={{background:'#fff',borderRadius:'20px 20px 0 0',width:'100%',maxWidth:480,margin:'0 auto',maxHeight:'90vh',overflowY:'auto',padding:'20px 20px 40px'}}>
+          <div style={{background:'#fff',borderRadius:'20px 20px 0 0',width:'100%',maxWidth:480,margin:'0 auto',maxHeight:'92vh',overflowY:'auto',padding:'20px 20px 40px'}}>
             <div style={{width:40,height:4,background:'#e0e0e0',borderRadius:2,margin:'0 auto 20px'}}/>
             <h3 style={{fontFamily:'Playfair Display,serif',fontSize:20,marginBottom:4}}>Confirmar pedido</h3>
-            <p style={{fontSize:11,color:'#999',marginBottom:16}}>Revisa tu pedido antes de enviar</p>
+            <p style={{fontSize:11,color:'#999',marginBottom:16}}>Revisa antes de enviar</p>
 
-            {/* Detalle productos */}
-            <div style={{background:'#f8f8f8',borderRadius:11,padding:'12px 14px',marginBottom:14}}>
+            {/* Productos */}
+            <div style={{background:'#f8f8f8',borderRadius:11,padding:'12px 14px',marginBottom:12}}>
               {carrito.map(x=>(
                 <div key={x.id} style={{display:'flex',justifyContent:'space-between',fontSize:13,padding:'4px 0',borderBottom:'1px solid #eee'}}>
                   <span>{x.cantidad}x {x.nombre}</span>
-                  <span style={{fontWeight:600}}>${(x.precio*x.cantidad).toFixed(2)}</span>
+                  <span style={{fontWeight:600}}>${(parseFloat(x.precio)*x.cantidad).toFixed(2)}</span>
                 </div>
               ))}
+              <div style={{display:'flex',justifyContent:'space-between',fontSize:12,color:'#666',padding:'8px 0 4px',borderTop:'1px solid #ddd',marginTop:6}}>
+                <span>Subtotal</span><span>${subtotal.toFixed(2)}</span>
+              </div>
+              <div style={{display:'flex',justifyContent:'space-between',fontSize:12,color:'#666',padding:'4px 0'}}>
+                <span>Entrega a domicilio</span><span>${DOMICILIO_COSTO.toFixed(2)}</span>
+              </div>
               <div style={{display:'flex',justifyContent:'space-between',paddingTop:9,marginTop:4,borderTop:'1.5px solid #d0d0d0'}}>
                 <span style={{fontSize:11,fontWeight:700,letterSpacing:1,textTransform:'uppercase',color:'#666'}}>Total</span>
                 <span style={{fontFamily:'Playfair Display,serif',fontSize:20,fontWeight:700}}>${total.toFixed(2)}</span>
+              </div>
+            </div>
+
+            {/* Cuenta bancaria */}
+            <div style={{background:'#f0f4ff',border:'1px solid #c5d0e8',borderRadius:11,padding:'14px',marginBottom:12}}>
+              <div style={{fontSize:10,letterSpacing:2,textTransform:'uppercase',color:'#555',fontWeight:600,marginBottom:10}}>Datos de pago</div>
+              <div style={{fontSize:13,fontWeight:600,color:'#1a1a1a',marginBottom:6}}>Cuenta Pichincha Ahorros</div>
+              <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:10}}>
+                <span style={{fontSize:15,fontWeight:700,letterSpacing:1,color:'#1a1a1a'}}>{CUENTA}</span>
+                <button onClick={()=>copiar(CUENTA,'cuenta')} style={{background:'#1a1a1a',color:'#fff',border:'none',borderRadius:7,padding:'5px 12px',fontSize:10,fontWeight:600,cursor:'pointer',fontFamily:'DM Sans,sans-serif'}}>
+                  {copiado==='cuenta'?'Copiado':'Copiar'}
+                </button>
+              </div>
+              <div style={{borderTop:'1px solid #c5d0e8',paddingTop:10,display:'flex',alignItems:'center',justifyContent:'space-between'}}>
+                <span style={{fontSize:13,color:'#444'}}>WhatsApp: 0996368109</span>
+                <div style={{display:'flex',gap:6}}>
+                  <button onClick={()=>copiar('0996368109','tel')} style={{background:'#fff',color:'#1a1a1a',border:'1px solid #c5d0e8',borderRadius:7,padding:'5px 10px',fontSize:10,fontWeight:600,cursor:'pointer',fontFamily:'DM Sans,sans-serif'}}>
+                    {copiado==='tel'?'Copiado':'Copiar'}
+                  </button>
+                  <button onClick={()=>window.open(`https://wa.me/${WA_NUM}`,'_blank')} style={{background:'#25d366',color:'#fff',border:'none',borderRadius:7,padding:'5px 10px',fontSize:10,fontWeight:600,cursor:'pointer',fontFamily:'DM Sans,sans-serif'}}>
+                    WA
+                  </button>
+                </div>
               </div>
             </div>
 
@@ -1883,11 +2246,8 @@ function ClienteApp({ onVolver }) {
                 <>
                   <div style={{fontSize:13,fontWeight:600,color:'#1a1a1a',marginBottom:3}}>{cliente.nombre}</div>
                   <div style={{fontSize:12,color:'#666',marginBottom:2}}>{cliente.telefono}</div>
-                  <div style={{fontSize:12,color:'#666',marginBottom:2}}>{cliente.direccion}</div>
-                  {cliente.referencia && <div style={{fontSize:12,color:'#999'}}>{cliente.referencia}</div>}
-                  <button onClick={()=>{setModalPedido(false);setModalRegistro(true)}} style={{background:'none',border:'none',color:'#1a1a1a',fontSize:11,cursor:'pointer',textDecoration:'underline',padding:'6px 0 0',fontFamily:'DM Sans,sans-serif'}}>
-                    Editar datos
-                  </button>
+                  <div style={{fontSize:12,color:'#666'}}>{cliente.direccion}</div>
+                  {cliente.referencia && <div style={{fontSize:12,color:'#999',marginTop:2}}>{cliente.referencia}</div>}
                 </>
               ) : (
                 <>
@@ -1910,7 +2270,7 @@ function ClienteApp({ onVolver }) {
               )}
             </div>
 
-            <button onClick={enviarWhatsApp} style={{
+            <button onClick={confirmarEnvio} style={{
               width:'100%',padding:'15px',background:'#25d366',color:'#fff',border:'none',borderRadius:11,
               fontFamily:'DM Sans,sans-serif',fontSize:13,fontWeight:700,letterSpacing:2,textTransform:'uppercase',cursor:'pointer'
             }}>Enviar pedido por WhatsApp</button>
@@ -1918,13 +2278,30 @@ function ClienteApp({ onVolver }) {
         </div>
       )}
 
-      {/* MODAL REGISTRO desde dentro */}
-      {(modalRegistro || editando) && (
+      {/* MODAL IMPORTANTE */}
+      {modalImportante && (
+        <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.6)',zIndex:2000,display:'flex',alignItems:'center',justifyContent:'center',padding:20}}>
+          <div style={{background:'#fff',borderRadius:16,padding:'28px 24px',maxWidth:340,width:'100%'}}>
+            <div style={{fontSize:10,letterSpacing:3,textTransform:'uppercase',fontWeight:700,color:'#c62828',marginBottom:10}}>Importante</div>
+            <h3 style={{fontFamily:'Playfair Display,serif',fontSize:18,marginBottom:12}}>Antes de enviar</h3>
+            <p style={{fontSize:13,color:'#555',lineHeight:1.7,marginBottom:20}}>
+              Se enviara tu pedido por WhatsApp pero debes <strong>adjuntar el comprobante de la transferencia</strong> y enviarlo a los datos indicados. Si no lo haces, tu pedido tardara mas en procesarse.
+            </p>
+            <div style={{display:'flex',gap:10}}>
+              <button onClick={()=>setModalImportante(false)} style={{flex:1,padding:'12px',background:'#fff',color:'#666',border:'1.5px solid #d0d0d0',borderRadius:9,fontFamily:'DM Sans,sans-serif',fontSize:12,fontWeight:600,cursor:'pointer'}}>Cancelar</button>
+              <button onClick={enviarWhatsApp} style={{flex:2,padding:'12px',background:'#25d366',color:'#fff',border:'none',borderRadius:9,fontFamily:'DM Sans,sans-serif',fontSize:12,fontWeight:700,cursor:'pointer'}}>Aceptar y enviar</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL REGISTRO */}
+      {modalRegistro && (
         <div style={{position:'fixed',inset:0,zIndex:3000}}>
           <ClienteRegistro
-            onRegistrado={(p)=>{setCliente(p);setModalRegistro(false);setEditando(false);showToast('ok','Perfil guardado')}}
-            onSinRegistro={()=>{setModalRegistro(false);setEditando(false)}}
-            onVolver={()=>{setModalRegistro(false);setEditando(false)}}
+            onRegistrado={(p)=>{setCliente(p);setModalRegistro(false);showToast('ok','Perfil guardado')}}
+            onSinRegistro={()=>setModalRegistro(false)}
+            onVolver={()=>setModalRegistro(false)}
           />
         </div>
       )}
