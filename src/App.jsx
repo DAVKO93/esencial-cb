@@ -291,7 +291,7 @@ function FormProducto({ item, onClose, onSave }) {
 // ==========================================
 // APP PRINCIPAL
 // ==========================================
-export default function App() {
+function AdminApp() {
   const [user, setUser] = useState(null)
   const [authReady, setAuthReady] = useState(false)
   const [aprobado, setAprobado] = useState(false)
@@ -1486,4 +1486,471 @@ export default function App() {
       <Toast/>
     </>
   )
+}
+
+
+// ==========================================
+// IMAGENES PROFESIONALES POR CATEGORIA
+// ==========================================
+const IMGS_CATEGORIA = {
+  'Congelados': 'https://images.unsplash.com/photo-1497034825429-c343d7c6a68f?w=800&q=80',
+  'Dulce':      'https://images.unsplash.com/photo-1551024506-0bccd828d307?w=800&q=80',
+  'Mixtos':     'https://images.unsplash.com/photo-1568901346375-23c9450c58cd?w=800&q=80',
+  'Bebidas':    'https://images.unsplash.com/photo-1544145945-f90425340c7e?w=800&q=80',
+  'Combos':     'https://images.unsplash.com/photo-1555396273-367ea4eb4db5?w=800&q=80',
+  'Acompanantes':'https://images.unsplash.com/photo-1541557435984-1c79685a082b?w=800&q=80',
+  'default':    'https://images.unsplash.com/photo-1504674900247-0877df9cc836?w=800&q=80',
+}
+
+function getImgProducto(item) {
+  if (item.imagenCliente) return item.imagenCliente
+  if (item.imagen) return item.imagen
+  return IMGS_CATEGORIA[item.categoria] || IMGS_CATEGORIA['default']
+}
+
+// ==========================================
+// SELECTOR INICIAL
+// ==========================================
+function AppSelector({ onSelect }) {
+  return (
+    <div style={{position:'fixed',inset:0,background:'#1a1a1a',display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',padding:32}}>
+      <img src='/logo.png' alt='Logo' style={{height:72,objectFit:'contain',marginBottom:16}}/>
+      <h1 style={{fontFamily:'Playfair Display,serif',fontSize:30,fontWeight:700,color:'#fff',letterSpacing:3,marginBottom:6}}>Esencial FC</h1>
+      <div style={{width:40,height:2,background:'#fff',margin:'0 auto 40px'}}/>
+      <div style={{display:'flex',flexDirection:'column',gap:14,width:'100%',maxWidth:320}}>
+        <button onClick={()=>onSelect('admin')} style={{
+          padding:'18px 24px',background:'#fff',color:'#1a1a1a',border:'none',borderRadius:13,
+          fontFamily:'DM Sans,sans-serif',fontSize:14,fontWeight:700,letterSpacing:2,
+          textTransform:'uppercase',cursor:'pointer',transition:'0.2s'
+        }}>Administracion</button>
+        <button onClick={()=>onSelect('cliente')} style={{
+          padding:'18px 24px',background:'transparent',color:'#fff',
+          border:'2px solid #fff',borderRadius:13,
+          fontFamily:'DM Sans,sans-serif',fontSize:14,fontWeight:700,letterSpacing:2,
+          textTransform:'uppercase',cursor:'pointer',transition:'0.2s'
+        }}>Clientes</button>
+      </div>
+      <p style={{color:'#555',fontSize:11,letterSpacing:2,textTransform:'uppercase',marginTop:40}}>Selecciona tu tipo de acceso</p>
+    </div>
+  )
+}
+
+// ==========================================
+// REGISTRO CLIENTE
+// ==========================================
+function ClienteRegistro({ onRegistrado, onSinRegistro, onVolver }) {
+  const [modo, setModo] = useState(null) // null | 'registro'
+  const [nombre, setNombre] = useState('')
+  const [cedula, setCedula] = useState('')
+  const [direccion, setDireccion] = useState('')
+  const [referencia, setReferencia] = useState('')
+  const [telefono, setTelefono] = useState('')
+  const [msg, setMsg] = useState(null)
+  const [loading, setLoading] = useState(false)
+
+  async function registrar() {
+    if (!nombre) { setMsg('El nombre es obligatorio'); return }
+    if (!direccion) { setMsg('La dirección es obligatoria'); return }
+    if (!telefono) { setMsg('El teléfono es obligatorio'); return }
+    setLoading(true); setMsg(null)
+    const perfil = { nombre, cedula, direccion, referencia, telefono, creadoEn: new Date().toISOString() }
+    try {
+      await addDoc(collection(db,'clientes'), perfil)
+      localStorage.setItem('esencial_cliente', JSON.stringify(perfil))
+      onRegistrado(perfil)
+    } catch(e) {
+      // Guardar local si falla Firestore
+      localStorage.setItem('esencial_cliente', JSON.stringify(perfil))
+      onRegistrado(perfil)
+    }
+    setLoading(false)
+  }
+
+  if (!modo) return (
+    <div style={{position:'fixed',inset:0,background:'#fff',display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',padding:28}}>
+      <button onClick={onVolver} style={{position:'absolute',top:20,left:20,background:'none',border:'none',fontSize:22,cursor:'pointer',color:'#999'}}>←</button>
+      <img src='/logo.png' alt='Logo' style={{height:56,objectFit:'contain',marginBottom:14}}/>
+      <h2 style={{fontFamily:'Playfair Display,serif',fontSize:26,fontWeight:700,marginBottom:6}}>Esencial FC</h2>
+      <div style={{width:32,height:2,background:'#1a1a1a',margin:'0 auto 32px'}}/>
+      <div style={{display:'flex',flexDirection:'column',gap:12,width:'100%',maxWidth:320}}>
+        <button onClick={()=>setModo('registro')} style={{
+          padding:'16px',background:'#1a1a1a',color:'#fff',border:'none',borderRadius:11,
+          fontFamily:'DM Sans,sans-serif',fontSize:13,fontWeight:700,letterSpacing:2,textTransform:'uppercase',cursor:'pointer'
+        }}>Registrarme</button>
+        <button onClick={onSinRegistro} style={{
+          padding:'16px',background:'#fff',color:'#1a1a1a',border:'2px solid #1a1a1a',borderRadius:11,
+          fontFamily:'DM Sans,sans-serif',fontSize:13,fontWeight:700,letterSpacing:2,textTransform:'uppercase',cursor:'pointer'
+        }}>Ingresar sin registrarme</button>
+      </div>
+    </div>
+  )
+
+  return (
+    <div style={{position:'fixed',inset:0,background:'#fff',overflowY:'auto',padding:'24px 24px 40px'}}>
+      <button onClick={()=>setModo(null)} style={{background:'none',border:'none',fontSize:22,cursor:'pointer',color:'#999',marginBottom:16}}>←</button>
+      <h2 style={{fontFamily:'Playfair Display,serif',fontSize:24,fontWeight:700,marginBottom:4}}>Crear perfil</h2>
+      <p style={{fontSize:12,color:'#999',marginBottom:24}}>Tus datos para entregas y pedidos</p>
+
+      <div style={{marginBottom:14}}>
+        <label style={{display:'block',fontSize:10,letterSpacing:2,textTransform:'uppercase',color:'#999',marginBottom:6,fontWeight:600}}>Nombres *</label>
+        <input value={nombre} onChange={e=>setNombre(e.target.value)} placeholder='Tu nombre completo'
+          style={{width:'100%',border:'1.5px solid #d0d0d0',borderRadius:9,fontFamily:'DM Sans,sans-serif',fontSize:13,padding:'12px 14px',outline:'none',color:'#1a1a1a'}}/>
+      </div>
+      <div style={{marginBottom:14}}>
+        <label style={{display:'block',fontSize:10,letterSpacing:2,textTransform:'uppercase',color:'#999',marginBottom:6,fontWeight:600}}>ID / Cedula <span style={{color:'#bbb',fontWeight:400,textTransform:'none',letterSpacing:0}}>(opcional, para factura)</span></label>
+        <input value={cedula} onChange={e=>setCedula(e.target.value)} placeholder='0000000000'
+          style={{width:'100%',border:'1.5px solid #d0d0d0',borderRadius:9,fontFamily:'DM Sans,sans-serif',fontSize:13,padding:'12px 14px',outline:'none',color:'#1a1a1a'}}/>
+      </div>
+      <div style={{marginBottom:14}}>
+        <label style={{display:'block',fontSize:10,letterSpacing:2,textTransform:'uppercase',color:'#999',marginBottom:6,fontWeight:600}}>Direccion * <span style={{color:'#bbb',fontWeight:400,textTransform:'none',letterSpacing:0}}>(ubicacion, lugar o barrio)</span></label>
+        <input value={direccion} onChange={e=>setDireccion(e.target.value)} placeholder='Barrio Las Palmas, calle principal'
+          style={{width:'100%',border:'1.5px solid #d0d0d0',borderRadius:9,fontFamily:'DM Sans,sans-serif',fontSize:13,padding:'12px 14px',outline:'none',color:'#1a1a1a'}}/>
+      </div>
+      <div style={{marginBottom:14}}>
+        <label style={{display:'block',fontSize:10,letterSpacing:2,textTransform:'uppercase',color:'#999',marginBottom:6,fontWeight:600}}>Referencia <span style={{color:'#bbb',fontWeight:400,textTransform:'none',letterSpacing:0}}>(opcional)</span></label>
+        <textarea value={referencia} onChange={e=>setReferencia(e.target.value)} placeholder='Casa azul, portón negro, junto al parque...'
+          style={{width:'100%',border:'1.5px solid #d0d0d0',borderRadius:9,fontFamily:'DM Sans,sans-serif',fontSize:13,padding:'12px 14px',outline:'none',color:'#1a1a1a',minHeight:60,resize:'vertical'}}/>
+      </div>
+      <div style={{marginBottom:20}}>
+        <label style={{display:'block',fontSize:10,letterSpacing:2,textTransform:'uppercase',color:'#999',marginBottom:6,fontWeight:600}}>Telefono *</label>
+        <input value={telefono} onChange={e=>setTelefono(e.target.value)} placeholder='09XXXXXXXX' type='tel'
+          style={{width:'100%',border:'1.5px solid #d0d0d0',borderRadius:9,fontFamily:'DM Sans,sans-serif',fontSize:13,padding:'12px 14px',outline:'none',color:'#1a1a1a'}}/>
+      </div>
+      {msg && <div style={{background:'#ffebee',color:'#c62828',borderRadius:8,padding:'10px 14px',fontSize:12,marginBottom:14}}>{msg}</div>}
+      <button onClick={registrar} disabled={loading} style={{
+        width:'100%',padding:'15px',background: loading?'#e8e8e8':'#1a1a1a',color: loading?'#999':'#fff',
+        border:'none',borderRadius:11,fontFamily:'DM Sans,sans-serif',fontSize:13,fontWeight:700,
+        letterSpacing:2,textTransform:'uppercase',cursor: loading?'not-allowed':'pointer'
+      }}>{loading?'Guardando...':'Crear perfil'}</button>
+    </div>
+  )
+}
+
+// ==========================================
+// APP CLIENTE
+// ==========================================
+function ClienteApp({ onVolver }) {
+  const [menu, setMenu] = useState([])
+  const [loadingMenu, setLoadingMenu] = useState(true)
+  const [indice, setIndice] = useState(0)
+  const [cantidades, setCantidades] = useState({})
+  const [modalPedido, setModalPedido] = useState(false)
+  const [modalRegistro, setModalRegistro] = useState(false)
+  const [cliente, setCliente] = useState(() => {
+    try { return JSON.parse(localStorage.getItem('esencial_cliente')) } catch(e) { return null }
+  })
+  // Datos cliente sin registro (para el modal de pedido)
+  const [tmpNombre, setTmpNombre] = useState('')
+  const [tmpTel, setTmpTel] = useState('')
+  const [tmpDir, setTmpDir] = useState('')
+  // Swipe
+  const touchStartX = useRef(null)
+  const touchStartY = useRef(null)
+  const [animDir, setAnimDir] = useState(null)
+  const [imgError, setImgError] = useState({})
+  // Editar perfil desde cliente
+  const [editando, setEditando] = useState(false)
+
+  useEffect(() => {
+    const q = query(collection(db,'menu'), where('disponible','==',true))
+    const unsub = onSnapshot(q, snap => {
+      setMenu(snap.docs.map(d => ({id:d.id,...d.data()})))
+      setLoadingMenu(false)
+    }, () => setLoadingMenu(false))
+    return unsub
+  }, [])
+
+  const prod = menu[indice]
+  const carrito = Object.entries(cantidades).filter(([,c])=>c>0).map(([id,cant])=>{
+    const item = menu.find(m=>m.id===id)
+    return item ? {...item, cantidad: cant} : null
+  }).filter(Boolean)
+  const total = carrito.reduce((s,x)=>s+x.precio*x.cantidad,0)
+  const totalItems = carrito.reduce((s,x)=>s+x.cantidad,0)
+
+  function addCant(id, delta) {
+    setCantidades(p => ({...p, [id]: Math.max(0,(p[id]||0)+delta)}))
+  }
+
+  function onTouchStart(e) {
+    touchStartX.current = e.touches[0].clientX
+    touchStartY.current = e.touches[0].clientY
+  }
+
+  function onTouchEnd(e) {
+    if (touchStartX.current === null) return
+    const dx = e.changedTouches[0].clientX - touchStartX.current
+    const dy = Math.abs(e.changedTouches[0].clientY - touchStartY.current)
+    if (Math.abs(dx) < 50 || dy > 80) return
+    if (dx < 0 && indice < menu.length-1) { setAnimDir('left'); setIndice(i=>i+1) }
+    else if (dx > 0 && indice > 0) { setAnimDir('right'); setIndice(i=>i-1) }
+    touchStartX.current = null
+    setTimeout(()=>setAnimDir(null),300)
+  }
+
+  function enviarWhatsApp() {
+    const n = cliente?.nombre || tmpNombre
+    const tel = cliente?.telefono || tmpTel
+    const dir = cliente?.direccion || tmpDir
+    if (!n || !tel) { showToast('warn','Completa tu nombre y teléfono'); return }
+    if (carrito.length===0) { showToast('warn','Agrega productos al pedido'); return }
+    const lineas = carrito.map(x=>`  • ${x.cantidad}x ${x.nombre} — $${(x.precio*x.cantidad).toFixed(2)}`).join('%0A')
+    const msg = [
+      '*PEDIDO - Esencial FC*',
+      '----------------------------',
+      '*Cliente:* ' + n,
+      '*Telefono:* ' + tel,
+      dir ? '*Direccion:* ' + dir : '',
+      cliente?.referencia ? '*Referencia:* ' + cliente.referencia : '',
+      cliente?.cedula ? '*ID:* ' + cliente.cedula : '',
+      '----------------------------',
+      '*Productos:*',
+      lineas,
+      '----------------------------',
+      '*TOTAL: $' + total.toFixed(2) + '*',
+      '',
+      'Pedido enviado desde la app Esencial FC'
+    ].filter(Boolean).join('%0A')
+    window.open(`https://wa.me/593996368109?text=${msg}`, '_blank')
+    setModalPedido(false)
+    setCantidades({})
+    showToast('ok','Pedido enviado por WhatsApp')
+  }
+
+  if (loadingMenu) return (
+    <div style={{display:'flex',alignItems:'center',justifyContent:'center',height:'100vh',flexDirection:'column',gap:13}}>
+      <div style={{width:32,height:32,border:'2px solid #d0d0d0',borderTopColor:'#1a1a1a',borderRadius:'50%',animation:'spin 0.8s linear infinite'}}/>
+      <p style={{color:'#999',fontSize:12}}>Cargando menu...</p>
+    </div>
+  )
+
+  const imgSrc = prod ? (imgError[prod.id] ? (IMGS_CATEGORIA[prod.categoria]||IMGS_CATEGORIA['default']) : getImgProducto(prod)) : null
+
+  return (
+    <div style={{minHeight:'100vh',background:'#f7f7f7',display:'flex',flexDirection:'column',maxWidth:480,margin:'0 auto'}}>
+      <style>{`
+        @keyframes slideLeft{from{opacity:0;transform:translateX(60px)}to{opacity:1;transform:translateX(0)}}
+        @keyframes slideRight{from{opacity:0;transform:translateX(-60px)}to{opacity:1;transform:translateX(0)}}
+      `}</style>
+
+      {/* HEADER CLIENTE */}
+      <header style={{background:'#1a1a1a',padding:'0 16px',height:54,display:'flex',alignItems:'center',justifyContent:'space-between',position:'sticky',top:0,zIndex:100}}>
+        <div style={{display:'flex',alignItems:'center',gap:10}}>
+          <button onClick={onVolver} style={{background:'none',border:'none',color:'#888',fontSize:18,cursor:'pointer',padding:'0 4px 0 0'}}>←</button>
+          <h1 style={{fontFamily:'Playfair Display,serif',fontSize:16,fontWeight:700,color:'#fff',letterSpacing:2}}>Esencial FC</h1>
+        </div>
+        <button onClick={()=>cliente?setEditando(true):setModalRegistro(true)} style={{
+          width:36,height:36,borderRadius:'50%',border:'2px solid #555',
+          background:'#333',cursor:'pointer',overflow:'hidden',padding:0,flexShrink:0,
+          display:'flex',alignItems:'center',justifyContent:'center'
+        }}>
+          <span style={{color:'#ccc',fontSize:13,fontWeight:700}}>
+            {cliente ? cliente.nombre?.charAt(0)?.toUpperCase() : '+'}
+          </span>
+        </button>
+      </header>
+
+      {/* CONTENIDO PRINCIPAL */}
+      <div style={{flex:1,overflowY:'auto',paddingBottom:90}}>
+
+        {/* IMAGEN GRANDE - CARRUSEL */}
+        {prod && (
+          <div style={{position:'relative',background:'#111',userSelect:'none'}}
+            onTouchStart={onTouchStart} onTouchEnd={onTouchEnd}>
+            <img
+              key={prod.id}
+              src={imgSrc}
+              alt={prod.nombre}
+              onError={()=>setImgError(p=>({...p,[prod.id]:true}))}
+              style={{
+                width:'100%',height:280,objectFit:'cover',display:'block',
+                animation: animDir==='left'?'slideLeft 0.3s ease':animDir==='right'?'slideRight 0.3s ease':'none'
+              }}
+            />
+            {/* Overlay degradado */}
+            <div style={{position:'absolute',bottom:0,left:0,right:0,height:80,background:'linear-gradient(transparent,rgba(0,0,0,0.6))'}}/>
+            {/* Indicadores */}
+            <div style={{position:'absolute',bottom:12,left:0,right:0,display:'flex',justifyContent:'center',gap:5}}>
+              {menu.map((_,i)=>(
+                <div key={i} onClick={()=>setIndice(i)} style={{
+                  width: i===indice?20:6, height:6, borderRadius:3,
+                  background: i===indice?'#fff':'rgba(255,255,255,0.4)',
+                  transition:'0.3s',cursor:'pointer'
+                }}/>
+              ))}
+            </div>
+            {/* Flechas */}
+            {indice > 0 && (
+              <button onClick={()=>setIndice(i=>i-1)} style={{position:'absolute',left:10,top:'50%',transform:'translateY(-50%)',background:'rgba(0,0,0,0.4)',border:'none',color:'#fff',width:36,height:36,borderRadius:'50%',fontSize:18,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center'}}>‹</button>
+            )}
+            {indice < menu.length-1 && (
+              <button onClick={()=>setIndice(i=>i+1)} style={{position:'absolute',right:10,top:'50%',transform:'translateY(-50%)',background:'rgba(0,0,0,0.4)',border:'none',color:'#fff',width:36,height:36,borderRadius:'50%',fontSize:18,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center'}}>›</button>
+            )}
+          </div>
+        )}
+
+        {/* DETALLE PRODUCTO */}
+        {prod && (
+          <div key={prod.id} style={{background:'#fff',margin:'12px 12px 0',borderRadius:14,padding:'16px',border:'1px solid #e0e0e0',boxShadow:'0 2px 8px rgba(0,0,0,0.05)',
+            animation: animDir==='left'?'slideLeft 0.3s ease':animDir==='right'?'slideRight 0.3s ease':'none'}}>
+            <div style={{display:'flex',alignItems:'flex-start',justifyContent:'space-between',marginBottom:6}}>
+              <div style={{flex:1}}>
+                <h2 style={{fontFamily:'Playfair Display,serif',fontSize:20,fontWeight:700,color:'#1a1a1a',marginBottom:4}}>{prod.nombre}</h2>
+                <span style={{background:'#1a1a1a',color:'#fff',fontSize:9,fontWeight:700,letterSpacing:1,textTransform:'uppercase',padding:'3px 9px',borderRadius:100}}>{prod.categoria}</span>
+              </div>
+              <span style={{fontFamily:'Playfair Display,serif',fontSize:26,color:'#1a1a1a',fontWeight:700,marginLeft:12}}>${parseFloat(prod.precio).toFixed(2)}</span>
+            </div>
+            {prod.descripcion && <p style={{fontSize:13,color:'#666',lineHeight:1.6,marginTop:10}}>{prod.descripcion}</p>}
+            {/* Cantidad */}
+            <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginTop:14,paddingTop:14,borderTop:'1px solid #e0e0e0'}}>
+              <span style={{fontSize:12,fontWeight:600,color:'#666',letterSpacing:1,textTransform:'uppercase'}}>Cantidad</span>
+              <div style={{display:'flex',alignItems:'center',gap:12}}>
+                <button onClick={()=>addCant(prod.id,-1)} style={{width:34,height:34,borderRadius:'50%',border:'2px solid #d0d0d0',background:'#fff',fontSize:20,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',color:'#666'}}>-</button>
+                <span style={{fontSize:18,fontWeight:700,minWidth:24,textAlign:'center'}}>{cantidades[prod.id]||0}</span>
+                <button onClick={()=>addCant(prod.id,1)} style={{width:34,height:34,borderRadius:'50%',border:'none',background:'#1a1a1a',fontSize:20,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',color:'#fff'}}>+</button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* RESUMEN PEDIDO FIJO */}
+        <div style={{background:'#fff',margin:'12px 12px 0',borderRadius:14,padding:'14px 16px',border:'1px solid #e0e0e0',boxShadow:'0 2px 8px rgba(0,0,0,0.05)'}}>
+          <div style={{fontSize:10,letterSpacing:2,textTransform:'uppercase',color:'#999',fontWeight:600,marginBottom:10}}>Tu pedido</div>
+          {carrito.length === 0 ? (
+            <p style={{fontSize:12,color:'#ccc',textAlign:'center',padding:'10px 0'}}>Desliza y agrega productos</p>
+          ) : (
+            <>
+              {carrito.map(x=>(
+                <div key={x.id} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'5px 0',borderBottom:'1px solid #f0f0f0'}}>
+                  <div style={{flex:1}}>
+                    <span style={{fontSize:12,color:'#1a1a1a',fontWeight:500}}>{x.nombre}</span>
+                    <span style={{fontSize:11,color:'#999',marginLeft:8}}>x{x.cantidad}</span>
+                  </div>
+                  <div style={{display:'flex',alignItems:'center',gap:8}}>
+                    <span style={{fontSize:13,fontWeight:600}}>${(x.precio*x.cantidad).toFixed(2)}</span>
+                    <button onClick={()=>addCant(x.id,-x.cantidad)} style={{background:'none',border:'none',color:'#ccc',fontSize:16,cursor:'pointer',padding:'0 2px'}}>×</button>
+                  </div>
+                </div>
+              ))}
+              <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',paddingTop:10,marginTop:4}}>
+                <span style={{fontSize:10,letterSpacing:2,textTransform:'uppercase',color:'#666',fontWeight:600}}>Total</span>
+                <span style={{fontFamily:'Playfair Display,serif',fontSize:22,fontWeight:700}}>${total.toFixed(2)}</span>
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+
+      {/* BOTON REALIZAR PEDIDO */}
+      <div style={{position:'fixed',bottom:0,left:'50%',transform:'translateX(-50%)',width:'100%',maxWidth:480,padding:'12px 16px',background:'#fff',borderTop:'1px solid #e0e0e0',boxShadow:'0 -4px 16px rgba(0,0,0,0.08)'}}>
+        <button onClick={()=>{if(carrito.length===0){showToast('warn','Agrega productos primero');return}setModalPedido(true)}} style={{
+          width:'100%',padding:'15px',background: carrito.length>0?'#1a1a1a':'#e0e0e0',
+          color: carrito.length>0?'#fff':'#999',border:'none',borderRadius:11,
+          fontFamily:'DM Sans,sans-serif',fontSize:13,fontWeight:700,letterSpacing:2,
+          textTransform:'uppercase',cursor: carrito.length>0?'pointer':'not-allowed'
+        }}>
+          Realizar pedido {totalItems>0?`(${totalItems})`:''}
+        </button>
+      </div>
+
+      {/* MODAL PEDIDO */}
+      {modalPedido && (
+        <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.5)',zIndex:2000,display:'flex',alignItems:'flex-end'}}
+          onClick={e=>{if(e.target===e.currentTarget)setModalPedido(false)}}>
+          <div style={{background:'#fff',borderRadius:'20px 20px 0 0',width:'100%',maxWidth:480,margin:'0 auto',maxHeight:'90vh',overflowY:'auto',padding:'20px 20px 40px'}}>
+            <div style={{width:40,height:4,background:'#e0e0e0',borderRadius:2,margin:'0 auto 20px'}}/>
+            <h3 style={{fontFamily:'Playfair Display,serif',fontSize:20,marginBottom:4}}>Confirmar pedido</h3>
+            <p style={{fontSize:11,color:'#999',marginBottom:16}}>Revisa tu pedido antes de enviar</p>
+
+            {/* Detalle productos */}
+            <div style={{background:'#f8f8f8',borderRadius:11,padding:'12px 14px',marginBottom:14}}>
+              {carrito.map(x=>(
+                <div key={x.id} style={{display:'flex',justifyContent:'space-between',fontSize:13,padding:'4px 0',borderBottom:'1px solid #eee'}}>
+                  <span>{x.cantidad}x {x.nombre}</span>
+                  <span style={{fontWeight:600}}>${(x.precio*x.cantidad).toFixed(2)}</span>
+                </div>
+              ))}
+              <div style={{display:'flex',justifyContent:'space-between',paddingTop:9,marginTop:4,borderTop:'1.5px solid #d0d0d0'}}>
+                <span style={{fontSize:11,fontWeight:700,letterSpacing:1,textTransform:'uppercase',color:'#666'}}>Total</span>
+                <span style={{fontFamily:'Playfair Display,serif',fontSize:20,fontWeight:700}}>${total.toFixed(2)}</span>
+              </div>
+            </div>
+
+            {/* Datos cliente */}
+            <div style={{background:'#f8f8f8',borderRadius:11,padding:'14px',marginBottom:16}}>
+              <div style={{fontSize:10,letterSpacing:2,textTransform:'uppercase',color:'#999',fontWeight:600,marginBottom:10}}>Tus datos</div>
+              {cliente ? (
+                <>
+                  <div style={{fontSize:13,fontWeight:600,color:'#1a1a1a',marginBottom:3}}>{cliente.nombre}</div>
+                  <div style={{fontSize:12,color:'#666',marginBottom:2}}>{cliente.telefono}</div>
+                  <div style={{fontSize:12,color:'#666',marginBottom:2}}>{cliente.direccion}</div>
+                  {cliente.referencia && <div style={{fontSize:12,color:'#999'}}>{cliente.referencia}</div>}
+                  <button onClick={()=>{setModalPedido(false);setModalRegistro(true)}} style={{background:'none',border:'none',color:'#1a1a1a',fontSize:11,cursor:'pointer',textDecoration:'underline',padding:'6px 0 0',fontFamily:'DM Sans,sans-serif'}}>
+                    Editar datos
+                  </button>
+                </>
+              ) : (
+                <>
+                  <div style={{marginBottom:10}}>
+                    <label style={{display:'block',fontSize:9,letterSpacing:2,textTransform:'uppercase',color:'#999',marginBottom:5,fontWeight:600}}>Nombre *</label>
+                    <input value={tmpNombre} onChange={e=>setTmpNombre(e.target.value)} placeholder='Tu nombre'
+                      style={{width:'100%',border:'1.5px solid #d0d0d0',borderRadius:8,fontFamily:'DM Sans,sans-serif',fontSize:13,padding:'9px 12px',outline:'none'}}/>
+                  </div>
+                  <div style={{marginBottom:10}}>
+                    <label style={{display:'block',fontSize:9,letterSpacing:2,textTransform:'uppercase',color:'#999',marginBottom:5,fontWeight:600}}>Telefono *</label>
+                    <input value={tmpTel} onChange={e=>setTmpTel(e.target.value)} placeholder='09XXXXXXXX' type='tel'
+                      style={{width:'100%',border:'1.5px solid #d0d0d0',borderRadius:8,fontFamily:'DM Sans,sans-serif',fontSize:13,padding:'9px 12px',outline:'none'}}/>
+                  </div>
+                  <div>
+                    <label style={{display:'block',fontSize:9,letterSpacing:2,textTransform:'uppercase',color:'#999',marginBottom:5,fontWeight:600}}>Direccion</label>
+                    <input value={tmpDir} onChange={e=>setTmpDir(e.target.value)} placeholder='Barrio o lugar de entrega'
+                      style={{width:'100%',border:'1.5px solid #d0d0d0',borderRadius:8,fontFamily:'DM Sans,sans-serif',fontSize:13,padding:'9px 12px',outline:'none'}}/>
+                  </div>
+                </>
+              )}
+            </div>
+
+            <button onClick={enviarWhatsApp} style={{
+              width:'100%',padding:'15px',background:'#25d366',color:'#fff',border:'none',borderRadius:11,
+              fontFamily:'DM Sans,sans-serif',fontSize:13,fontWeight:700,letterSpacing:2,textTransform:'uppercase',cursor:'pointer'
+            }}>Enviar pedido por WhatsApp</button>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL REGISTRO desde dentro */}
+      {(modalRegistro || editando) && (
+        <div style={{position:'fixed',inset:0,zIndex:3000}}>
+          <ClienteRegistro
+            onRegistrado={(p)=>{setCliente(p);setModalRegistro(false);setEditando(false);showToast('ok','Perfil guardado')}}
+            onSinRegistro={()=>{setModalRegistro(false);setEditando(false)}}
+            onVolver={()=>{setModalRegistro(false);setEditando(false)}}
+          />
+        </div>
+      )}
+
+      <Toast/>
+    </div>
+  )
+}
+
+// ==========================================
+// APP WRAPPER - PUNTO DE ENTRADA
+// ==========================================
+export default function App() {
+  const [modo, setModo] = useState(() => localStorage.getItem('esencial_modo') || null)
+
+  function seleccionar(m) {
+    localStorage.setItem('esencial_modo', m)
+    setModo(m)
+  }
+
+  function volver() {
+    localStorage.removeItem('esencial_modo')
+    setModo(null)
+  }
+
+  if (!modo) return <><style>{G}</style><AppSelector onSelect={seleccionar}/></>
+  if (modo === 'cliente') return <><style>{G}</style><ClienteApp onVolver={volver}/></>
+  return <AdminApp/>
 }
