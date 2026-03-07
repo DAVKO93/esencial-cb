@@ -12,23 +12,25 @@
     <meta name="description" content="Sistema de pedidos Esencial FC" />
     <meta name="msapplication-TileColor" content="#1a1a1a" />
     <meta name="msapplication-TileImage" content="/icon-144x144.png" />
-
-    <!-- Íconos locales -->
-    <link rel="icon" type="image/png" sizes="32x32" href="/icon-96x96.png" />
+    <link rel="icon" type="image/png" sizes="96x96" href="/icon-96x96.png" />
     <link rel="icon" type="image/png" sizes="192x192" href="/icon-192x192.png" />
     <link rel="apple-touch-icon" sizes="152x152" href="/icon-152x152.png" />
     <link rel="apple-touch-icon" sizes="192x192" href="/icon-192x192.png" />
     <link rel="apple-touch-icon" sizes="512x512" href="/icon-512x512.png" />
-
-    <!-- Manifest -->
     <link rel="manifest" href="/manifest.json" />
-
-    <!-- Fonts -->
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;600;700&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet" />
-
     <title>Esencial FC</title>
+    <script>
+      if ('serviceWorker' in navigator) {
+        window.addEventListener('load', () => {
+          navigator.serviceWorker.register('/sw.js')
+            .then(r => console.log('SW registrado'))
+            .catch(e => console.log('SW error', e))
+        })
+      }
+    </script>
   </head>
   <body>
     <div id="root"></div>
