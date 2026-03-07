@@ -516,7 +516,7 @@ function AdminApp() {
   const [loadingMenu, setLoadingMenu] = useState(true)
   const [nombreEmpleado, setNombreEmpleado] = useState('')
   const [esAdmin, setEsAdmin] = useState(false)
-  const [fotoPerfil, setFotoPerfil] = useState(null)
+  const [fotoPerfil, setFotoPerfil] = useState(null) // se carga desde localStorage cuando hay user
   const [modalPerfil, setModalPerfil] = useState(false)
   const [modalAdmin, setModalAdmin] = useState(false)
   const [empleadosPendientes, setEmpleadosPendientes] = useState([])
@@ -564,6 +564,12 @@ function AdminApp() {
           setAprobado(true)
           setEsAdmin(true)
           setNombreEmpleado('Admin')
+          // Cargar foto del admin desde Firestore si existe
+          try {
+            const qa = query(collection(db,'usuarios'), where('uid','==',u.uid))
+            const sa = await getDocs(qa)
+            if (!sa.empty && sa.docs[0].data().foto) setFotoPerfil(sa.docs[0].data().foto)
+          } catch(e) {}
           setAuthReady(true)
           return
         }
@@ -866,6 +872,7 @@ function AdminApp() {
   async function guardarPerfil() {
     setLoadingPerfil(true)
     try {
+      // Guardar nombre y foto en Firestore (foto comprimida a ~20KB, bien bajo el límite)
       const q = query(collection(db,'usuarios'), where('uid','==',user.uid))
       const snap = await getDocs(q)
       const datos = { nombre: editNombre }
@@ -885,7 +892,22 @@ function AdminApp() {
     const file = e.target.files[0]
     if (!file) return
     const reader = new FileReader()
-    reader.onload = (ev) => setEditFoto(ev.target.result)
+    reader.onload = (ev) => {
+      // Comprimir imagen a max 200x200px y calidad 0.7 → siempre < 30KB
+      const img = new window.Image()
+      img.onload = () => {
+        const MAX = 200
+        const scale = Math.min(MAX / img.width, MAX / img.height, 1)
+        const w = Math.round(img.width * scale)
+        const h = Math.round(img.height * scale)
+        const canvas = document.createElement('canvas')
+        canvas.width = w; canvas.height = h
+        canvas.getContext('2d').drawImage(img, 0, 0, w, h)
+        const compressed = canvas.toDataURL('image/jpeg', 0.72)
+        setEditFoto(compressed)
+      }
+      img.src = ev.target.result
+    }
     reader.readAsDataURL(file)
   }
 
@@ -2729,9 +2751,19 @@ function ClienteApp({ onVolver }) {
                       if(!file) return
                       const reader=new FileReader()
                       reader.onload=ev=>{
-                        const b64=ev.target.result
-                        setFotoPerfilCliente(b64)
-                        try{localStorage.setItem('esencial_foto_cliente',b64)}catch(err){}
+                        const img=new window.Image()
+                        img.onload=()=>{
+                          const MAX=200
+                          const scale=Math.min(MAX/img.width,MAX/img.height,1)
+                          const canvas=document.createElement('canvas')
+                          canvas.width=Math.round(img.width*scale)
+                          canvas.height=Math.round(img.height*scale)
+                          canvas.getContext('2d').drawImage(img,0,0,canvas.width,canvas.height)
+                          const compressed=canvas.toDataURL('image/jpeg',0.72)
+                          setFotoPerfilCliente(compressed)
+                          try{localStorage.setItem('esencial_foto_cliente',compressed)}catch(err){}
+                        }
+                        img.src=ev.target.result
                       }
                       reader.readAsDataURL(file)
                     }}
