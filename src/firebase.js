@@ -1,6 +1,6 @@
 import { initializeApp } from 'firebase/app'
-import { getFirestore, enableIndexedDbPersistence } from 'firebase/firestore'
-import { getAuth } from 'firebase/auth'
+import { getFirestore, initializeFirestore, persistentLocalCache } from 'firebase/firestore'
+import { getAuth, setPersistence, browserLocalPersistence } from 'firebase/auth'
 
 const firebaseConfig = {
   apiKey: "AIzaSyD86yCDTkQnhl26o_sy3iERZE003keD3sA",
@@ -12,14 +12,17 @@ const firebaseConfig = {
 }
 
 const app = initializeApp(firebaseConfig)
-export const db = getFirestore(app)
+
+// Intentar con caché persistente — si IndexedDB fue borrado/bloqueado, caer a modo normal
+let db
+try {
+  db = initializeFirestore(app, { localCache: persistentLocalCache() })
+} catch {
+  db = getFirestore(app)
+}
+
+export { db }
 export const auth = getAuth(app)
 
-// Activar persistencia offline (IndexedDB)
-enableIndexedDbPersistence(db).catch((err) => {
-  if (err.code === 'failed-precondition') {
-    console.warn('Offline: multiples pestanas abiertas')
-  } else if (err.code === 'unimplemented') {
-    console.warn('Offline: navegador no soportado')
-  }
-})
+// Sesión activa sin internet
+setPersistence(auth, browserLocalPersistence).catch(() => {})

@@ -272,19 +272,13 @@ function Select({ label, value, onChange, options }) {
 }
 
 function Modal({ open, onClose, title, sub, icon, children, footer }) {
-  const [visible, setVisible] = useState(false)
-  useEffect(() => {
-    if (open) { setTimeout(() => setVisible(true), 10) }
-    else setVisible(false)
-  }, [open])
   if (!open) return null
   return (
     <div onClick={e=>{if(e.target===e.currentTarget){ Sound.play('tap'); onClose() }}}
       style={{position:'fixed',inset:0,
-        background: visible?'rgba(0,0,0,0.46)':'rgba(0,0,0,0)',
+        background:'rgba(0,0,0,0.46)',
         backdropFilter:'blur(4px)',
-        zIndex:2000,display:'flex',alignItems:'center',justifyContent:'center',padding:16,
-        transition:'background 0.22s ease'}}>
+        zIndex:2000,display:'flex',alignItems:'center',justifyContent:'center',padding:16}}>
       <div style={{background:'#fff',border:'1px solid #e0e0e0',borderRadius:16,width:'92%',maxWidth:460,
         overflow:'hidden',boxShadow:'0 24px 64px rgba(0,0,0,0.18)',
         animation:'modalIn 0.28s cubic-bezier(0.34,1.3,0.64,1)'}}>
@@ -2080,7 +2074,7 @@ function getImgProducto(item) {
 // ==========================================
 function AppSelector({ onSelect }) {
   const [pwaListo, setPwaListo] = useState(false)
-  const [instalada, setInstalada] = useState(window.matchMedia('(display-mode: standalone)').matches)
+  const [instalada, setInstalada] = useState(() => { try { return window.matchMedia('(display-mode: standalone)').matches } catch { return false } })
 
   useEffect(() => {
     if (window.__pwaInstallPrompt) setPwaListo(true)
