@@ -1879,6 +1879,27 @@ function getImgProducto(item) {
 // SELECTOR INICIAL
 // ==========================================
 function AppSelector({ onSelect }) {
+  const [pwaListo, setPwaListo] = useState(false)
+  const [instalada, setInstalada] = useState(window.matchMedia('(display-mode: standalone)').matches)
+
+  useEffect(() => {
+    if (window.__pwaInstallPrompt) setPwaListo(true)
+    const handler = () => setPwaListo(true)
+    window.addEventListener('pwaInstallReady', handler)
+    return () => window.removeEventListener('pwaInstallReady', handler)
+  }, [])
+
+  async function instalarApp() {
+    const prompt = window.__pwaInstallPrompt
+    if (!prompt) return
+    prompt.prompt()
+    const { outcome } = await prompt.userChoice
+    if (outcome === 'accepted') {
+      setInstalada(true)
+      setPwaListo(false)
+    }
+  }
+
   return (
     <div style={{position:'fixed',inset:0,background:'#1a1a1a',display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',padding:32}}>
       <img src='/logo.png' alt='Logo' style={{height:72,objectFit:'contain',marginBottom:16}}/>
@@ -1896,6 +1917,21 @@ function AppSelector({ onSelect }) {
           fontFamily:'DM Sans,sans-serif',fontSize:14,fontWeight:700,letterSpacing:2,
           textTransform:'uppercase',cursor:'pointer',transition:'0.2s'
         }}>Clientes</button>
+        {!instalada && pwaListo && (
+          <button onClick={instalarApp} style={{
+            padding:'16px 24px',background:'#2a5298',color:'#fff',border:'none',
+            borderRadius:13,fontFamily:'DM Sans,sans-serif',fontSize:13,fontWeight:700,
+            letterSpacing:1,textTransform:'uppercase',cursor:'pointer',
+            display:'flex',alignItems:'center',justifyContent:'center',gap:10
+          }}>
+            <span style={{fontSize:18}}>📲</span> Instalar App
+          </button>
+        )}
+        {instalada && (
+          <div style={{textAlign:'center',fontSize:11,color:'#555',paddingTop:4,letterSpacing:1}}>
+            ✓ App instalada
+          </div>
+        )}
       </div>
       <p style={{color:'#555',fontSize:11,letterSpacing:2,textTransform:'uppercase',marginTop:40}}>Selecciona tu tipo de acceso</p>
     </div>
