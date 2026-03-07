@@ -7,44 +7,40 @@ export default defineConfig({
     react(),
     VitePWA({
       registerType: 'autoUpdate',
-      devOptions: { enabled: true },
-      includeAssets: ['logo.png', 'icon-192.png', 'icon-512.png'],
+      injectRegister: 'auto',
+      includeAssets: [
+        'logo.png',
+        'icon-*.png'
+      ],
       manifest: {
         name: 'Esencial FC',
         short_name: 'Esencial FC',
         description: 'Sistema de pedidos Esencial FC',
-        theme_color: '#1a1a1a',
-        background_color: '#1a1a1a',
-        display: 'standalone',
-        orientation: 'any',
-        scope: '/',
         start_url: '/',
+        scope: '/',
+        display: 'standalone',
+        background_color: '#1a1a1a',
+        theme_color: '#1a1a1a',
+        orientation: 'any',
         lang: 'es',
+        categories: ['food', 'business'],
         icons: [
-          {
-            src: 'icon-192.png',
-            sizes: '192x192',
-            type: 'image/png',
-            purpose: 'any'
-          },
-          {
-            src: 'icon-192.png',
-            sizes: '192x192',
-            type: 'image/png',
-            purpose: 'maskable'
-          },
-          {
-            src: 'icon-512.png',
-            sizes: '512x512',
-            type: 'image/png',
-            purpose: 'any'
-          },
-          {
-            src: 'icon-512.png',
-            sizes: '512x512',
-            type: 'image/png',
-            purpose: 'maskable'
-          }
+          { src: '/icon-72x72.png',            sizes: '72x72',   type: 'image/png', purpose: 'any' },
+          { src: '/icon-72x72-maskable.png',   sizes: '72x72',   type: 'image/png', purpose: 'maskable' },
+          { src: '/icon-96x96.png',            sizes: '96x96',   type: 'image/png', purpose: 'any' },
+          { src: '/icon-96x96-maskable.png',   sizes: '96x96',   type: 'image/png', purpose: 'maskable' },
+          { src: '/icon-128x128.png',          sizes: '128x128', type: 'image/png', purpose: 'any' },
+          { src: '/icon-128x128-maskable.png', sizes: '128x128', type: 'image/png', purpose: 'maskable' },
+          { src: '/icon-144x144.png',          sizes: '144x144', type: 'image/png', purpose: 'any' },
+          { src: '/icon-144x144-maskable.png', sizes: '144x144', type: 'image/png', purpose: 'maskable' },
+          { src: '/icon-152x152.png',          sizes: '152x152', type: 'image/png', purpose: 'any' },
+          { src: '/icon-152x152-maskable.png', sizes: '152x152', type: 'image/png', purpose: 'maskable' },
+          { src: '/icon-192x192.png',          sizes: '192x192', type: 'image/png', purpose: 'any' },
+          { src: '/icon-192x192-maskable.png', sizes: '192x192', type: 'image/png', purpose: 'maskable' },
+          { src: '/icon-384x384.png',          sizes: '384x384', type: 'image/png', purpose: 'any' },
+          { src: '/icon-384x384-maskable.png', sizes: '384x384', type: 'image/png', purpose: 'maskable' },
+          { src: '/icon-512x512.png',          sizes: '512x512', type: 'image/png', purpose: 'any' },
+          { src: '/icon-512x512-maskable.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' }
         ]
       },
       workbox: {
@@ -75,6 +71,15 @@ export default defineConfig({
             options: {
               cacheName: 'images-cache',
               expiration: { maxEntries: 50, maxAgeSeconds: 60 * 60 * 24 * 30 }
+            }
+          },
+          {
+            urlPattern: /^https:\/\/firestore\.googleapis\.com\/.*/i,
+            handler: 'NetworkFirst',
+            options: {
+              cacheName: 'firebase-cache',
+              networkTimeoutSeconds: 5,
+              expiration: { maxEntries: 100, maxAgeSeconds: 60 * 60 * 24 }
             }
           }
         ]
