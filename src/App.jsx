@@ -13,34 +13,191 @@ import {
 
 const G = `
   *{margin:0;padding:0;box-sizing:border-box;}
-  body{font-family:'DM Sans',sans-serif;background:#f7f7f7;color:#0d0d0d;min-height:100vh;}
+  body{font-family:'Poppins',sans-serif;background:#f7f7f7;color:#0d0d0d;min-height:100vh;}
   ::-webkit-scrollbar{width:4px;}
   ::-webkit-scrollbar-track{background:#f4f4f4;}
   ::-webkit-scrollbar-thumb{background:#ccc;border-radius:2px;}
+
+  /* Spinner */
   @keyframes spin{to{transform:rotate(360deg);}}
-  @keyframes tin{from{opacity:0;transform:translateX(30px);}to{opacity:1;transform:translateX(0);}}
-  @keyframes fadeIn{from{opacity:0;transform:translateY(10px);}to{opacity:1;transform:translateY(0);}}
+
+  /* Toast entrada */
+  @keyframes toastIn{
+    from{opacity:0;transform:translateX(40px) scale(0.95);}
+    to{opacity:1;transform:translateX(0) scale(1);}
+  }
+  @keyframes toastOut{
+    from{opacity:1;transform:translateX(0) scale(1);}
+    to{opacity:0;transform:translateX(40px) scale(0.95);}
+  }
+
+  /* Modal entrada suave */
+  @keyframes modalIn{
+    from{opacity:0;transform:translateY(18px) scale(0.97);}
+    to{opacity:1;transform:translateY(0) scale(1);}
+  }
+
+  /* Sheet (modal bottom) */
+  @keyframes sheetIn{
+    from{transform:translateY(100%);}
+    to{transform:translateY(0);}
+  }
+
+  /* Fade general */
+  @keyframes fadeIn{from{opacity:0;transform:translateY(8px);}to{opacity:1;transform:translateY(0);}}
+  @keyframes fadeUp{from{opacity:0;transform:translateY(16px);}to{opacity:1;transform:translateY(0);}}
+
+  /* Badge bounce */
+  @keyframes badgePop{
+    0%{transform:scale(1);}
+    40%{transform:scale(1.45);}
+    70%{transform:scale(0.9);}
+    100%{transform:scale(1);}
+  }
+
+  /* Pulse suave para botón carrito con items */
+  @keyframes cartPulse{
+    0%,100%{box-shadow:0 0 0 0 rgba(26,26,26,0.18);}
+    50%{box-shadow:0 0 0 6px rgba(26,26,26,0);}
+  }
+
+  /* Ripple */
+  @keyframes ripple{
+    from{transform:scale(0);opacity:0.35;}
+    to{transform:scale(3.5);opacity:0;}
+  }
+
+  /* Press scale en botones */
+  .btn-press:active{transform:scale(0.96);}
+  .btn-press{transition:transform 0.12s ease,opacity 0.12s ease;}
+
+  /* Tabs con transición */
+  @keyframes tabFade{from{opacity:0;transform:translateX(10px);}to{opacity:1;transform:translateX(0);}}
+
+  /* Item card hover */
+  .card-item{transition:box-shadow 0.2s ease,transform 0.15s ease;}
+  .card-item:active{transform:scale(0.985);}
+
+  /* Skeleton shimmer */
+  @keyframes shimmer{
+    0%{background-position:-400px 0;}
+    100%{background-position:400px 0;}
+  }
+  .skeleton{
+    background:linear-gradient(90deg,#f0f0f0 25%,#e0e0e0 50%,#f0f0f0 75%);
+    background-size:400px 100%;
+    animation:shimmer 1.4s infinite;
+    border-radius:6px;
+  }
+
+  /* Cantidad animada */
+  @keyframes numPop{
+    0%{transform:scale(1);}
+    50%{transform:scale(1.35);}
+    100%{transform:scale(1);}
+  }
+  .num-pop{animation:numPop 0.2s ease;}
 `
+
+// ==========================================
+// SISTEMA DE SONIDOS (Web Audio API)
+// ==========================================
+const Sound = {
+  ctx: null,
+  init() {
+    if (!this.ctx) {
+      try { this.ctx = new (window.AudioContext || window.webkitAudioContext)() } catch(e) {}
+    }
+    if (this.ctx?.state === 'suspended') this.ctx.resume()
+  },
+  play(type) {
+    this.init()
+    if (!this.ctx) return
+    const ctx = this.ctx
+    const g = ctx.createGain()
+    g.connect(ctx.destination)
+    const o = ctx.createOscillator()
+    o.connect(g)
+    const now = ctx.currentTime
+    if (type === 'tap') {
+      // Click suave - tap en botones
+      o.type = 'sine'; o.frequency.setValueAtTime(520, now)
+      g.gain.setValueAtTime(0.06, now)
+      g.gain.exponentialRampToValueAtTime(0.001, now + 0.08)
+      o.start(now); o.stop(now + 0.08)
+    } else if (type === 'add') {
+      // Agregar producto al carrito
+      o.type = 'sine'; o.frequency.setValueAtTime(660, now)
+      o.frequency.exponentialRampToValueAtTime(880, now + 0.12)
+      g.gain.setValueAtTime(0.07, now)
+      g.gain.exponentialRampToValueAtTime(0.001, now + 0.18)
+      o.start(now); o.stop(now + 0.18)
+    } else if (type === 'remove') {
+      // Quitar producto
+      o.type = 'sine'; o.frequency.setValueAtTime(440, now)
+      o.frequency.exponentialRampToValueAtTime(330, now + 0.1)
+      g.gain.setValueAtTime(0.05, now)
+      g.gain.exponentialRampToValueAtTime(0.001, now + 0.12)
+      o.start(now); o.stop(now + 0.12)
+    } else if (type === 'success') {
+      // Pedido confirmado / acción exitosa
+      const freqs = [523, 659, 784]
+      freqs.forEach((f, i) => {
+        const o2 = ctx.createOscillator()
+        const g2 = ctx.createGain()
+        o2.connect(g2); g2.connect(ctx.destination)
+        o2.type = 'sine'; o2.frequency.setValueAtTime(f, now + i*0.1)
+        g2.gain.setValueAtTime(0.06, now + i*0.1)
+        g2.gain.exponentialRampToValueAtTime(0.001, now + i*0.1 + 0.2)
+        o2.start(now + i*0.1); o2.stop(now + i*0.1 + 0.2)
+      })
+      return
+    } else if (type === 'notify') {
+      // Nuevo pedido en admin
+      const o2 = ctx.createOscillator()
+      const g2 = ctx.createGain()
+      o2.connect(g2); g2.connect(ctx.destination)
+      o2.type = 'sine'
+      o2.frequency.setValueAtTime(880, now)
+      o2.frequency.setValueAtTime(660, now + 0.15)
+      g2.gain.setValueAtTime(0.08, now)
+      g2.gain.exponentialRampToValueAtTime(0.001, now + 0.3)
+      o2.start(now); o2.stop(now + 0.3)
+      return
+    } else if (type === 'error') {
+      o.type = 'sawtooth'; o.frequency.setValueAtTime(180, now)
+      g.gain.setValueAtTime(0.05, now)
+      g.gain.exponentialRampToValueAtTime(0.001, now + 0.15)
+      o.start(now); o.stop(now + 0.15)
+    }
+  }
+}
 
 let toastFn = null
 function Toast() {
   const [toasts, setToasts] = useState([])
   toastFn = (type, msg) => {
     const id = Date.now()
+    // Sonido según tipo
+    if (type === 'ok') Sound.play('success')
+    else if (type === 'err') Sound.play('error')
     setToasts(p => [...p, { id, type, msg }])
-    setTimeout(() => setToasts(p => p.filter(t => t.id !== id)), 4000)
+    setTimeout(() => setToasts(p => p.filter(t => t.id !== id)), 3500)
   }
+  const colors = { ok:'#22c55e', warn:'#f59e0b', err:'#ef4444' }
+  const labels  = { ok:'✓', warn:'!', err:'×' }
   return (
-    <div style={{ position:'fixed', bottom:80, right:16, zIndex:3000, display:'flex', flexDirection:'column', gap:8 }}>
+    <div style={{position:'fixed',bottom:90,right:16,zIndex:3000,display:'flex',flexDirection:'column',gap:8,pointerEvents:'none'}}>
       {toasts.map(t => (
         <div key={t.id} style={{
-          background:'#fff', border:'1px solid #e0e0e0', borderRadius:9, padding:'11px 16px',
-          minWidth:240, display:'flex', alignItems:'center', gap:10,
-          boxShadow:'0 8px 24px rgba(0,0,0,0.11)', animation:'tin 0.3s ease',
-          borderLeft: t.type==='ok'?'4px solid #4caf50':t.type==='warn'?'4px solid #ff9800':'4px solid #f44336'
+          background:'#1a1a1a', borderRadius:10, padding:'11px 16px',
+          minWidth:220, maxWidth:280, display:'flex', alignItems:'center', gap:10,
+          boxShadow:'0 8px 32px rgba(0,0,0,0.22)',
+          animation:'toastIn 0.28s cubic-bezier(0.34,1.4,0.64,1)',
+          borderLeft:`3px solid ${colors[t.type]}`
         }}>
-          <span style={{fontSize:11,fontWeight:700}}>{t.type==='ok'?'OK':t.type==='warn'?'!':'X'}</span>
-          <span style={{fontSize:12,color:'#0d0d0d'}}>{t.msg}</span>
+          <span style={{fontSize:11,fontWeight:700,color:colors[t.type],flexShrink:0}}>{labels[t.type]}</span>
+          <span style={{fontSize:11,color:'#e0e0e0',fontFamily:'Poppins,sans-serif',fontWeight:400,lineHeight:1.4}}>{t.msg}</span>
         </div>
       ))}
     </div>
@@ -58,17 +215,35 @@ function Spinner() {
 }
 
 function Btn({ children, onClick, disabled, variant='primary', style={} }) {
+  const [pressing, setPressing] = useState(false)
+  function handleClick(e) {
+    if (disabled) return
+    Sound.play('tap')
+    setPressing(true)
+    setTimeout(() => setPressing(false), 120)
+    onClick && onClick(e)
+  }
   const base = {
     padding:'11px 20px', borderRadius:9, fontFamily:'Poppins,sans-serif',
     fontSize:12, fontWeight:600, letterSpacing:1, textTransform:'uppercase',
-    cursor: disabled?'not-allowed':'pointer', border:'none', transition:'all 0.2s', ...style
+    cursor: disabled?'not-allowed':'pointer', border:'none',
+    transition:'transform 0.12s ease, opacity 0.12s ease, box-shadow 0.18s ease',
+    transform: pressing ? 'scale(0.96)' : 'scale(1)',
+    opacity: pressing ? 0.85 : 1,
+    ...style
   }
   const variants = {
-    primary: { background: disabled?'#e8e8e8':'#1a1a1a', color: disabled?'#999':'#fff' },
-    danger:  { background:'#c62828', color:'#fff' },
+    primary: { background: disabled?'#e8e8e8':'#1a1a1a', color: disabled?'#999':'#fff',
+      boxShadow: pressing?'none':'0 2px 8px rgba(0,0,0,0.13)' },
+    danger:  { background:'#c62828', color:'#fff',
+      boxShadow: pressing?'none':'0 2px 8px rgba(198,40,40,0.18)' },
     sec:     { background:'#fff', color:'#666', border:'1.5px solid #d0d0d0' }
   }
-  return <button style={{...base,...variants[variant]}} onClick={onClick} disabled={disabled}>{children}</button>
+  return (
+    <button style={{...base,...variants[variant]}} onClick={handleClick} disabled={disabled}>
+      {children}
+    </button>
+  )
 }
 
 function Input({ label, type='text', value, onChange, placeholder, readonly }) {
@@ -97,23 +272,36 @@ function Select({ label, value, onChange, options }) {
 }
 
 function Modal({ open, onClose, title, sub, icon, children, footer }) {
+  const [visible, setVisible] = useState(false)
+  useEffect(() => {
+    if (open) { setTimeout(() => setVisible(true), 10) }
+    else setVisible(false)
+  }, [open])
   if (!open) return null
   return (
-    <div onClick={e=>{if(e.target===e.currentTarget)onClose()}}
-      style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.46)',backdropFilter:'blur(5px)',
-        zIndex:2000,display:'flex',alignItems:'center',justifyContent:'center',padding:16}}>
+    <div onClick={e=>{if(e.target===e.currentTarget){ Sound.play('tap'); onClose() }}}
+      style={{position:'fixed',inset:0,
+        background: visible?'rgba(0,0,0,0.46)':'rgba(0,0,0,0)',
+        backdropFilter:'blur(4px)',
+        zIndex:2000,display:'flex',alignItems:'center',justifyContent:'center',padding:16,
+        transition:'background 0.22s ease'}}>
       <div style={{background:'#fff',border:'1px solid #e0e0e0',borderRadius:16,width:'92%',maxWidth:460,
-        overflow:'hidden',boxShadow:'0 20px 60px rgba(0,0,0,0.18)',animation:'fadeIn 0.25s ease'}}>
-        <div style={{padding:'16px 20px',borderBottom:'1px solid #e0e0e0',display:'flex',alignItems:'center',gap:13,background:'#f4f4f4'}}>
-          {icon && <div style={{width:38,height:38,background:'#1a1a1a',borderRadius:9,display:'flex',alignItems:'center',justifyContent:'center',color:'#fff',fontWeight:700,fontSize:13}}>{icon}</div>}
+        overflow:'hidden',boxShadow:'0 24px 64px rgba(0,0,0,0.18)',
+        animation:'modalIn 0.28s cubic-bezier(0.34,1.3,0.64,1)'}}>
+        <div style={{padding:'16px 20px',borderBottom:'1px solid #e0e0e0',display:'flex',alignItems:'center',gap:13,background:'#f9f9f9'}}>
+          {icon && <div style={{width:36,height:36,background:'#1a1a1a',borderRadius:8,display:'flex',alignItems:'center',justifyContent:'center',color:'#fff',fontWeight:700,fontSize:13,flexShrink:0}}>{icon}</div>}
           <div style={{flex:1}}>
-            <div style={{fontFamily:'Poppins,sans-serif',fontSize:17,color:'#1a1a1a'}}>{title}</div>
-            {sub && <div style={{fontSize:11,color:'#999',marginTop:2}}>{sub}</div>}
+            <div style={{fontFamily:'Poppins,sans-serif',fontSize:15,fontWeight:600,color:'#1a1a1a'}}>{title}</div>
+            {sub && <div style={{fontSize:11,color:'#aaa',marginTop:2,fontFamily:'Poppins,sans-serif'}}>{sub}</div>}
           </div>
-          <button onClick={onClose} style={{background:'none',border:'none',fontSize:20,cursor:'pointer',color:'#999',padding:'0 4px'}}>×</button>
+          <button onClick={()=>{Sound.play('tap');onClose()}} style={{
+            background:'#f0f0f0',border:'none',width:28,height:28,borderRadius:'50%',
+            cursor:'pointer',color:'#888',fontSize:16,display:'flex',alignItems:'center',
+            justifyContent:'center',flexShrink:0,transition:'background 0.15s'
+          }}>×</button>
         </div>
         <div style={{padding:'18px 20px',maxHeight:'65vh',overflowY:'auto'}}>{children}</div>
-        {footer && <div style={{padding:'12px 20px',borderTop:'1px solid #e0e0e0',display:'flex',gap:8,justifyContent:'flex-end',background:'#f4f4f4'}}>{footer}</div>}
+        {footer && <div style={{padding:'12px 20px',borderTop:'1px solid #e0e0e0',display:'flex',gap:8,justifyContent:'flex-end',background:'#f9f9f9'}}>{footer}</div>}
       </div>
     </div>
   )
@@ -508,6 +696,7 @@ function AdminApp() {
       if (found) return prev.map(x => x.id===item.id ? {...x,cantidad:x.cantidad+1} : x)
       return [...prev, { ...item, cantidad:1 }]
     })
+    Sound.play('add')
     showToast('ok', item.nombre + ' agregado')
   }
 
@@ -539,6 +728,7 @@ function AdminApp() {
     try {
       const ref = await addDoc(collection(db,'pedidos'), pedido)
       const nuevoPedido = { id: ref.id, ...datos, items, total, estado:'EN PROCESO', empleado: nombreEmpleado, creadoEn: { toDate: () => new Date() } }
+        Sound.play('notify')
       setPedidosActivos(prev => [nuevoPedido, ...prev])
       setModalConfirm({ idPedido: ref.id, offline:false, datos:{ ...datos, items, total } })
       setCart([]); limpiarForm()
@@ -579,6 +769,7 @@ function AdminApp() {
     setDatosCliente(p => { const n={...p}; delete n[id]; return n })
     try {
       await updateDoc(doc(db,'pedidos',id), updateData)
+      Sound.play('success')
       showToast('ok','Pedido marcado como listo')
     } catch(e) {
       showToast('err','Error al actualizar')
@@ -1913,21 +2104,53 @@ function AppSelector({ onSelect }) {
 
   return (
     <div style={{position:'fixed',inset:0,background:'#000',display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',padding:32}}>
-      <img src='/logo.png' alt='Logo' style={{height:80,objectFit:'contain',marginBottom:16}}/>
+      {/* LOGO ANIMADO */}
+      <div style={{width:150,height:150,marginBottom:20}}>
+        <style>{`
+          @keyframes logoPulse {
+            0%   { transform: scale(1);    filter: brightness(1); }
+            45%  { transform: scale(1.07); filter: brightness(1.12); }
+            55%  { transform: scale(1.07); filter: brightness(1.12); }
+            100% { transform: scale(1);    filter: brightness(1); }
+          }
+          @keyframes logoEntrada {
+            0%   { opacity:0; transform: scale(0.82); }
+            100% { opacity:1; transform: scale(1); }
+          }
+          .logo-pulse {
+            animation:
+              logoEntrada 0.7s cubic-bezier(0.34,1.5,0.64,1) forwards,
+              logoPulse 2.4s ease-in-out 0.7s infinite;
+            transform-origin: center;
+            display: block;
+            width: 100%;
+            height: 100%;
+          }
+        `}</style>
+        <img src='/logo.png' alt='Esencial FC' className='logo-pulse'/>
+      </div>
+
       <h1 style={{fontFamily:'Poppins,sans-serif',fontWeight:700,fontSize:28,color:'#fff',letterSpacing:2,marginBottom:6}}>Esencial FC</h1>
       <div style={{width:40,height:2,background:'#fff',margin:'0 auto 40px'}}/>
       <div style={{display:'flex',flexDirection:'column',gap:14,width:'100%',maxWidth:320}}>
-        <button onClick={()=>onSelect('admin')} style={{
-          padding:'18px 24px',background:'#fff',color:'#000',border:'none',borderRadius:13,
-          fontFamily:'Poppins,sans-serif',fontSize:14,fontWeight:700,letterSpacing:2,
-          textTransform:'uppercase',cursor:'pointer',transition:'0.2s'
-        }}>Administracion</button>
-        <button onClick={()=>setModalAcceso(true)} style={{
-          padding:'18px 24px',background:'transparent',color:'#fff',
-          border:'2px solid #fff',borderRadius:13,
-          fontFamily:'Poppins,sans-serif',fontSize:14,fontWeight:700,letterSpacing:2,
-          textTransform:'uppercase',cursor:'pointer',transition:'0.2s'
-        }}>Clientes</button>
+        {[
+          {label:'Administracion', bg:'#fff', color:'#000', border:'none', action:()=>onSelect('admin')},
+          {label:'Clientes', bg:'transparent', color:'#fff', border:'2px solid rgba(255,255,255,0.7)', action:()=>setModalAcceso(true)},
+        ].map(b => (
+          <button key={b.label} onClick={()=>{Sound.play('tap');b.action()}} style={{
+            padding:'18px 24px',background:b.bg,color:b.color,
+            border:b.border,borderRadius:13,
+            fontFamily:'Poppins,sans-serif',fontSize:13,fontWeight:700,letterSpacing:2,
+            textTransform:'uppercase',cursor:'pointer',
+            transition:'transform 0.13s ease, opacity 0.13s ease, box-shadow 0.18s ease',
+            boxShadow: b.bg==='#fff' ? '0 4px 20px rgba(255,255,255,0.15)':'none'
+          }}
+          onMouseDown={e=>e.currentTarget.style.transform='scale(0.96)'}
+          onMouseUp={e=>e.currentTarget.style.transform='scale(1)'}
+          onTouchStart={e=>e.currentTarget.style.transform='scale(0.96)'}
+          onTouchEnd={e=>e.currentTarget.style.transform='scale(1)'}
+          >{b.label}</button>
+        ))}
         {!instalada && pwaListo && (
           <button onClick={instalarApp} style={{
             padding:'16px 24px',background:'#2a5298',color:'#fff',border:'none',
@@ -2164,7 +2387,12 @@ function ClienteApp({ onVolver }) {
   const totalItems = carrito.reduce((s,x)=>s+x.cantidad,0)
 
   function addCant(id, delta) {
-    setCantidades(p => ({...p, [id]: Math.max(0,(p[id]||0)+delta)}))
+    Sound.play(delta > 0 ? 'add' : 'remove')
+    setCantidades(p => {
+      const v = Math.max(0, (p[id]||0) + delta)
+      if (v === 0) { const n = {...p}; delete n[id]; return n }
+      return {...p, [id]: v}
+    })
   }
 
   function irA(newIdx) {
@@ -2240,6 +2468,7 @@ function ClienteApp({ onVolver }) {
       'Enviado desde la app Esencial FC'
     ].filter(Boolean).join('%0A')
 
+    Sound.play('success')
     window.open(`https://wa.me/${WA_NUM}?text=${msg}`, '_blank')
     setModalImportante(false)
     setModalPedido(false)
@@ -2266,7 +2495,7 @@ function ClienteApp({ onVolver }) {
       `}</style>
 
       {/* CONTENIDO PRINCIPAL (arriba del header fijo) */}
-      <div style={{flex:1,overflowY:'auto',paddingBottom:130}}>
+      <div key={tab} style={{flex:1,overflowY:'auto',paddingBottom:130,animation:'tabFade 0.22s ease'}}>
 
         {/* IMAGEN GRANDE CARRUSEL */}
         {prod ? (
