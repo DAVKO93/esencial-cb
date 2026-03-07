@@ -179,8 +179,8 @@ function Toast() {
   toastFn = (type, msg) => {
     const id = Date.now()
     // Sonido según tipo
-    if (type === 'ok') Sound.play('success')
-    else if (type === 'err') Sound.play('error')
+    if (type === 'ok') try{Sound.play('success')}catch(e){}
+    else if (type === 'err') try{Sound.play('error')}catch(e){}
     setToasts(p => [...p, { id, type, msg }])
     setTimeout(() => setToasts(p => p.filter(t => t.id !== id)), 3500)
   }
@@ -215,32 +215,34 @@ function Spinner() {
 }
 
 function Btn({ children, onClick, disabled, variant='primary', style={} }) {
-  const [pressing, setPressing] = useState(false)
   function handleClick(e) {
     if (disabled) return
-    Sound.play('tap')
-    setPressing(true)
-    setTimeout(() => setPressing(false), 120)
+    try { Sound.play('tap') } catch(err) {}
     onClick && onClick(e)
   }
   const base = {
     padding:'11px 20px', borderRadius:9, fontFamily:'Poppins,sans-serif',
     fontSize:12, fontWeight:600, letterSpacing:1, textTransform:'uppercase',
     cursor: disabled?'not-allowed':'pointer', border:'none',
-    transition:'transform 0.12s ease, opacity 0.12s ease, box-shadow 0.18s ease',
-    transform: pressing ? 'scale(0.96)' : 'scale(1)',
-    opacity: pressing ? 0.85 : 1,
+    transition:'transform 0.12s ease, box-shadow 0.18s ease',
     ...style
   }
   const variants = {
     primary: { background: disabled?'#e8e8e8':'#1a1a1a', color: disabled?'#999':'#fff',
-      boxShadow: pressing?'none':'0 2px 8px rgba(0,0,0,0.13)' },
+      boxShadow:'0 2px 8px rgba(0,0,0,0.12)' },
     danger:  { background:'#c62828', color:'#fff',
-      boxShadow: pressing?'none':'0 2px 8px rgba(198,40,40,0.18)' },
+      boxShadow:'0 2px 8px rgba(198,40,40,0.15)' },
     sec:     { background:'#fff', color:'#666', border:'1.5px solid #d0d0d0' }
   }
   return (
-    <button style={{...base,...variants[variant]}} onClick={handleClick} disabled={disabled}>
+    <button style={{...base,...variants[variant]}}
+      onClick={handleClick}
+      disabled={disabled}
+      onMouseDown={e=>{ if(!disabled) e.currentTarget.style.transform='scale(0.96)' }}
+      onMouseUp={e=>{ e.currentTarget.style.transform='scale(1)' }}
+      onTouchStart={e=>{ if(!disabled) e.currentTarget.style.transform='scale(0.96)' }}
+      onTouchEnd={e=>{ e.currentTarget.style.transform='scale(1)' }}
+    >
       {children}
     </button>
   )
@@ -274,7 +276,7 @@ function Select({ label, value, onChange, options }) {
 function Modal({ open, onClose, title, sub, icon, children, footer }) {
   if (!open) return null
   return (
-    <div onClick={e=>{if(e.target===e.currentTarget){ Sound.play('tap'); onClose() }}}
+    <div onClick={e=>{if(e.target===e.currentTarget){ try{Sound.play('tap')}catch(e){} onClose() }}}
       style={{position:'fixed',inset:0,
         background:'rgba(0,0,0,0.46)',
         backdropFilter:'blur(4px)',
@@ -288,7 +290,7 @@ function Modal({ open, onClose, title, sub, icon, children, footer }) {
             <div style={{fontFamily:'Poppins,sans-serif',fontSize:15,fontWeight:600,color:'#1a1a1a'}}>{title}</div>
             {sub && <div style={{fontSize:11,color:'#aaa',marginTop:2,fontFamily:'Poppins,sans-serif'}}>{sub}</div>}
           </div>
-          <button onClick={()=>{Sound.play('tap');onClose()}} style={{
+          <button onClick={()=>{try{Sound.play('tap')}catch(e){}onClose()}} style={{
             background:'#f0f0f0',border:'none',width:28,height:28,borderRadius:'50%',
             cursor:'pointer',color:'#888',fontSize:16,display:'flex',alignItems:'center',
             justifyContent:'center',flexShrink:0,transition:'background 0.15s'
@@ -690,7 +692,7 @@ function AdminApp() {
       if (found) return prev.map(x => x.id===item.id ? {...x,cantidad:x.cantidad+1} : x)
       return [...prev, { ...item, cantidad:1 }]
     })
-    Sound.play('add')
+    try{Sound.play('add')}catch(e){}
     showToast('ok', item.nombre + ' agregado')
   }
 
@@ -722,7 +724,7 @@ function AdminApp() {
     try {
       const ref = await addDoc(collection(db,'pedidos'), pedido)
       const nuevoPedido = { id: ref.id, ...datos, items, total, estado:'EN PROCESO', empleado: nombreEmpleado, creadoEn: { toDate: () => new Date() } }
-        Sound.play('notify')
+        try{Sound.play('notify')}catch(e){}
       setPedidosActivos(prev => [nuevoPedido, ...prev])
       setModalConfirm({ idPedido: ref.id, offline:false, datos:{ ...datos, items, total } })
       setCart([]); limpiarForm()
@@ -763,7 +765,7 @@ function AdminApp() {
     setDatosCliente(p => { const n={...p}; delete n[id]; return n })
     try {
       await updateDoc(doc(db,'pedidos',id), updateData)
-      Sound.play('success')
+      try{Sound.play('success')}catch(e){}
       showToast('ok','Pedido marcado como listo')
     } catch(e) {
       showToast('err','Error al actualizar')
@@ -2131,7 +2133,7 @@ function AppSelector({ onSelect }) {
           {label:'Administracion', bg:'#fff', color:'#000', border:'none', action:()=>onSelect('admin')},
           {label:'Clientes', bg:'transparent', color:'#fff', border:'2px solid rgba(255,255,255,0.7)', action:()=>setModalAcceso(true)},
         ].map(b => (
-          <button key={b.label} onClick={()=>{Sound.play('tap');b.action()}} style={{
+          <button key={b.label} onClick={()=>{try{Sound.play('tap')}catch(e){}b.action()}} style={{
             padding:'18px 24px',background:b.bg,color:b.color,
             border:b.border,borderRadius:13,
             fontFamily:'Poppins,sans-serif',fontSize:13,fontWeight:700,letterSpacing:2,
@@ -2381,7 +2383,7 @@ function ClienteApp({ onVolver }) {
   const totalItems = carrito.reduce((s,x)=>s+x.cantidad,0)
 
   function addCant(id, delta) {
-    Sound.play(delta > 0 ? 'add' : 'remove')
+    try{Sound.play(delta > 0 ? 'add' : 'remove')}catch(e){}
     setCantidades(p => {
       const v = Math.max(0, (p[id]||0) + delta)
       if (v === 0) { const n = {...p}; delete n[id]; return n }
@@ -2462,7 +2464,7 @@ function ClienteApp({ onVolver }) {
       'Enviado desde la app Esencial FC'
     ].filter(Boolean).join('%0A')
 
-    Sound.play('success')
+    try{Sound.play('success')}catch(e){}
     window.open(`https://wa.me/${WA_NUM}?text=${msg}`, '_blank')
     setModalImportante(false)
     setModalPedido(false)
@@ -2489,7 +2491,7 @@ function ClienteApp({ onVolver }) {
       `}</style>
 
       {/* CONTENIDO PRINCIPAL (arriba del header fijo) */}
-      <div key={tab} style={{flex:1,overflowY:'auto',paddingBottom:130,animation:'tabFade 0.22s ease'}}>
+      <div style={{flex:1,overflowY:'auto',paddingBottom:130}}>
 
         {/* IMAGEN GRANDE CARRUSEL */}
         {prod ? (
