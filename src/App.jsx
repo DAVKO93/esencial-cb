@@ -461,12 +461,12 @@ function FormProducto({ item, onClose, onSave }) {
       </div>
       <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:16,padding:'10px 13px',background:'#f0f4ff',borderRadius:8,border:'1px solid #c5d0e8'}}>
         <div>
-          <span style={{fontSize:12,fontWeight:600,color:'#1a2e47'}}>Mostrar en Clientes</span>
+          <span style={{fontSize:12,fontWeight:600,color:'#7C9263'}}>Mostrar en Clientes</span>
           <div style={{fontSize:10,color:'#888',marginTop:2}}>{visibleClientes?'Visible en app de clientes':'Oculto para clientes'}</div>
         </div>
         <button onClick={()=>setVisibleClientes(!visibleClientes)} style={{
           width:44,height:24,borderRadius:12,border:'none',cursor:'pointer',transition:'0.2s',
-          background:visibleClientes?'#1a2e47':'#ccc',position:'relative',flexShrink:0
+          background:visibleClientes?'#7C9263':'#ccc',position:'relative',flexShrink:0
         }}>
           <div style={{position:'absolute',top:2,left:visibleClientes?22:2,width:20,height:20,borderRadius:'50%',background:'#fff',transition:'0.2s'}}/>
         </button>
@@ -527,7 +527,8 @@ function AdminApp() {
   const fotoPerfRef = useRef(null)
   // Comprobante camara
   const [fotoComprobante, setFotoComprobante] = useState({}) // {pedidoId: dataURL}
-  const [datosCliente, setDatosCliente] = useState({}) // {pedidoId: {tipo,id,nombre,tel,email}}
+  const [datosCliente, setDatosCliente] = useState({})
+  const [dcAbierto, setDcAbierto] = useState({}) // acordeon datos cliente // {pedidoId: {tipo,id,nombre,tel,email}}
   const cameraRefs = useRef({})
 
   // Form cliente
@@ -1426,10 +1427,26 @@ function AdminApp() {
                     <span style={{background:'#fff8e1',color:'#b8860b',border:'1px solid #e8d88a',padding:'3px 8px',borderRadius:100,fontSize:9,fontWeight:700}}>EN PROCESO</span>
                   </div>
                   <div style={{padding:'12px 15px'}}>
-                    <div style={{fontSize:13,fontWeight:600,marginBottom:2}}>{p.cliente}</div>
-                    {p.mesa && <div style={{fontSize:11,color:'#666',marginBottom:2,fontWeight:600}}>{p.mesa}</div>}
-                    {p.telefono && <div style={{fontSize:11,color:'#999',marginBottom:9}}>{p.telefono}</div>}
-                    {p.empleado && <div style={{fontSize:10,color:'#888',marginBottom:9,padding:'3px 8px',background:'#f4f4f4',borderRadius:5,display:'inline-block'}}>Tomado por: <strong>{p.empleado}</strong></div>}
+                    {/* CLIENTE + MESA PROMINENTE */}
+                    <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:8}}> 
+                      <div style={{flex:1}}>
+                        <div style={{fontSize:13,fontWeight:600,color:'#1a1a1a'}}>{p.cliente}</div>
+                        {p.telefono && <div style={{fontSize:11,color:'#999',marginTop:2}}>{p.telefono}</div>}
+                      </div>
+                      {p.mesa && (
+                        <div style={{
+                          background:'#7C9263',color:'#fff',
+                          padding:'6px 14px',borderRadius:8,
+                          fontFamily:'Poppins,sans-serif',fontSize:15,fontWeight:700,
+                          letterSpacing:1,textTransform:'uppercase',
+                          boxShadow:'0 2px 8px rgba(124,146,99,0.35)',
+                          minWidth:60,textAlign:'center'
+                        }}>
+                          {p.mesa}
+                        </div>
+                      )}
+                    </div>
+                    {p.empleado && <div style={{fontSize:10,color:'#888',marginBottom:8,padding:'3px 8px',background:'#f4f4f4',borderRadius:5,display:'inline-block'}}>Tomado por: <strong>{p.empleado}</strong></div>}
                     {p.items?.map((it,i) => <div key={i} style={{display:'flex',justifyContent:'space-between',fontSize:12,color:'#666',padding:'3px 0',borderBottom:'1px solid #e0e0e0'}}><span>{it.cantidad}x {it.nombre}</span><span>${(it.precio*it.cantidad).toFixed(2)}</span></div>)}
                     {p.notas && <div style={{fontSize:11,color:'#666',background:'#fffdf0',border:'1px solid #e8e4c0',padding:'5px 9px',borderRadius:6,marginTop:7}}>Nota: {p.notas}</div>}
                     <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',paddingTop:9,borderTop:'1.5px solid #d0d0d0',marginTop:7}}>
@@ -1437,14 +1454,29 @@ function AdminApp() {
                       <span style={{fontFamily:'Poppins,sans-serif',fontSize:17}}>${parseFloat(p.total).toFixed(2)}</span>
                     </div>
 
-                    {/* DATOS CLIENTE / FACTURACION */}
+                    {/* DATOS CLIENTE / FACTURACIÓN - ACORDEÓN */}
                     <div style={{marginTop:12,background:'#f8f8f8',border:'1px solid #e0e0e0',borderRadius:9,overflow:'hidden'}}>
-                      <div style={{padding:'9px 13px',borderBottom:'1px solid #e0e0e0',background:'#f0f0f0',display:'flex',gap:0}}>
+                      {/* HEADER acordeón */}
+                      <button onClick={()=>setDcAbierto(prev=>({...prev,[p.id]:!prev[p.id]}))} style={{
+                        width:'100%',padding:'10px 13px',display:'flex',alignItems:'center',justifyContent:'space-between',
+                        background:'#f0f0f0',border:'none',cursor:'pointer',
+                        borderBottom:dcAbierto[p.id]?'1px solid #e0e0e0':'none'
+                      }}>
+                        <span style={{fontSize:10,fontWeight:700,letterSpacing:1.5,textTransform:'uppercase',color:'#555'}}>
+                          {(datosCliente[p.id]?.tipo||'cliente')==='cliente' ? 'Cliente' : 'Consumidor Final'}
+                          {datosCliente[p.id]?.nombre && ` — ${datosCliente[p.id].nombre}`}
+                        </span>
+                        <span style={{fontSize:10,color:'#7C9263',fontWeight:700,display:'inline-block',
+                          transition:'transform 0.2s ease',
+                          transform:dcAbierto[p.id]?'rotate(180deg)':'rotate(0deg)'}}>▼</span>
+                      </button>
+                      {dcAbierto[p.id] && (<div>
+                      <div style={{padding:'9px 13px',borderBottom:'1px solid #e0e0e0',background:'#e8e8e8',display:'flex',gap:0}}>
                         {['cliente','final'].map(t => (
                           <button key={t} onClick={()=>setDcField(p.id,'tipo',t)} style={{
                             flex:1,padding:'7px 4px',fontSize:10,fontWeight:600,letterSpacing:1,textTransform:'uppercase',
                             cursor:'pointer',border:'none',transition:'0.2s',
-                            borderBottom:(datosCliente[p.id]?.tipo||'cliente')===t?'2px solid #1a1a1a':'2px solid transparent',
+                            borderBottom:(datosCliente[p.id]?.tipo||'cliente')===t?'2px solid #7C9263':'2px solid transparent',
                             background:(datosCliente[p.id]?.tipo||'cliente')===t?'#fff':'transparent',
                             color:(datosCliente[p.id]?.tipo||'cliente')===t?'#1a1a1a':'#999'
                           }}>{t==='cliente'?'Cliente':'Cons. Final'}</button>
@@ -1482,21 +1514,22 @@ function AdminApp() {
                           </div>
                         )}
                       </div>
+                    </div>)}
                     </div>
 
                     {/* PAGO */}
                     <div style={{display:'flex',gap:7,marginTop:10}}>
                       <button onClick={()=>setPagoSel(prev=>({...prev,[p.id]:'Efectivo'}))} style={{
                         flex:1,padding:'9px 6px',borderRadius:7,fontFamily:'Poppins,sans-serif',fontSize:11,fontWeight:600,letterSpacing:1,textTransform:'uppercase',cursor:'pointer',transition:'0.2s',
-                        background:pagoSel[p.id]==='Efectivo'?'#1a472a':'#fff',
+                        background:pagoSel[p.id]==='Efectivo'?'#7C9263':'#fff',
                         color:pagoSel[p.id]==='Efectivo'?'#fff':'#666',
-                        border:`1.5px solid ${pagoSel[p.id]==='Efectivo'?'#1a472a':'#d0d0d0'}`
+                        border:`1.5px solid ${pagoSel[p.id]==='Efectivo'?'#7C9263':'#d0d0d0'}`
                       }}>Efectivo</button>
                       <button onClick={()=>setPagoSel(prev=>({...prev,[p.id]:'Transferencia'}))} style={{
                         flex:1,padding:'9px 6px',borderRadius:7,fontFamily:'Poppins,sans-serif',fontSize:11,fontWeight:600,letterSpacing:1,textTransform:'uppercase',cursor:'pointer',transition:'0.2s',
-                        background:pagoSel[p.id]==='Transferencia'?'#1a2e47':'#fff',
+                        background:pagoSel[p.id]==='Transferencia'?'#7C9263':'#fff',
                         color:pagoSel[p.id]==='Transferencia'?'#fff':'#666',
-                        border:`1.5px solid ${pagoSel[p.id]==='Transferencia'?'#1a2e47':'#d0d0d0'}`
+                        border:`1.5px solid ${pagoSel[p.id]==='Transferencia'?'#7C9263':'#d0d0d0'}`
                       }}>Transferencia</button>
                     </div>
 
@@ -1531,7 +1564,7 @@ function AdminApp() {
                     )}
 
                     <button onClick={()=>marcarListo(p.id)} disabled={!pagoSel[p.id]}
-                      style={{display:'block',width:'100%',marginTop:8,padding:10,background:pagoSel[p.id]?'#1a1a1a':'#e8e8e8',border:'none',color:pagoSel[p.id]?'#fff':'#999',borderRadius:7,fontFamily:'Poppins,sans-serif',fontSize:11,fontWeight:600,letterSpacing:1.5,textTransform:'uppercase',cursor:pagoSel[p.id]?'pointer':'not-allowed'}}>
+                      style={{display:'block',width:'100%',marginTop:8,padding:10,background:pagoSel[p.id]?'#7C9263':'#e8e8e8',border:'none',color:pagoSel[p.id]?'#fff':'#999',borderRadius:7,fontFamily:'Poppins,sans-serif',fontSize:11,fontWeight:600,letterSpacing:1.5,textTransform:'uppercase',cursor:pagoSel[p.id]?'pointer':'not-allowed'}}>
                       Marcar como Listo
                     </button>
                     <button onClick={()=>setModalEliminar(p.id)}
@@ -1572,7 +1605,7 @@ function AdminApp() {
                         <div style={{fontFamily:'Poppins,sans-serif',fontSize:13,color:'#1a1a1a'}}>{p.cliente||'Cliente'}</div>
                         <div style={{fontSize:10,color:'#999',marginTop:1}}>{p.creadoEn?.toDate?.()?.toLocaleTimeString('es-EC',{hour:'2-digit',minute:'2-digit'})||''}</div>
                       </div>
-                      <span style={{background:'#1a2e47',color:'#fff',padding:'3px 9px',borderRadius:100,fontSize:9,fontWeight:700}}>A DOMICILIO</span>
+                      <span style={{background:'#7C9263',color:'#fff',padding:'3px 9px',borderRadius:100,fontSize:9,fontWeight:700}}>A DOMICILIO</span>
                     </div>
                     <div style={{padding:'12px 15px'}}>
                       {p.telefono && <div style={{fontSize:11,color:'#666',marginBottom:4}}>Tel: {p.telefono}</div>}
@@ -1591,7 +1624,7 @@ function AdminApp() {
                       {p.notas && <div style={{fontSize:11,color:'#666',background:'#fffdf0',border:'1px solid #e8e4c0',padding:'5px 9px',borderRadius:6,marginTop:7}}>Nota: {p.notas}</div>}
                       <div style={{display:'flex',gap:8,marginTop:12}}>
                         <button onClick={()=>marcarEntregado(p)} style={{
-                          flex:2,padding:'10px',background:'#1a472a',color:'#fff',border:'none',
+                          flex:2,padding:'10px',background:'#7C9263',color:'#fff',border:'none',
                           borderRadius:8,fontFamily:'Poppins,sans-serif',fontSize:11,fontWeight:700,
                           letterSpacing:1,textTransform:'uppercase',cursor:'pointer'
                         }}>Entregado</button>
@@ -1729,14 +1762,14 @@ function AdminApp() {
           <button key={n.key} onClick={()=>setTab(n.key)} style={{
             flex:1,padding:'18px 4px 14px',display:'flex',flexDirection:'column',alignItems:'center',gap:4,
             border:'none',background:'none',cursor:'pointer',transition:'0.2s',position:'relative',
-            borderTop: tab===n.key?'3px solid #1a1a1a':'3px solid transparent'
+            borderTop: tab===n.key?'3px solid #7C9263':'3px solid transparent'
           }}>
             {n.badge > 0 && (
               <span style={{position:'absolute',top:6,right:'15%',background:'#c62828',color:'#fff',borderRadius:100,minWidth:17,height:17,fontSize:9,fontWeight:700,display:'flex',alignItems:'center',justifyContent:'center',padding:'0 4px'}}>
                 {n.badge}
               </span>
             )}
-            <span style={{fontSize:10,fontWeight:700,letterSpacing:1,textTransform:'uppercase',color:tab===n.key?'#1a1a1a':'#999'}}>
+            <span style={{fontSize:10,fontWeight:700,letterSpacing:1,textTransform:'uppercase',color:tab===n.key?'#7C9263':'#999'}}>
               {n.label}
             </span>
           </button>
@@ -1756,7 +1789,7 @@ function AdminApp() {
               : <span style={{fontSize:32,fontWeight:700,color:'#999'}}>{nombreEmpleado?.charAt(0)?.toUpperCase()||'?'}</span>
             }
           </div>
-          <input type='file' accept='image/*' capture='user' style={{display:'none'}} ref={fotoPerfRef} onChange={onFotoPerfilCapturada}/>
+          <input type='file' accept='image/*' style={{display:'none'}} ref={fotoPerfRef} onChange={onFotoPerfilCapturada}/>
           <button onClick={()=>fotoPerfRef.current?.click()} style={{background:'none',border:'1px solid #d0d0d0',color:'#666',borderRadius:7,padding:'5px 14px',fontFamily:'Poppins,sans-serif',fontSize:11,cursor:'pointer'}}>
             Cambiar foto
           </button>
@@ -1830,7 +1863,7 @@ function AdminApp() {
             <div style={{fontWeight:600,fontSize:14,color:'#1a1a1a',marginBottom:3}}>{emp.nombre}</div>
             <div style={{fontSize:12,color:'#666',marginBottom:10}}>{emp.email}</div>
             <div style={{display:'flex',gap:8}}>
-              <button onClick={()=>aprobarEmpleado(emp.id)} style={{flex:1,padding:'9px',background:'#1a472a',color:'#fff',border:'none',borderRadius:7,fontFamily:'Poppins,sans-serif',fontSize:11,fontWeight:600,cursor:'pointer'}}>
+              <button onClick={()=>aprobarEmpleado(emp.id)} style={{flex:1,padding:'9px',background:'#7C9263',color:'#fff',border:'none',borderRadius:7,fontFamily:'Poppins,sans-serif',fontSize:11,fontWeight:600,cursor:'pointer'}}>
                 Aprobar acceso
               </button>
               <button onClick={()=>rechazarEmpleado(emp.id)} style={{flex:1,padding:'9px',background:'#fff',color:'#c62828',border:'1.5px solid #ffcdd2',borderRadius:7,fontFamily:'Poppins,sans-serif',fontSize:11,fontWeight:600,cursor:'pointer'}}>
@@ -2127,7 +2160,7 @@ function AppSelector({ onSelect }) {
       </div>
 
       <h1 style={{fontFamily:'Poppins,sans-serif',fontWeight:700,fontSize:28,color:'#fff',letterSpacing:2,marginBottom:6}}>Esencial FC</h1>
-      <div style={{width:40,height:2,background:'#fff',margin:'0 auto 40px'}}/>
+      <div style={{width:40,height:2,background:'#7C9263',margin:'0 auto 40px'}}/>
       <div style={{display:'flex',flexDirection:'column',gap:14,width:'100%',maxWidth:320}}>
         {[
           {label:'Administracion', bg:'#fff', color:'#000', border:'none', action:()=>onSelect('admin')},
@@ -2316,7 +2349,12 @@ function ClienteApp({ onVolver }) {
   const [imgError, setImgError] = useState({})
   const [copiado, setCopiado] = useState(null)
   const [modalPromos, setModalPromos] = useState(false)
+  const [loadingGPS, setLoadingGPS] = useState(false)
   const [modalPerfilCliente, setModalPerfilCliente] = useState(false)
+  const [fotoPerfilCliente, setFotoPerfilCliente] = useState(() => {
+    try { return localStorage.getItem('esencial_foto_cliente') } catch { return null }
+  })
+  const fotoClienteRef = useRef(null)
   const promosMostradas = useRef(false)
   const touchStartX = useRef(null)
   const touchStartY = useRef(null)
@@ -2450,7 +2488,10 @@ function ClienteApp({ onVolver }) {
       '----------------------------',
       '*Cliente:* ' + n,
       '*Telefono:* ' + tel,
-      dir ? '*Direccion:* ' + dir : '',
+      dir ? (dir.includes('maps.google') 
+        ? '*Ubicacion GPS:* ' + dir 
+        : '*Direccion:* ' + dir + (tmpDir && tmpDir.includes('maps.google') && tmpDir !== dir ? '%0A*Ubicacion GPS:* ' + tmpDir : '')) 
+        : (tmpDir ? '*Ubicacion GPS:* ' + tmpDir : ''),
       cliente?.referencia ? '*Referencia:* ' + cliente.referencia : '',
       cliente?.cedula ? '*Cedula:* ' + cliente.cedula : '',
       '----------------------------',
@@ -2536,7 +2577,7 @@ function ClienteApp({ onVolver }) {
           {/* 3 tabs principales */}
           <div style={{display:'flex',gap:0}}>
             {[
-              {key:'Todos',    color:'#1a1a1a'},
+              {key:'Todos',    color:'#7C9263'},
               {key:'Frio',     color:'#1565c0'},
               {key:'Caliente', color:'#e65100'},
             ].map(({key,color}) => {
@@ -2556,7 +2597,7 @@ function ClienteApp({ onVolver }) {
           <div style={{padding:'8px 12px'}}>
             <button onClick={()=>setModalPromos(true)} style={{
               display:'flex',alignItems:'center',gap:8,padding:'8px 16px',
-              background: promociones.length>0 ? '#1a1a1a' : '#f4f4f4',
+              background: promociones.length>0 ? '#7C9263' : '#f4f4f4',
               color: promociones.length>0 ? '#fff' : '#bbb',
               border:'none',borderRadius:100,fontFamily:'Poppins,sans-serif',
               fontSize:11,fontWeight:700,letterSpacing:1,textTransform:'uppercase',
@@ -2670,9 +2711,31 @@ function ClienteApp({ onVolver }) {
             {cliente ? (
               <>
                 <div style={{display:'flex',alignItems:'center',gap:14,marginBottom:20,paddingBottom:16,borderBottom:'1px solid #e0e0e0'}}>
-                  <div style={{width:52,height:52,borderRadius:'50%',background:'#1a1a1a',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>
-                    <span style={{color:'#fff',fontSize:20,fontWeight:700}}>{cliente.nombre?.charAt(0)?.toUpperCase()}</span>
+                  <div onClick={()=>fotoClienteRef.current?.click()} style={{
+                    width:52,height:52,borderRadius:'50%',background:'#1a1a1a',
+                    display:'flex',alignItems:'center',justifyContent:'center',
+                    flexShrink:0,cursor:'pointer',overflow:'hidden',position:'relative',
+                    border:`2px solid #7C9263`
+                  }}>
+                    {fotoPerfilCliente
+                      ? <img src={fotoPerfilCliente} alt='perfil' style={{width:'100%',height:'100%',objectFit:'cover'}}/>
+                      : <span style={{color:'#fff',fontSize:20,fontWeight:700}}>{cliente.nombre?.charAt(0)?.toUpperCase()}</span>
+                    }
+                    <div style={{position:'absolute',bottom:0,left:0,right:0,background:'rgba(0,0,0,0.45)',fontSize:8,color:'#fff',textAlign:'center',padding:'2px',fontFamily:'Poppins,sans-serif'}}>editar</div>
                   </div>
+                  <input type='file' accept='image/*' style={{display:'none'}} ref={fotoClienteRef}
+                    onChange={e=>{
+                      const file=e.target.files?.[0]
+                      if(!file) return
+                      const reader=new FileReader()
+                      reader.onload=ev=>{
+                        const b64=ev.target.result
+                        setFotoPerfilCliente(b64)
+                        try{localStorage.setItem('esencial_foto_cliente',b64)}catch(err){}
+                      }
+                      reader.readAsDataURL(file)
+                    }}
+                  />
                   <div>
                     <div style={{fontFamily:'Poppins,sans-serif',fontWeight:700,fontSize:16}}>{cliente.nombre}</div>
                     <div style={{fontSize:12,color:'#888',marginTop:2}}>Cliente registrado</div>
@@ -2813,6 +2876,38 @@ function ClienteApp({ onVolver }) {
                   <div style={{fontSize:12,color:'#666',marginBottom:2}}>{cliente.telefono}</div>
                   <div style={{fontSize:12,color:'#666'}}>{cliente.direccion}</div>
                   {cliente.referencia && <div style={{fontSize:12,color:'#999',marginTop:2}}>{cliente.referencia}</div>}
+                  <button type='button' onClick={async ()=>{
+                    if (!navigator.geolocation){ showToast('err','GPS no disponible'); return }
+                    setLoadingGPS(true)
+                    navigator.geolocation.getCurrentPosition(
+                      pos=>{
+                        const lat=pos.coords.latitude.toFixed(6)
+                        const lng=pos.coords.longitude.toFixed(6)
+                        const link=`https://maps.google.com/?q=${lat},${lng}`
+                        showToast('ok','Ubicacion lista — se incluira en el pedido')
+                        setTmpDir(link)
+                        setLoadingGPS(false)
+                      },
+                      ()=>{ setLoadingGPS(false); showToast('err','No se pudo obtener ubicacion') },
+                      {enableHighAccuracy:true,timeout:12000}
+                    )
+                  }} style={{
+                    width:'100%',marginTop:8,padding:'8px 14px',
+                    background:loadingGPS?'#f0f0f0':'#f5f8f1',
+                    border:`1.5px solid #7C9263`,borderRadius:8,cursor:'pointer',
+                    display:'flex',alignItems:'center',justifyContent:'center',gap:7,
+                    fontFamily:'Poppins,sans-serif',fontSize:11,fontWeight:600,
+                    color:loadingGPS?'#aaa':'#7C9263'
+                  }}>
+                    <svg width='13' height='13' viewBox='0 0 24 24' fill='none' stroke='currentColor' strokeWidth='2.5' strokeLinecap='round'>
+                      <circle cx='12' cy='12' r='3'/><line x1='12' y1='2' x2='12' y2='6'/><line x1='12' y1='18' x2='12' y2='22'/>
+                      <line x1='2' y1='12' x2='6' y2='12'/><line x1='18' y1='12' x2='22' y2='12'/>
+                    </svg>
+                    {loadingGPS?'Obteniendo ubicacion...':'Enviar mi ubicacion actual'}
+                  </button>
+                  {tmpDir && tmpDir.includes('maps.google') && (
+                    <div style={{fontSize:10,color:'#7C9263',marginTop:4,fontWeight:600}}>Ubicacion GPS incluida en el pedido</div>
+                  )}
                 </>
               ) : (
                 <>
@@ -2830,6 +2925,35 @@ function ClienteApp({ onVolver }) {
                     <label style={{display:'block',fontSize:9,letterSpacing:2,textTransform:'uppercase',color:'#999',marginBottom:5,fontWeight:600}}>Direccion</label>
                     <input value={tmpDir} onChange={e=>setTmpDir(e.target.value)} placeholder='Barrio o lugar de entrega'
                       style={{width:'100%',border:'1.5px solid #d0d0d0',borderRadius:8,fontFamily:'Poppins,sans-serif',fontSize:13,padding:'9px 12px',outline:'none'}}/>
+                    <button type='button' onClick={async ()=>{
+                      if (!navigator.geolocation){ showToast('err','GPS no disponible'); return }
+                      setLoadingGPS(true)
+                      navigator.geolocation.getCurrentPosition(
+                        pos=>{
+                          const lat=pos.coords.latitude.toFixed(6)
+                          const lng=pos.coords.longitude.toFixed(6)
+                          const link=`https://maps.google.com/?q=${lat},${lng}`
+                          setTmpDir(prev=>prev?`${prev} ${link}`:link)
+                          setLoadingGPS(false)
+                          showToast('ok','Ubicacion agregada')
+                        },
+                        ()=>{ setLoadingGPS(false); showToast('err','No se pudo obtener la ubicacion. Activa el GPS') },
+                        {enableHighAccuracy:true,timeout:12000}
+                      )
+                    }} style={{
+                      width:'100%',marginTop:6,padding:'9px 14px',
+                      background:loadingGPS?'#f0f0f0':'#f5f8f1',
+                      border:`1.5px solid #7C9263`,borderRadius:8,cursor:'pointer',
+                      display:'flex',alignItems:'center',justifyContent:'center',gap:7,
+                      fontFamily:'Poppins,sans-serif',fontSize:11,fontWeight:600,
+                      color:loadingGPS?'#aaa':'#7C9263'
+                    }}>
+                      <svg width='13' height='13' viewBox='0 0 24 24' fill='none' stroke='currentColor' strokeWidth='2.5' strokeLinecap='round'>
+                        <circle cx='12' cy='12' r='3'/><line x1='12' y1='2' x2='12' y2='6'/><line x1='12' y1='18' x2='12' y2='22'/>
+                        <line x1='2' y1='12' x2='6' y2='12'/><line x1='18' y1='12' x2='22' y2='12'/>
+                      </svg>
+                      {loadingGPS ? 'Obteniendo ubicacion...' : 'Usar mi ubicacion actual'}
+                    </button>
                   </div>
                 </>
               )}
