@@ -528,7 +528,24 @@ function AdminApp() {
   // Comprobante camara
   const [fotoComprobante, setFotoComprobante] = useState({}) // {pedidoId: dataURL}
   const [datosCliente, setDatosCliente] = useState({})
-  const [dcAbierto, setDcAbierto] = useState({}) // acordeon datos cliente // {pedidoId: {tipo,id,nombre,tel,email}}
+  const [dcAbierto, setDcAbierto] = useState({}) // acordeon datos cliente
+  const [tiemposPedido, setTiemposPedido] = useState({}) // {id: minutos transcurridos}
+
+  // Actualizar contadores cada 30s
+  useEffect(() => {
+    function calcular() {
+      const ahora = Date.now()
+      const nuevos = {}
+      pedidosActivos.forEach(p => {
+        const ts = p.creadoEn?.toDate?.()?.getTime?.()
+        if (ts) nuevos[p.id] = Math.floor((ahora - ts) / 60000)
+      })
+      setTiemposPedido(nuevos)
+    }
+    calcular()
+    const interval = setInterval(calcular, 30000)
+    return () => clearInterval(interval)
+  }, [pedidosActivos]) // {pedidoId: {tipo,id,nombre,tel,email}}
   const cameraRefs = useRef({})
 
   // Form cliente
@@ -1455,18 +1472,45 @@ function AdminApp() {
                         <div style={{fontSize:13,fontWeight:600,color:'#1a1a1a'}}>{p.cliente}</div>
                         {p.telefono && <div style={{fontSize:11,color:'#999',marginTop:2}}>{p.telefono}</div>}
                       </div>
-                      {p.mesa && (
-                        <div style={{
-                          background:'#7C9263',color:'#fff',
-                          padding:'6px 14px',borderRadius:8,
-                          fontFamily:'Poppins,sans-serif',fontSize:15,fontWeight:700,
-                          letterSpacing:1,textTransform:'uppercase',
-                          boxShadow:'0 2px 8px rgba(124,146,99,0.35)',
-                          minWidth:60,textAlign:'center'
-                        }}>
-                          {p.mesa}
-                        </div>
-                      )}
+                      <div style={{display:'flex',flexDirection:'column',alignItems:'flex-end',gap:5}}>
+                        {p.mesa && (
+                          <div style={{
+                            background:'#1a1a1a',color:'#fff',
+                            padding:'6px 14px',borderRadius:8,
+                            fontFamily:'Poppins,sans-serif',fontSize:15,fontWeight:700,
+                            letterSpacing:1,textTransform:'uppercase',
+                            boxShadow:'0 2px 8px rgba(0,0,0,0.25)',
+                            minWidth:60,textAlign:'center'
+                          }}>
+                            {p.mesa}
+                          </div>
+                        )}
+                        {/* CONTADOR DE TIEMPO */}
+                        {(() => {
+                          const mins = tiemposPedido[p.id] ?? null
+                          if (mins === null) return null
+                          const tarde = mins >= 30
+                          return (
+                            <div style={{
+                              display:'flex',alignItems:'center',gap:4,
+                              padding:'3px 8px',borderRadius:100,
+                              background: tarde ? '#fff0f0' : '#f5f8f1',
+                              border: `1.5px solid ${tarde ? '#e53935' : '#7C9263'}`,
+                              fontSize:10,fontWeight:700,fontFamily:'Poppins,sans-serif',
+                              color: tarde ? '#e53935' : '#7C9263',
+                              whiteSpace:'nowrap'
+                            }}>
+                              <svg width='10' height='10' viewBox='0 0 24 24' fill='none' stroke='currentColor' strokeWidth='2.5' strokeLinecap='round'>
+                                <circle cx='12' cy='12' r='10'/><polyline points='12 6 12 12 16 14'/>
+                              </svg>
+                              {mins < 60
+                                ? `${mins} min`
+                                : `${Math.floor(mins/60)}h ${mins%60}m`}
+                              {tarde && ' ⚠️'}
+                            </div>
+                          )
+                        })()}
+                      </div>
                     </div>
                     {p.empleado && <div style={{fontSize:10,color:'#888',marginBottom:8,padding:'3px 8px',background:'#f4f4f4',borderRadius:5,display:'inline-block'}}>Tomado por: <strong>{p.empleado}</strong></div>}
                     {p.items?.map((it,i) => <div key={i} style={{display:'flex',justifyContent:'space-between',fontSize:12,color:'#666',padding:'3px 0',borderBottom:'1px solid #e0e0e0'}}><span>{it.cantidad}x {it.nombre}</span><span>${(it.precio*it.cantidad).toFixed(2)}</span></div>)}
@@ -2373,6 +2417,9 @@ function ClienteApp({ onVolver }) {
   const [modalPromos, setModalPromos] = useState(false)
   const [loadingGPS, setLoadingGPS] = useState(false)
   const [modalPerfilCliente, setModalPerfilCliente] = useState(false)
+  const [modalHistorial, setModalHistorial] = useState(false)
+  const [historialPedidos, setHistorialPedidos] = useState([])
+  const [loadingHistorial, setLoadingHistorial] = useState(false)
   const [fotoPerfilCliente, setFotoPerfilCliente] = useState(() => {
     try { return localStorage.getItem('esencial_foto_cliente') } catch { return null }
   })
@@ -2477,6 +2524,47 @@ function ClienteApp({ onVolver }) {
       setCopiado(key)
       setTimeout(()=>setCopiado(null), 2000)
     })
+  }
+
+  async function cargarHistorial() {
+    if (!cliente) return
+    setLoadingHistorial(true)
+    try {
+      const q = query(
+        collection(db,'domicilio'),
+        where('telefono','==', cliente.telefono),
+        orderBy('creadoEn','desc')
+      )
+      const snap = await getDocs(q)
+      setHistorialPedidos(snap.docs.map(d => ({id:d.id, ...d.data()})))
+    } catch(e) {
+      // Si falla el orderBy (índice), intentar sin ordenar
+      try {
+        const q2 = query(collection(db,'domicilio'), where('telefono','==', cliente.telefono))
+        const snap2 = await getDocs(q2)
+        const lista = snap2.docs.map(d => ({id:d.id, ...d.data()}))
+        lista.sort((a,b) => (b.creadoEn?.seconds||0) - (a.creadoEn?.seconds||0))
+        setHistorialPedidos(lista)
+      } catch(e2) { setHistorialPedidos([]) }
+    }
+    setLoadingHistorial(false)
+  }
+
+  function agregarDelHistorial(pedido) {
+    if (!pedido.items?.length) return
+    pedido.items.forEach(it => {
+      // Buscar el producto en el menú actual para tener precio actualizado
+      const prod = menu.find(m => m.nombre === it.nombre)
+      if (!prod) return
+      setCarrito(prev => {
+        const existe = prev.find(c => c.id === prod.id)
+        if (existe) return prev.map(c => c.id===prod.id ? {...c, cantidad: c.cantidad + it.cantidad} : c)
+        return [...prev, {...prod, cantidad: it.cantidad}]
+      })
+    })
+    setModalHistorial(false)
+    setModalPerfilCliente(false)
+    showToast('ok', `${pedido.items.length} productos agregados al carrito`)
   }
 
   async function confirmarEnvio() {
@@ -2792,11 +2880,98 @@ function ClienteApp({ onVolver }) {
                 }}>Registrarme</button>
               </div>
             )}
+            {cliente && (
+              <button onClick={()=>{cargarHistorial();setModalHistorial(true)}} style={{
+                width:'100%',padding:'12px',background:'#7C9263',color:'#fff',
+                border:'none',borderRadius:10,
+                fontFamily:'Poppins,sans-serif',fontSize:12,fontWeight:600,cursor:'pointer',marginBottom:8,
+                display:'flex',alignItems:'center',justifyContent:'center',gap:8
+              }}>
+                <svg width='15' height='15' viewBox='0 0 24 24' fill='none' stroke='currentColor' strokeWidth='2.5' strokeLinecap='round'>
+                  <path d='M9 11l3 3L22 4'/><path d='M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11'/>
+                </svg>
+                Mis Pedidos
+              </button>
+            )}
             <button onClick={()=>{setModalPerfilCliente(false);localStorage.removeItem('esencial_modo');window.location.reload()}} style={{
               width:'100%',padding:'12px',background:'#f4f4f4',color:'#1a1a1a',
               border:'1px solid #e0e0e0',borderRadius:10,
               fontFamily:'Poppins,sans-serif',fontSize:12,fontWeight:600,cursor:'pointer',marginTop:4
             }}>← Regresar a Inicio</button>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL HISTORIAL DE PEDIDOS */}
+      {modalHistorial && (
+        <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.65)',zIndex:1100,display:'flex',alignItems:'flex-end'}}
+          onClick={e=>{if(e.target===e.currentTarget)setModalHistorial(false)}}>
+          <div style={{background:'#fff',borderRadius:'20px 20px 0 0',width:'100%',maxWidth:480,margin:'0 auto',maxHeight:'85vh',overflow:'hidden',display:'flex',flexDirection:'column'}}>
+            <div style={{padding:'16px 20px 0',flexShrink:0}}>
+              <div style={{width:40,height:4,background:'#e0e0e0',borderRadius:2,margin:'0 auto 16px'}}/>
+              <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:14}}>
+                <div style={{fontFamily:'Poppins,sans-serif',fontWeight:700,fontSize:16}}>Mis Pedidos</div>
+                <button onClick={()=>setModalHistorial(false)} style={{background:'none',border:'none',fontSize:20,cursor:'pointer',color:'#999'}}>×</button>
+              </div>
+            </div>
+            <div style={{flex:1,overflowY:'auto',padding:'0 20px 24px'}}>
+              {loadingHistorial ? (
+                <div style={{textAlign:'center',padding:40,color:'#999',fontFamily:'Poppins,sans-serif',fontSize:13}}>Cargando...</div>
+              ) : historialPedidos.length === 0 ? (
+                <div style={{textAlign:'center',padding:40}}>
+                  <div style={{fontSize:32,marginBottom:12}}>📦</div>
+                  <div style={{fontFamily:'Poppins,sans-serif',fontSize:13,color:'#999'}}>Aún no tienes pedidos registrados</div>
+                </div>
+              ) : (
+                historialPedidos.map((ped, idx) => (
+                  <div key={ped.id} style={{border:'1px solid #e0e0e0',borderRadius:12,marginBottom:12,overflow:'hidden',boxShadow:'0 1px 4px rgba(0,0,0,0.06)'}}>
+                    <div style={{background:'#f8f8f8',padding:'10px 14px',display:'flex',alignItems:'center',justifyContent:'space-between',borderBottom:'1px solid #e0e0e0'}}>
+                      <div>
+                        <div style={{fontFamily:'Poppins,sans-serif',fontSize:12,fontWeight:700,color:'#1a1a1a'}}>
+                          Pedido #{idx + 1}
+                        </div>
+                        <div style={{fontSize:10,color:'#999',marginTop:1}}>
+                          {ped.creadoEn?.toDate?.()?.toLocaleDateString('es-EC',{day:'2-digit',month:'short',year:'numeric'}) || ''}
+                        </div>
+                      </div>
+                      <div style={{fontFamily:'Poppins,sans-serif',fontSize:14,fontWeight:700,color:'#7C9263'}}>
+                        ${parseFloat(ped.total||0).toFixed(2)}
+                      </div>
+                    </div>
+                    <div style={{padding:'10px 14px'}}>
+                      {ped.items?.slice(0,3).map((it,j) => (
+                        <div key={j} style={{display:'flex',justifyContent:'space-between',fontSize:12,color:'#555',padding:'2px 0'}}>
+                          <span>{it.cantidad}x {it.nombre}</span>
+                          <span>${(it.precio*it.cantidad).toFixed(2)}</span>
+                        </div>
+                      ))}
+                      {ped.items?.length > 3 && (
+                        <div style={{fontSize:11,color:'#999',marginTop:2}}>+{ped.items.length-3} más...</div>
+                      )}
+                      {ped.direccion && (
+                        <div style={{fontSize:11,color:'#888',marginTop:6,display:'flex',gap:4,alignItems:'center'}}>
+                          <span>📍</span>
+                          <span style={{flex:1,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{ped.direccion}</span>
+                        </div>
+                      )}
+                    </div>
+                    <div style={{padding:'0 14px 12px'}}>
+                      <button onClick={()=>agregarDelHistorial(ped)} style={{
+                        width:'100%',padding:'9px',background:'#7C9263',color:'#fff',
+                        border:'none',borderRadius:8,fontFamily:'Poppins,sans-serif',
+                        fontSize:11,fontWeight:700,letterSpacing:0.5,cursor:'pointer',
+                        display:'flex',alignItems:'center',justifyContent:'center',gap:6
+                      }}>
+                        <svg width='13' height='13' viewBox='0 0 24 24' fill='none' stroke='currentColor' strokeWidth='2.5' strokeLinecap='round'>
+                          <path d='M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2 9m13-9l2 9m-5-9v9m-4-9v9'/>
+                        </svg>
+                        Agregar al carrito
+                      </button>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
           </div>
         </div>
       )}
