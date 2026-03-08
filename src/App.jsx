@@ -527,6 +527,9 @@ function AdminApp() {
   const fotoPerfRef = useRef(null)
   // Comprobante camara
   const [fotoComprobante, setFotoComprobante] = useState({}) // {pedidoId: dataURL}
+  const [datosComprobante, setDatosComprobante] = useState({}) // {pedidoId: {monto,remitente,fecha,cuentaOrigen,nroComprobante}}
+  const [analizandoComp, setAnalizandoComp] = useState({}) // {pedidoId: true/false}
+  const [modalTransferencia, setModalTransferencia] = useState(null) // pedido obj
   const [datosCliente, setDatosCliente] = useState({})
   const [dcAbierto, setDcAbierto] = useState({}) // acordeon datos cliente
   const [tiemposPedido, setTiemposPedido] = useState({}) // {id: minutos transcurridos}
@@ -782,11 +785,15 @@ function AdminApp() {
       telefono: dc.tel || '',
       email: dc.email || ''
     }
+    // Incluir datos del comprobante si existen
+    if (datosComprobante[id]) updateData.comprobante = datosComprobante[id]
     // Quitar inmediatamente de EN PROCESO
     setPedidosActivos(p => p.filter(x => x.id !== id))
     setPagoSel(p => { const n={...p}; delete n[id]; return n })
     setFotoComprobante(p => { const n={...p}; delete n[id]; return n })
     setDatosCliente(p => { const n={...p}; delete n[id]; return n })
+    setDatosComprobante(p => { const n={...p}; delete n[id]; return n })
+    setAnalizandoComp(p => { const n={...p}; delete n[id]; return n })
     try {
       await updateDoc(doc(db,'pedidos',id), updateData)
       try{Sound.play('success')}catch(e){}
@@ -826,11 +833,56 @@ function AdminApp() {
     if (cameraRefs.current[pedidoId]) cameraRefs.current[pedidoId].click()
   }
 
+  async function analizarComprobante(pedidoId, base64) {
+    setAnalizandoComp(p => ({...p, [pedidoId]: true}))
+    try {
+      const resp = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+          model: 'claude-sonnet-4-20250514',
+          max_tokens: 300,
+          system: 'Eres un extractor de datos de comprobantes bancarios. Responde SOLO con JSON válido, sin texto adicional, sin markdown.',
+          messages: [{
+            role: 'user',
+            content: [
+              {
+                type: 'image',
+                source: {
+                  type: 'base64',
+                  media_type: 'image/jpeg',
+                  data: base64.split(',')[1]
+                }
+              },
+              {
+                type: 'text',
+                text: 'Extrae exactamente estos 5 campos del comprobante de transferencia y responde SOLO con JSON: {"monto":"","remitente":"","fecha":"","cuentaOrigen":"","nroComprobante":""}. Si no encuentras un campo pon cadena vacía.'
+              }
+            ]
+          }]
+        })
+      })
+      const data = await resp.json()
+      const txt = data.content?.[0]?.text || '{}'
+      const clean = txt.replace(/```json|```/g,'').trim()
+      const parsed = JSON.parse(clean)
+      setDatosComprobante(p => ({...p, [pedidoId]: parsed}))
+      showToast('ok','Comprobante analizado')
+    } catch(e) {
+      showToast('warn','No se pudo analizar el comprobante')
+    }
+    setAnalizandoComp(p => ({...p, [pedidoId]: false}))
+  }
+
   function onFotoCapturada(pedidoId, e) {
     const file = e.target.files[0]
     if (!file) return
     const reader = new FileReader()
-    reader.onload = (ev) => setFotoComprobante(p => ({...p, [pedidoId]: ev.target.result}))
+    reader.onload = (ev) => {
+      const b64 = ev.target.result
+      setFotoComprobante(p => ({...p, [pedidoId]: b64}))
+      analizarComprobante(pedidoId, b64)
+    }
     reader.readAsDataURL(file)
   }
 
@@ -1622,9 +1674,25 @@ function AdminApp() {
                             </div>
                           </div>
                         ) : (
-                          <button onClick={()=>abrirCamara(p.id)} style={{width:'100%',padding:'10px',background:'#fff',border:'1.5px dashed #c5d0e8',borderRadius:7,fontFamily:'Poppins,sans-serif',fontSize:12,fontWeight:600,cursor:'pointer',color:'#555',display:'flex',alignItems:'center',justifyContent:'center',gap:8}}>
-                            📷 Tomar foto del comprobante
-                          </button>
+                          <div>
+                            <button onClick={()=>abrirCamara(p.id)} style={{width:'100%',padding:'10px',background:'#fff',border:'1.5px dashed #c5d0e8',borderRadius:7,fontFamily:'Poppins,sans-serif',fontSize:12,fontWeight:600,cursor:'pointer',color:'#555',display:'flex',alignItems:'center',justifyContent:'center',gap:8}}>
+                              <svg width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='currentColor' strokeWidth='2' strokeLinecap='round'><rect x='2' y='7' width='20' height='15' rx='2'/><path d='M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2'/><circle cx='12' cy='14' r='3'/></svg>
+                              Tomar foto del comprobante
+                            </button>
+                            {analizandoComp[p.id] && (
+                              <div style={{textAlign:'center',fontSize:10,color:'#7C9263',fontFamily:'Poppins,sans-serif',marginTop:6,fontWeight:600,letterSpacing:0.5}}>
+                                Analizando comprobante...
+                              </div>
+                            )}
+                            {datosComprobante[p.id] && !analizandoComp[p.id] && (
+                              <div style={{background:'#f5f8f1',border:'1px solid #7C9263',borderRadius:7,padding:'7px 10px',marginTop:6}}>
+                                <div style={{fontSize:9,letterSpacing:2,textTransform:'uppercase',color:'#7C9263',fontWeight:700,marginBottom:5}}>Datos extraidos</div>
+                                {datosComprobante[p.id].monto && <div style={{fontSize:11,color:'#1a1a1a',marginBottom:2}}><span style={{color:'#999'}}>Monto: </span>{datosComprobante[p.id].monto}</div>}
+                                {datosComprobante[p.id].remitente && <div style={{fontSize:11,color:'#1a1a1a',marginBottom:2}}><span style={{color:'#999'}}>De: </span>{datosComprobante[p.id].remitente}</div>}
+                                {datosComprobante[p.id].nroComprobante && <div style={{fontSize:11,color:'#1a1a1a'}}><span style={{color:'#999'}}>N: </span>{datosComprobante[p.id].nroComprobante}</div>}
+                              </div>
+                            )}
+                          </div>
                         )}
                       </div>
                     )}
@@ -1712,9 +1780,22 @@ function AdminApp() {
                         <span style={{fontFamily:'Poppins,sans-serif',fontSize:17}}>${parseFloat(p.total||0).toFixed(2)}</span>
                       </div>
                       {p.notas && <div style={{fontSize:11,color:'#666',background:'#fffdf0',border:'1px solid #e8e4c0',padding:'5px 9px',borderRadius:6,marginTop:7}}>Nota: {p.notas}</div>}
-                      <div style={{display:'flex',gap:8,marginTop:12}}>
+                      {/* Datos comprobante domicilio */}
+                      {p.comprobante && (
+                        <button onClick={()=>setModalTransferencia(p)} style={{
+                          width:'100%',marginTop:10,padding:'8px 14px',
+                          background:'#f5f8f1',border:'1.5px solid #7C9263',
+                          borderRadius:8,fontFamily:'Poppins,sans-serif',fontSize:11,fontWeight:700,
+                          color:'#7C9263',cursor:'pointer',
+                          display:'flex',alignItems:'center',justifyContent:'center',gap:7
+                        }}>
+                          <svg width='13' height='13' viewBox='0 0 24 24' fill='none' stroke='currentColor' strokeWidth='2.5' strokeLinecap='round'><rect x='2' y='3' width='20' height='18' rx='2'/><line x1='8' y1='9' x2='16' y2='9'/><line x1='8' y1='13' x2='16' y2='13'/><line x1='8' y1='17' x2='12' y2='17'/></svg>
+                          Ver transferencia
+                        </button>
+                      )}
+                      <div style={{display:'flex',gap:8,marginTop:10}}>
                         <button onClick={()=>marcarEntregado(p)} style={{
-                          flex:2,padding:'10px',background:'#7C9263',color:'#fff',border:'none',
+                          flex:2,padding:'10px',background:'#1a1a1a',color:'#fff',border:'none',
                           borderRadius:8,fontFamily:'Poppins,sans-serif',fontSize:11,fontWeight:700,
                           letterSpacing:1,textTransform:'uppercase',cursor:'pointer'
                         }}>Entregado</button>
@@ -1807,7 +1888,7 @@ function AdminApp() {
                     <table style={{width:'100%',borderCollapse:'collapse'}}>
                       <thead>
                         <tr>
-                          {['Hora','Cliente','Mesa','Productos','Total','Pago','Estado','Empleado','Accion'].map(h => (
+                          {['Hora','Cliente','Mesa','Productos','Total','Pago','Estado','Empleado','Transferencia','Accion'].map(h => (
                             <th key={h} style={{background:'#f4f4f4',padding:'10px 14px',textAlign:'left',fontSize:9,letterSpacing:2,textTransform:'uppercase',color:'#999',fontWeight:600,borderBottom:'1px solid #e0e0e0'}}>{h}</th>
                           ))}
                         </tr>
@@ -1830,6 +1911,19 @@ function AdminApp() {
                             </td>
                             <td style={{padding:'10px 14px'}}>
                               <span style={{fontSize:11,color:'#666'}}>{p.empleado||'—'}</span>
+                            </td>
+                            <td style={{padding:'10px 14px'}}>
+                              {p.comprobante ? (
+                                <button onClick={()=>setModalTransferencia(p)} style={{
+                                  background:'#f5f8f1',border:'1.5px solid #7C9263',color:'#7C9263',
+                                  padding:'4px 10px',borderRadius:6,fontFamily:'Poppins,sans-serif',
+                                  fontSize:10,fontWeight:700,cursor:'pointer',
+                                  display:'flex',alignItems:'center',gap:5,whiteSpace:'nowrap'
+                                }}>
+                                  <svg width='11' height='11' viewBox='0 0 24 24' fill='none' stroke='currentColor' strokeWidth='2.5' strokeLinecap='round'><rect x='2' y='3' width='20' height='18' rx='2'/><line x1='8' y1='9' x2='16' y2='9'/><line x1='8' y1='13' x2='16' y2='13'/><line x1='8' y1='17' x2='12' y2='17'/></svg>
+                                  Ver transferencia
+                                </button>
+                              ) : <span style={{fontSize:10,color:'#ccc'}}>—</span>}
                             </td>
                             <td style={{padding:'10px 14px'}}>
                               <button onClick={()=>setModalEliminar(p.id)} style={{background:'none',border:'1px solid #ffcdd2',color:'#c62828',padding:'3px 9px',borderRadius:5,fontFamily:'Poppins,sans-serif',fontSize:10,cursor:'pointer'}}>Eliminar</button>
@@ -2065,6 +2159,41 @@ function AdminApp() {
           </>
         )}
       </Modal>
+
+      {/* Modal Ver Transferencia */}
+      {modalTransferencia && (
+        <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.6)',zIndex:2000,display:'flex',alignItems:'center',justifyContent:'center',padding:20}}
+          onClick={e=>{if(e.target===e.currentTarget)setModalTransferencia(null)}}>
+          <div style={{background:'#fff',borderRadius:16,width:'100%',maxWidth:360,overflow:'hidden',boxShadow:'0 8px 32px rgba(0,0,0,0.18)'}}>
+            <div style={{background:'#1a1a1a',padding:'16px 20px',display:'flex',alignItems:'center',justifyContent:'space-between'}}>
+              <div>
+                <div style={{fontFamily:'Poppins,sans-serif',fontWeight:700,fontSize:14,color:'#fff'}}>Datos de Transferencia</div>
+                <div style={{fontSize:10,color:'#888',marginTop:2}}>{modalTransferencia.cliente} {modalTransferencia.mesa ? '— ' + modalTransferencia.mesa : ''}</div>
+              </div>
+              <button onClick={()=>setModalTransferencia(null)} style={{background:'none',border:'none',color:'#999',fontSize:20,cursor:'pointer',lineHeight:1}}>x</button>
+            </div>
+            <div style={{padding:'18px 20px',display:'flex',flexDirection:'column',gap:0}}>
+              {[
+                {label:'Monto', value: modalTransferencia.comprobante?.monto},
+                {label:'Remitente', value: modalTransferencia.comprobante?.remitente},
+                {label:'Fecha', value: modalTransferencia.comprobante?.fecha},
+                {label:'Cuenta Origen', value: modalTransferencia.comprobante?.cuentaOrigen},
+                {label:'N Comprobante', value: modalTransferencia.comprobante?.nroComprobante},
+              ].map(({label, value}) => value ? (
+                <div key={label} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'10px 0',borderBottom:'1px solid #f0f0f0'}}>
+                  <span style={{fontSize:10,letterSpacing:1.5,textTransform:'uppercase',color:'#999',fontWeight:600}}>{label}</span>
+                  <span style={{fontFamily:'Poppins,sans-serif',fontSize:13,fontWeight:600,color:'#1a1a1a',textAlign:'right',maxWidth:'60%'}}>{value}</span>
+                </div>
+              ) : null)}
+            </div>
+            <div style={{padding:'0 20px 20px'}}>
+              <button onClick={()=>setModalTransferencia(null)} style={{width:'100%',padding:'11px',background:'#1a1a1a',color:'#fff',border:'none',borderRadius:9,fontFamily:'Poppins,sans-serif',fontSize:12,fontWeight:600,cursor:'pointer'}}>
+                Cerrar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* MODAL ELIMINAR */}
       <Modal open={!!modalEliminar} onClose={()=>setModalEliminar(null)}
@@ -2440,6 +2569,10 @@ function ClienteApp({ onVolver }) {
   const [copiado, setCopiado] = useState(null)
   const [modalPromos, setModalPromos] = useState(false)
   const [loadingGPS, setLoadingGPS] = useState(false)
+  const [comprobanteCliente, setComprobanteCliente] = useState(null) // base64
+  const [datosComprobanteCliente, setDatosComprobanteCliente] = useState(null)
+  const [analizandoCompCliente, setAnalizandoCompCliente] = useState(false)
+  const comprobanteRef = useRef(null)
   const [modalPerfilCliente, setModalPerfilCliente] = useState(false)
   const [modalHistorial, setModalHistorial] = useState(false)
   const [historialPedidos, setHistorialPedidos] = useState([])
@@ -2550,6 +2683,37 @@ function ClienteApp({ onVolver }) {
     })
   }
 
+  async function analizarComprobanteCliente(base64) {
+    setAnalizandoCompCliente(true)
+    try {
+      const resp = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+          model: 'claude-sonnet-4-20250514',
+          max_tokens: 300,
+          system: 'Eres un extractor de datos de comprobantes bancarios. Responde SOLO con JSON válido, sin texto adicional, sin markdown.',
+          messages: [{
+            role: 'user',
+            content: [
+              {type:'image', source:{type:'base64', media_type:'image/jpeg', data: base64.split(',')[1]}},
+              {type:'text', text:'Extrae exactamente estos 5 campos del comprobante y responde SOLO con JSON: {"monto":"","remitente":"","fecha":"","cuentaOrigen":"","nroComprobante":""}. Si no encuentras un campo pon cadena vacía.'}
+            ]
+          }]
+        })
+      })
+      const data = await resp.json()
+      const txt = data.content?.[0]?.text || '{}'
+      const clean = txt.replace(/```json|```/g,'').trim()
+      const parsed = JSON.parse(clean)
+      setDatosComprobanteCliente(parsed)
+      showToast('ok','Comprobante analizado')
+    } catch(e) {
+      showToast('warn','No se pudo analizar, se adjuntara de todas formas')
+    }
+    setAnalizandoCompCliente(false)
+  }
+
   async function cargarHistorial() {
     if (!cliente) return
     setLoadingHistorial(true)
@@ -2607,13 +2771,15 @@ function ClienteApp({ onVolver }) {
     // Guardar en Firestore coleccion domicilio
     const itemsData = carrito.map(x=>({nombre:x.nombre, cantidad:x.cantidad, precio:parseFloat(x.precio)}))
     try {
-      await addDoc(collection(db,'domicilio'), {
+      const domData = {
         cliente: n, telefono: tel, direccion: dir,
         referencia: cliente?.referencia||'',
         items: itemsData, subtotal, total,
         estado: 'A DOMICILIO',
         creadoEn: serverTimestamp()
-      })
+      }
+      if (datosComprobanteCliente) domData.comprobante = datosComprobanteCliente
+      await addDoc(collection(db,'domicilio'), domData)
     } catch(e) {}
 
     const lineas = carrito.map(x=>`  • ${x.cantidad}x ${x.nombre} — $${(parseFloat(x.precio)*x.cantidad).toFixed(2)}`).join('%0A')
@@ -2626,6 +2792,13 @@ function ClienteApp({ onVolver }) {
         ? '*Ubicacion GPS:* ' + dir 
         : '*Direccion:* ' + dir + (tmpDir && tmpDir.includes('maps.google') && tmpDir !== dir ? '%0A*Ubicacion GPS:* ' + tmpDir : '')) 
         : (tmpDir ? '*Ubicacion GPS:* ' + tmpDir : ''),
+      datosComprobanteCliente ? '----------------------------' : '',
+      datosComprobanteCliente ? '*Comprobante de Transferencia*' : '',
+      datosComprobanteCliente?.monto ? '*Monto:* ' + datosComprobanteCliente.monto : '',
+      datosComprobanteCliente?.remitente ? '*De:* ' + datosComprobanteCliente.remitente : '',
+      datosComprobanteCliente?.fecha ? '*Fecha:* ' + datosComprobanteCliente.fecha : '',
+      datosComprobanteCliente?.cuentaOrigen ? '*Cuenta Origen:* ' + datosComprobanteCliente.cuentaOrigen : '',
+      datosComprobanteCliente?.nroComprobante ? '*N Comprobante:* ' + datosComprobanteCliente.nroComprobante : '',
       cliente?.referencia ? '*Referencia:* ' + cliente.referencia : '',
       cliente?.cedula ? '*Cedula:* ' + cliente.cedula : '',
       '----------------------------',
@@ -3187,6 +3360,58 @@ function ClienteApp({ onVolver }) {
                     </button>
                   </div>
                 </>
+              )}
+            </div>
+
+            {/* Adjuntar Comprobante */}
+            <div style={{background:'#f5f8f1',border:`1.5px solid #7C9263`,borderRadius:11,padding:'14px 16px',marginBottom:14}}>
+              <div style={{fontSize:11,color:'#555',fontFamily:'Poppins,sans-serif',fontWeight:600,marginBottom:4,textAlign:'center'}}>
+                Adjunta el Comprobante aqui, tu pedido sera mas rapido
+              </div>
+              <input type='file' accept='image/*' style={{display:'none'}} ref={comprobanteRef}
+                onChange={e=>{
+                  const file=e.target.files?.[0]
+                  if(!file) return
+                  const reader=new FileReader()
+                  reader.onload=ev=>{
+                    const b64=ev.target.result
+                    setComprobanteCliente(b64)
+                    analizarComprobanteCliente(b64)
+                  }
+                  reader.readAsDataURL(file)
+                }}
+              />
+              {comprobanteCliente ? (
+                <div>
+                  <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:8}}>
+                    <div style={{width:44,height:44,borderRadius:7,overflow:'hidden',border:`1px solid #7C9263`,flexShrink:0}}>
+                      <img src={comprobanteCliente} alt='comp' style={{width:'100%',height:'100%',objectFit:'cover'}}/>
+                    </div>
+                    <div style={{flex:1}}>
+                      {analizandoCompCliente ? (
+                        <div style={{fontSize:11,color:'#7C9263',fontWeight:600}}>Analizando comprobante...</div>
+                      ) : datosComprobanteCliente?.monto ? (
+                        <div>
+                          <div style={{fontSize:11,color:'#1a1a1a',fontWeight:700}}>{datosComprobanteCliente.monto}</div>
+                          <div style={{fontSize:10,color:'#666'}}>{datosComprobanteCliente.remitente}</div>
+                          <div style={{fontSize:10,color:'#999'}}>N° {datosComprobanteCliente.nroComprobante}</div>
+                        </div>
+                      ) : (
+                        <div style={{fontSize:11,color:'#999'}}>Comprobante adjunto</div>
+                      )}
+                    </div>
+                    <button onClick={()=>{setComprobanteCliente(null);setDatosComprobanteCliente(null)}} style={{background:'none',border:'none',color:'#c62828',fontSize:18,cursor:'pointer',lineHeight:1}}>x</button>
+                  </div>
+                </div>
+              ) : (
+                <button onClick={()=>comprobanteRef.current?.click()} style={{
+                  width:'100%',padding:'9px',background:'#fff',border:`1.5px dashed #7C9263`,
+                  borderRadius:8,fontFamily:'Poppins,sans-serif',fontSize:11,fontWeight:600,
+                  color:'#7C9263',cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',gap:7
+                }}>
+                  <svg width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='currentColor' strokeWidth='2.5' strokeLinecap='round'><path d='M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4'/><polyline points='17 8 12 3 7 8'/><line x1='12' y1='3' x2='12' y2='15'/></svg>
+                  Adjuntar Comprobante
+                </button>
               )}
             </div>
 
