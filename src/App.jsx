@@ -536,7 +536,7 @@ function AdminApp() {
     function calcular() {
       const ahora = Date.now()
       const nuevos = {}
-      pedidosActivos.forEach(p => {
+      ;[...pedidosActivos, ...(pedidosDomicilioHoy||[])].forEach(p => {
         const ts = p.creadoEn?.toDate?.()?.getTime?.()
         if (ts) nuevos[p.id] = Math.floor((ahora - ts) / 60000)
       })
@@ -545,7 +545,7 @@ function AdminApp() {
     calcular()
     const interval = setInterval(calcular, 30000)
     return () => clearInterval(interval)
-  }, [pedidosActivos]) // {pedidoId: {tipo,id,nombre,tel,email}}
+  }, [pedidosActivos, pedidosDomicilioHoy]) // {pedidoId: {tipo,id,nombre,tel,email}}
   const cameraRefs = useRef({})
 
   // Form cliente
@@ -1671,7 +1671,31 @@ function AdminApp() {
                         <div style={{fontFamily:'Poppins,sans-serif',fontSize:13,color:'#1a1a1a'}}>{p.cliente||'Cliente'}</div>
                         <div style={{fontSize:10,color:'#999',marginTop:1}}>{p.creadoEn?.toDate?.()?.toLocaleTimeString('es-EC',{hour:'2-digit',minute:'2-digit'})||''}</div>
                       </div>
-                      <span style={{background:'#7C9263',color:'#fff',padding:'3px 9px',borderRadius:100,fontSize:9,fontWeight:700}}>A DOMICILIO</span>
+                      <div style={{display:'flex',flexDirection:'column',alignItems:'flex-end',gap:5}}>
+                        <span style={{background:'#7C9263',color:'#fff',padding:'3px 9px',borderRadius:100,fontSize:9,fontWeight:700}}>A DOMICILIO</span>
+                        {(() => {
+                          const mins = tiemposPedido[p.id] ?? null
+                          if (mins === null) return null
+                          const tarde = mins >= 30
+                          return (
+                            <div style={{
+                              display:'flex',alignItems:'center',gap:4,
+                              padding:'3px 8px',borderRadius:100,
+                              background: tarde ? '#fff0f0' : '#f5f8f1',
+                              border: `1.5px solid ${tarde ? '#e53935' : '#7C9263'}`,
+                              fontSize:10,fontWeight:700,fontFamily:'Poppins,sans-serif',
+                              color: tarde ? '#e53935' : '#7C9263',
+                              whiteSpace:'nowrap'
+                            }}>
+                              <svg width='10' height='10' viewBox='0 0 24 24' fill='none' stroke='currentColor' strokeWidth='2.5' strokeLinecap='round'>
+                                <circle cx='12' cy='12' r='10'/><polyline points='12 6 12 12 16 14'/>
+                              </svg>
+                              {mins < 60 ? `${mins} min` : `${Math.floor(mins/60)}h ${mins%60}m`}
+                              {tarde && ' ⚠️'}
+                            </div>
+                          )
+                        })()}
+                      </div>
                     </div>
                     <div style={{padding:'12px 15px'}}>
                       {p.telefono && <div style={{fontSize:11,color:'#666',marginBottom:4}}>Tel: {p.telefono}</div>}
