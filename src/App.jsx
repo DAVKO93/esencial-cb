@@ -880,8 +880,12 @@ function AdminApp() {
         })
         if (visionRes.ok) {
           const campos = await visionRes.json()
-          setDatosComprobanteMesa(p => ({...p, [pedidoId]: campos}))
-          showToast('ok', 'Comprobante analizado')
+          if (campos) {
+            setDatosComprobanteMesa(p => ({...p, [pedidoId]: campos}))
+            showToast('ok', 'Comprobante analizado')
+          } else {
+            showToast('ok', 'Foto guardada')
+          }
         } else {
           showToast('ok', 'Foto guardada')
         }
@@ -2722,7 +2726,7 @@ function ClienteApp({ onVolver }) {
       })
       if (visionRes.ok) {
         const campos = await visionRes.json()
-        setDatosComprobante(campos)
+        if (campos) setDatosComprobante(campos)
       }
       showToast('ok', 'Comprobante adjunto')
     } catch(e) {

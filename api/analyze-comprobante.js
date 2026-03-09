@@ -40,70 +40,90 @@ export default async function handler(req, res) {
     if (!response.ok) return res.status(502).json({ error: 'Error Vision API', detail: data })
 
     const annotation = data.responses?.[0]?.fullTextAnnotation
-    if (!annotation) return res.status(200).json({ monto:'', remitente:'', fecha:'', cuentaOrigen:'', nroComprobante:'' })
+    if (!annotation) {
+      // No se pudo leer texto — devolver vacío sin error
+      return res.status(200).json(null)
+    }
+
+    // Verificar si es un comprobante Banco Pichincha
+    const textoCompleto = annotation.text || ''
+    const esPichincha = /pichincha/i.test(textoCompleto)
+
+    if (!esPichincha) {
+      // No es Pichincha — devolver null para que la app suba la foto sin extraer datos
+      return res.status(200).json(null)
+    }
 
     const campos = extraerConCoordenadas(annotation)
     return res.status(200).json(campos)
 
   } catch (err) {
-    return res.status(500).json({ error: 'Error interno', detail: err.message })
+    // Cualquier error interno devuelve null — la app sigue sin romper
+    return res.status(200).json(null)
   }
 }
 
-// Extrae palabras con sus coordenadas Y (posición vertical) para agrupar por fila
 function extraerConCoordenadas(annotation) {
   const resultado = { monto:'', remitente:'', fecha:'', cuentaOrigen:'', nroComprobante:'' }
-
-  // Construir lista de palabras con su posición Y central
-  const palabras = []
-  for (const page of annotation.pages || []) {
-    for (const block of page.blocks || []) {
-      for (const para of block.paragraphs || []) {
-        for (const word of para.words || []) {
-          const texto = word.symbols.map(s => s.text).join('')
-          const ys = word.boundingBox.vertices.map(v => v.y || 0)
-          const yCentro = (Math.min(...ys) + Math.max(...ys)) / 2
-          const xs = word.boundingBox.vertices.map(v => v.x || 0)
-          const xIzq = Math.min(...xs)
-          palabras.push({ texto, y: yCentro, x: xIzq })
-        }
-      }
-    }
-  }
-
-  // Agrupar palabras por filas (palabras con Y similar están en la misma fila)
-  // Tolerancia: 15 píxeles
-  palabras.sort((a, b) => a.y - b.y)
-  const filas = []
-  const TOLERANCIA = 15
-
-  for (const palabra of palabras) {
-    let filaExistente = filas.find(f => Math.abs(f.yPromedio - palabra.y) <= TOLERANCIA)
-    if (filaExistente) {
-      filaExistente.palabras.push(palabra)
-      filaExistente.yPromedio = filaExistente.palabras.reduce((s,p) => s + p.y, 0) / filaExistente.palabras.length
-    } else {
-      filas.push({ yPromedio: palabra.y, palabras: [palabra] })
-    }
-  }
-
-  // Ordenar palabras de cada fila por X (izquierda a derecha)
-  for (const fila of filas) {
-    fila.palabras.sort((a, b) => a.x - b.x)
-    fila.texto = fila.palabras.map(p => p.texto).join(' ')
-  }
 
   const MESES = {
     enero:'01', febrero:'02', marzo:'03', abril:'04', mayo:'05', junio:'06',
     julio:'07', agosto:'08', septiembre:'09', octubre:'10', noviembre:'11', diciembre:'12'
   }
 
-  for (let i = 0; i < filas.length; i++) {
-    const linea = filas[i].texto.trim()
-    const l = linea.toLowerCase()
-    const sigLinea = filas[i+1]?.texto || ''
+  // --- PASO 1: Extraer todas las palabras con coordenadas ---
+  const palabras = []
+  for (const page of annotation.pages || []) {
+    for (const block of page.blocks || []) {
+      for (const para of block.paragraphs || []) {
+        for (const word of para.words || []) {
+          const texto = word.symbols.map(s => s.text).join('')
+          if (!texto.trim()) continue
+          const verts = word.boundingBox?.vertices || []
+          const ys = verts.map(v => v.y || 0)
+          const xs = verts.map(v => v.x || 0)
+          const yCentro = (Math.min(...ys) + Math.max(...ys)) / 2
+          const xIzq = Math.min(...xs)
+          const xDer = Math.max(...xs)
+          palabras.push({ texto, y: yCentro, x: xIzq, xDer })
+        }
+      }
+    }
+  }
 
-    // MONTO — primera fila con $
+  if (palabras.length === 0) return resultado
+
+  // --- PASO 2: Agrupar palabras en filas por proximidad vertical ---
+  palabras.sort((a, b) => a.y - b.y)
+  const TOLERANCIA_Y = 12
+  const filas = []
+
+  for (const palabra of palabras) {
+    const filaExistente = filas.find(f => Math.abs(f.yRef - palabra.y) <= TOLERANCIA_Y)
+    if (filaExistente) {
+      filaExistente.palabras.push(palabra)
+    } else {
+      filas.push({ yRef: palabra.y, palabras: [palabra] })
+    }
+  }
+
+  // Ordenar cada fila de izquierda a derecha
+  for (const fila of filas) {
+    fila.palabras.sort((a, b) => a.x - b.x)
+    fila.texto = fila.palabras.map(p => p.texto).join(' ')
+    fila.xMin = fila.palabras[0].x
+    fila.xMax = fila.palabras[fila.palabras.length - 1].xDer
+    fila.xMedio = (fila.xMin + fila.xMax) / 2
+  }
+
+  // --- PASO 3: Extraer cada campo usando filas ordenadas ---
+  for (let i = 0; i < filas.length; i++) {
+    const fila = filas[i]
+    const linea = fila.texto.trim()
+    const l = linea.toLowerCase()
+    const sigFila = filas[i + 1]
+
+    // MONTO — primera fila que contiene $ seguido de número
     if (!resultado.monto && /\$\s*\d/.test(linea)) {
       const m = linea.match(/\$\s*[\d.,]+/)
       if (m) resultado.monto = m[0].replace(/\s/g, '')
@@ -111,56 +131,60 @@ function extraerConCoordenadas(annotation) {
 
     // FECHA — "El 09 de marzo de 2026"
     if (!resultado.fecha) {
-      const m = l.match(/(\d{1,2})\s+de\s+([a-záéíóú]+)\s+de\s+(\d{4})/)
+      const m = l.match(/(\d{1,2})\s+de\s+([a-z\u00e1\u00e9\u00ed\u00f3\u00fa]+)\s+de\s+(\d{4})/)
       if (m && MESES[m[2]]) {
         resultado.fecha = `${m[1].padStart(2,'0')}/${MESES[m[2]]}/${m[3]}`
       }
     }
 
-    // REMITENTE — fila que empieza con "De " + mayúscula, no "Banco"
+    // REMITENTE — fila donde el PRIMER token es exactamente "De" y le siguen palabras con mayúscula
     if (!resultado.remitente) {
-      const m = linea.match(/^De\s+([A-Z].+)/)
-      if (m && !m[1].toLowerCase().includes('banco')) {
-        resultado.remitente = m[1].trim()
+      const tokens = fila.palabras
+      if (
+        tokens.length >= 3 &&
+        tokens[0].texto === 'De' &&
+        /^[A-Z]/.test(tokens[1].texto)
+      ) {
+        const nombre = tokens.slice(1).map(p => p.texto).join(' ').trim()
+        if (!nombre.toLowerCase().includes('banco')) {
+          resultado.remitente = nombre
+        }
       }
     }
 
-    // CUENTA ORIGEN — buscar fila con esa etiqueta y tomar el valor numérico
+    // CUENTA ORIGEN — fila con etiqueta a la izquierda y número a la derecha
     if (!resultado.cuentaOrigen && l.includes('cuenta') && l.includes('origen')) {
-      // El valor puede estar en la misma fila (a la derecha) o en la siguiente
-      const valorEnFila = linea.replace(/cuenta\s+origen/i, '').replace(/[^0-9]/g, '')
-      if (valorEnFila.length >= 6) {
-        resultado.cuentaOrigen = valorEnFila
-      } else {
-        // Buscar la palabra más a la derecha de esta fila que sea numérica
-        const palabrasFila = filas[i].palabras
-        const xMitad = (palabrasFila[0].x + palabrasFila[palabrasFila.length-1].x) / 2
-        const palabrasDerecha = palabrasFila.filter(p => p.x > xMitad && /\d/.test(p.texto))
-        if (palabrasDerecha.length > 0) {
-          resultado.cuentaOrigen = palabrasDerecha.map(p => p.texto).join('').replace(/[^0-9]/g,'')
-        } else {
-          resultado.cuentaOrigen = sigLinea.replace(/[^0-9]/g, '')
-        }
+      // Separar palabras de la fila en: etiqueta (lado izq) y valor (lado der)
+      // La etiqueta son las palabras "Cuenta" y "origen", el resto son el valor
+      const palabrasValor = fila.palabras.filter(p =>
+        !/(cuenta|origen)/i.test(p.texto)
+      )
+      const soloDigitos = palabrasValor.map(p => p.texto).join('').replace(/[^0-9]/g, '')
+      if (soloDigitos.length >= 6) {
+        resultado.cuentaOrigen = soloDigitos
+      } else if (sigFila) {
+        // Buscar en la fila siguiente palabras que sean puramente numéricas
+        const numSig = sigFila.palabras
+          .filter(p => /\d/.test(p.texto))
+          .map(p => p.texto).join('').replace(/[^0-9]/g, '')
+        if (numSig.length >= 6) resultado.cuentaOrigen = numSig
       }
     }
 
-    // N° COMPROBANTE — etiqueta + valor numérico
+    // N° COMPROBANTE — fila con "comprobante", excluir "transferencia" y "verificar"
     if (!resultado.nroComprobante && l.includes('comprobante') && !l.includes('transfer') && !l.includes('verific')) {
-      const valorEnFila = linea
-        .replace(/n\S?\s*de\s+comprobante/i, '')
-        .replace(/comprobante/i, '')
-        .replace(/[^0-9]/g, '')
-      if (valorEnFila.length >= 4) {
-        resultado.nroComprobante = valorEnFila
-      } else {
-        const palabrasFila = filas[i].palabras
-        const xMitad = (palabrasFila[0].x + palabrasFila[palabrasFila.length-1].x) / 2
-        const palabrasDerecha = palabrasFila.filter(p => p.x > xMitad && /\d/.test(p.texto))
-        if (palabrasDerecha.length > 0) {
-          resultado.nroComprobante = palabrasDerecha.map(p => p.texto).join('').replace(/[^0-9]/g,'')
-        } else {
-          resultado.nroComprobante = sigLinea.replace(/[^0-9]/g, '')
-        }
+      // Palabras de la fila que no sean la etiqueta
+      const palabrasValor = fila.palabras.filter(p =>
+        !/(n|n°|de|comprobante)/i.test(p.texto)
+      )
+      const soloDigitos = palabrasValor.map(p => p.texto).join('').replace(/[^0-9]/g, '')
+      if (soloDigitos.length >= 4) {
+        resultado.nroComprobante = soloDigitos
+      } else if (sigFila) {
+        const numSig = sigFila.palabras
+          .filter(p => /\d/.test(p.texto))
+          .map(p => p.texto).join('').replace(/[^0-9]/g, '')
+        if (numSig.length >= 4) resultado.nroComprobante = numSig
       }
     }
   }
@@ -168,7 +192,7 @@ function extraerConCoordenadas(annotation) {
   return resultado
 }
 
-// Genera token JWT para Google APIs
+// Genera token JWT para Google APIs sin librerías externas
 async function getGoogleToken(credentials) {
   const now = Math.floor(Date.now() / 1000)
   const header = { alg: 'RS256', typ: 'JWT' }
@@ -180,9 +204,8 @@ async function getGoogleToken(credentials) {
     exp: now + 3600
   }
 
-  const b64Header = btoa(JSON.stringify(header)).replace(/=/g,'').replace(/\+/g,'-').replace(/\//g,'_')
-  const b64Payload = btoa(JSON.stringify(payload)).replace(/=/g,'').replace(/\+/g,'-').replace(/\//g,'_')
-  const unsigned = `${b64Header}.${b64Payload}`
+  const enc = s => btoa(JSON.stringify(s)).replace(/=/g,'').replace(/\+/g,'-').replace(/\//g,'_')
+  const unsigned = `${enc(header)}.${enc(payload)}`
 
   const pemKey = credentials.private_key
   const keyData = pemKey
@@ -205,12 +228,10 @@ async function getGoogleToken(credentials) {
   const b64Sig = btoa(String.fromCharCode(...new Uint8Array(signature)))
     .replace(/=/g,'').replace(/\+/g,'-').replace(/\//g,'_')
 
-  const jwt = `${unsigned}.${b64Sig}`
-
   const tokenRes = await fetch('https://oauth2.googleapis.com/token', {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: `grant_type=urn%3Aietf%3Aparams%3Aoauth%3Agrant-type%3Ajwt-bearer&assertion=${jwt}`
+    body: `grant_type=urn%3Aietf%3Aparams%3Aoauth%3Agrant-type%3Ajwt-bearer&assertion=${unsigned}.${b64Sig}`
   })
   const tokenData = await tokenRes.json()
   return tokenData.access_token
