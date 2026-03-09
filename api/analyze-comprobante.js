@@ -67,102 +67,62 @@ function extraerCampos(texto) {
   const resultado = { monto: '', remitente: '', fecha: '', cuentaOrigen: '', nroComprobante: '' }
 
   const MESES = {
-    enero:'01',febrero:'02',marzo:'03',abril:'04',mayo:'05',junio:'06',
-    julio:'07',agosto:'08',septiembre:'09',octubre:'10',noviembre:'11',diciembre:'12'
+    enero:'01', febrero:'02', marzo:'03', abril:'04', mayo:'05', junio:'06',
+    julio:'07', agosto:'08', septiembre:'09', octubre:'10', noviembre:'11', diciembre:'12'
   }
 
-  // Buscar en texto completo primero (más confiable que línea por línea)
-  const textoCompleto = texto.toLowerCase()
-
-  // MONTO — $ 500.00 o $500.00
-  const matchMonto = texto.match(/\$\s*[\d,]+\.?\d{0,2}/)
-  if (matchMonto) resultado.monto = matchMonto[0].replace(/\s/g,'')
-
-  // FECHA — "El 09 de marzo de 2026" buscando en cada línea también
-  const matchFecha = textoCompleto.match(/el\s+(\d{1,2})\s+de\s+([a-z]+)\s+de\s+(\d{4})/)
-  if (matchFecha) {
-    const dia = matchFecha[1].padStart(2,'0')
-    const mes = MESES[matchFecha[2]] || ''
-    const anio = matchFecha[3]
-    if (mes) resultado.fecha = `${dia}/${mes}/${anio}`
-  }
-  // Fallback: buscar línea que tenga "de" + mes en texto
-  if (!resultado.fecha) {
-    for (const linea of lineas) {
-      const l = linea.toLowerCase()
-      const m = l.match(/(\d{1,2})\s+de\s+([a-z]+)\s+(?:de\s+)?(\d{4})/)
-      if (m) {
-        const dia = m[1].padStart(2,'0')
-        const mes = MESES[m[2]] || ''
-        if (mes) { resultado.fecha = `${dia}/${mes}/${m[3]}`; break }
-      }
-      // Formato numérico
-      const mNum = linea.match(/\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4}/)
-      if (mNum) { resultado.fecha = mNum[0]; break }
-    }
-  }
-
-  // N° COMPROBANTE — buscar línea con "comprobante" y tomar número al final o línea siguiente
   for (let i = 0; i < lineas.length; i++) {
-    const l = lineas[i].toLowerCase()
-    if (l.includes('comprobante') && !l.includes('verificar') && !l.includes('transferencia')) {
-      // Número en la misma línea (al final)
-      const numEnLinea = lineas[i].match(/\d{6,}/)
-      if (numEnLinea) {
-        resultado.nroComprobante = numEnLinea[0]
-        break
+    const linea = lineas[i]
+    const l = linea.toLowerCase()
+    const sig = lineas[i+1] || ''
+
+    // MONTO — primera línea con $ seguido de número
+    if (!resultado.monto && /\$\s*\d/.test(linea)) {
+      const m = linea.match(/\$\s*[\d.,]+/)
+      if (m) resultado.monto = m[0].replace(/\s/g, '')
+    }
+
+    // FECHA — "El 09 de marzo de 2026"
+    if (!resultado.fecha) {
+      const m = l.match(/(\d{1,2})\s+de\s+([a-záéíóú]+)\s+de\s+(\d{4})/)
+      if (m && MESES[m[2]]) {
+        resultado.fecha = `${m[1].padStart(2,'0')}/${MESES[m[2]]}/${m[3]}`
       }
-      // Número en la siguiente línea
-      if (lineas[i+1]) {
-        const numSig = lineas[i+1].match(/^\d+$/) || lineas[i+1].match(/\d{6,}/)
-        if (numSig) { resultado.nroComprobante = numSig[0]; break }
+      if (!resultado.fecha) {
+        const mNum = linea.match(/\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4}/)
+        if (mNum) resultado.fecha = mNum[0]
       }
     }
-  }
 
-  // REMITENTE — "De Espinosa Sarango Karolin Gissel"
-  // Buscar en todas las líneas sin exigir inicio exacto
-  for (let i = 0; i < lineas.length; i++) {
-    const linea = lineas[i].trim()
-    // Buscar patrón "De NombreApellido..." en cualquier parte de la línea
-    const matchDe = linea.match(/(?:^|\s)De\s+([A-Z][a-zA-Z]+(?:\s+[A-Z][a-zA-Z]+){1,4})/)
-    if (matchDe) {
-      const nombre = matchDe[1].trim()
-      const nombreMin = nombre.toLowerCase()
-      if (
-        nombre.length > 5 &&
-        !nombreMin.includes('banco') &&
-        !nombreMin.includes('destino') &&
-        !nombreMin.includes('origen') &&
-        !nombreMin.includes('pichincha') &&
-        !nombreMin.includes('quihivi') === false || true // aceptar cualquier nombre
-      ) {
+    // REMITENTE — línea que empieza con "De " seguida de nombre con mayúscula
+    if (!resultado.remitente && /^De\s+[A-Z]/.test(linea)) {
+      const nombre = linea.replace(/^De\s+/, '').trim()
+      if (!nombre.toLowerCase().includes('banco')) {
         resultado.remitente = nombre
-        break
       }
     }
-    // Fallback: "ordenante:" o "remitente:"
-    const lmin = linea.toLowerCase()
-    if ((lmin.includes('ordenante') || lmin.includes('remitente')) && linea.includes(':')) {
-      const val = linea.split(':').slice(1).join(':').trim()
-      if (val) { resultado.remitente = val; break }
-    }
-  }
 
-  // CUENTA ORIGEN — "Cuenta origen   220 454 4679" (con espacios entre grupos)
-  for (let i = 0; i < lineas.length; i++) {
-    const l = lineas[i].toLowerCase()
-    if (l.includes('cuenta origen') || l.includes('cuenta debito') || l.includes('cuenta débito')) {
-      // Buscar grupos de números separados por espacios en la misma línea
-      const grupos = lineas[i].match(/\d[\d\s]+\d/)
-      if (grupos) {
-        resultado.cuentaOrigen = grupos[0].replace(/\s/g,'')
-        break
+    // CUENTA ORIGEN — etiqueta + valor en misma línea o línea siguiente
+    if (!resultado.cuentaOrigen && l.includes('cuenta origen')) {
+      const parteValor = linea.replace(/cuenta origen/i, '').trim()
+      const digitos = parteValor.replace(/[^0-9]/g, '')
+      if (digitos.length >= 6) {
+        resultado.cuentaOrigen = digitos
+      } else if (sig) {
+        resultado.cuentaOrigen = sig.replace(/[^0-9]/g, '')
       }
-      // Número en línea siguiente
-      if (lineas[i+1]) {
-        const gruposSig = lineas[i+1].match(/\d[\d\s]+\d/)
-        if (gruposSig) { resultado.cuentaOrigen = gruposSig[0].replace(/\s/g,''); break }
+    }
+
+    // N° COMPROBANTE — etiqueta + valor en misma línea o línea siguiente
+    if (!resultado.nroComprobante && l.includes('comprobante') && !l.includes('transfer') && !l.includes('verific')) {
+      const parteValor = linea
+        .replace(/n\S?\s*\.?\s*de\s+comprobante/i, '')
+        .replace(/comprobante/i, '').trim()
+      const digitos = parteValor.replace(/[^0-9]/g, '')
+      if (digitos.length >= 4) {
+        resultado.nroComprobante = digitos
+      } else if (sig) {
+        resultado.nroComprobante = sig.replace(/[^0-9]/g, '')
       }
     }
   }
