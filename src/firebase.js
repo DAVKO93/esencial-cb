@@ -1,6 +1,7 @@
 import { initializeApp } from 'firebase/app'
 import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager } from 'firebase/firestore'
 import { getAuth, setPersistence, browserLocalPersistence } from 'firebase/auth'
+import { getStorage } from 'firebase/storage'
 
 const firebaseConfig = {
   apiKey: "AIzaSyD86yCDTkQnhl26o_sy3iERZE003keD3sA",
@@ -20,5 +21,6 @@ export const db = initializeFirestore(app, {
 })
 
 export const auth = getAuth(app)
+export const storage = getStorage(app)
 
 setPersistence(auth, browserLocalPersistence).catch(() => {})

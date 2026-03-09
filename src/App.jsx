@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
 import { db, auth, storage } from './firebase'
+import { ref, uploadBytes, getDownloadURL } from 'firebase/storage'
 import {
   collection, addDoc, getDocs, doc, updateDoc, deleteDoc,
   query, where, orderBy, onSnapshot, serverTimestamp
@@ -2492,6 +2493,10 @@ function ClienteApp({ onVolver }) {
   const [cantidades, setCantidades] = useState({})
   const [modalPedido, setModalPedido] = useState(false)
   const [vistaCliente, setVistaCliente] = useState('menu') // 'menu' | 'pedido'
+  const [comprobanteCliente, setComprobanteCliente] = useState(null) // base64 preview
+  const [urlComprobante, setUrlComprobante] = useState(null) // URL Firebase Storage
+  const [subiendoComprobante, setSubiendoComprobante] = useState(false)
+  const comprobanteRef = useRef(null)
   const [modalCancelar, setModalCancelar] = useState(false)
   const [modalRegistro, setModalRegistro] = useState(() => {
     const ir = localStorage.getItem('esencial_ir_registro')
@@ -2621,6 +2626,24 @@ function ClienteApp({ onVolver }) {
   }
 
 
+  async function subirComprobante(base64) {
+    setSubiendoComprobante(true)
+    try {
+      const res = await fetch(base64)
+      const blob = await res.blob()
+      const nombre = `comprobantes/${Date.now()}_${Math.random().toString(36).slice(2)}.jpg`
+      const storageRef = ref(storage, nombre)
+      await uploadBytes(storageRef, blob, { contentType: 'image/jpeg' })
+      const url = await getDownloadURL(storageRef)
+      setUrlComprobante(url)
+      showToast('ok', 'Comprobante adjunto')
+    } catch(e) {
+      showToast('warn', 'No se pudo subir el comprobante, intenta de nuevo')
+      setComprobanteCliente(null)
+    }
+    setSubiendoComprobante(false)
+  }
+
   async function cargarHistorial() {
     if (!cliente) return
     setLoadingHistorial(true)
@@ -2685,6 +2708,7 @@ function ClienteApp({ onVolver }) {
         estado: 'A DOMICILIO',
         creadoEn: serverTimestamp()
       }
+      if (urlComprobante) domData.urlComprobante = urlComprobante
       await addDoc(collection(db,'domicilio'), domData)
     } catch(e) {}
 
@@ -2717,6 +2741,8 @@ function ClienteApp({ onVolver }) {
     setModalImportante(false)
     setModalPedido(false)
     setCantidades({})
+    setComprobanteCliente(null)
+    setUrlComprobante(null)
     setVistaCliente('menu')
     showToast('ok','Pedido enviado por WhatsApp')
   }
@@ -3279,6 +3305,42 @@ function ClienteApp({ onVolver }) {
           </div>
           {/* Botón WA fijo en fondo */}
           <div style={{padding:'10px 16px 16px',borderTop:'1px solid #e0e0e0',background:'#fff',display:'flex',flexDirection:'column',gap:8}}>
+            {/* Adjuntar comprobante */}
+            <input type='file' accept='image/*' style={{display:'none'}} ref={comprobanteRef}
+              onChange={e=>{
+                const file=e.target.files?.[0]
+                if(!file) return
+                const reader=new FileReader()
+                reader.onload=ev=>{
+                  setComprobanteCliente(ev.target.result)
+                  subirComprobante(ev.target.result)
+                }
+                reader.readAsDataURL(file)
+                e.target.value=''
+              }}
+            />
+            {comprobanteCliente ? (
+              <div style={{display:'flex',alignItems:'center',gap:10,background:'#f5f8f1',borderRadius:9,padding:'8px 12px',border:'1px solid #7C9263'}}>
+                <div style={{width:36,height:36,borderRadius:6,overflow:'hidden',flexShrink:0}}>
+                  <img src={comprobanteCliente} alt='comp' style={{width:'100%',height:'100%',objectFit:'cover'}}/>
+                </div>
+                <div style={{flex:1,fontSize:11,fontFamily:'Poppins,sans-serif'}}>
+                  {subiendoComprobante
+                    ? <span style={{color:'#7C9263',fontWeight:600}}>Subiendo...</span>
+                    : <span style={{color:'#2e7d32',fontWeight:600}}>Comprobante adjunto</span>
+                  }
+                </div>
+                <button onClick={()=>{setComprobanteCliente(null);setUrlComprobante(null)}}
+                  style={{background:'none',border:'none',color:'#c62828',fontSize:18,cursor:'pointer',lineHeight:1}}>x</button>
+              </div>
+            ) : (
+              <button onClick={()=>comprobanteRef.current?.click()} style={{
+                width:'100%',padding:'11px',background:'#fff',
+                border:'1.5px dashed #7C9263',borderRadius:9,
+                fontFamily:'Poppins,sans-serif',fontSize:11,fontWeight:700,
+                color:'#7C9263',cursor:'pointer',letterSpacing:1
+              }}>Adjuntar comprobante de pago</button>
+            )}
             <button onClick={confirmarEnvio} style={{
               width:'100%',padding:'15px',background:'#25d366',color:'#fff',border:'none',borderRadius:11,
               fontFamily:'Poppins,sans-serif',fontSize:13,fontWeight:700,letterSpacing:2,textTransform:'uppercase',cursor:'pointer'
@@ -3324,7 +3386,7 @@ function ClienteApp({ onVolver }) {
                 border:'1.5px solid #d0d0d0',borderRadius:9,
                 fontFamily:'Poppins,sans-serif',fontSize:12,fontWeight:700,cursor:'pointer'
               }}>Volver</button>
-              <button onClick={()=>{setCantidades({});setModalCancelar(false);setVistaCliente('menu')}} style={{
+              <button onClick={()=>{setCantidades({});setComprobanteCliente(null);setUrlComprobante(null);setModalCancelar(false);setVistaCliente('menu')}} style={{
                 flex:1,padding:'12px',background:'#1a1a1a',color:'#fff',
                 border:'none',borderRadius:9,
                 fontFamily:'Poppins,sans-serif',fontSize:12,fontWeight:700,cursor:'pointer'
