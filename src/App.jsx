@@ -836,36 +836,14 @@ function AdminApp() {
   async function analizarComprobante(pedidoId, base64) {
     setAnalizandoComp(p => ({...p, [pedidoId]: true}))
     try {
-      const resp = await fetch('https://api.anthropic.com/v1/messages', {
+      const mediaType = base64.startsWith('data:image/png') ? 'image/png' : 'image/jpeg'
+      const resp = await fetch('/api/analyze-comprobante', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({
-          model: 'claude-sonnet-4-20250514',
-          max_tokens: 300,
-          system: 'Eres un extractor de datos de comprobantes bancarios. Responde SOLO con JSON válido, sin texto adicional, sin markdown.',
-          messages: [{
-            role: 'user',
-            content: [
-              {
-                type: 'image',
-                source: {
-                  type: 'base64',
-                  media_type: 'image/jpeg',
-                  data: base64.split(',')[1]
-                }
-              },
-              {
-                type: 'text',
-                text: 'Extrae exactamente estos 5 campos del comprobante de transferencia y responde SOLO con JSON: {"monto":"","remitente":"","fecha":"","cuentaOrigen":"","nroComprobante":""}. Si no encuentras un campo pon cadena vacía.'
-              }
-            ]
-          }]
-        })
+        body: JSON.stringify({ imageBase64: base64.split(',')[1], mediaType })
       })
-      const data = await resp.json()
-      const txt = data.content?.[0]?.text || '{}'
-      const clean = txt.replace(/```json|```/g,'').trim()
-      const parsed = JSON.parse(clean)
+      if (!resp.ok) throw new Error('Error ' + resp.status)
+      const parsed = await resp.json()
       setDatosComprobante(p => ({...p, [pedidoId]: parsed}))
       showToast('ok','Comprobante analizado')
     } catch(e) {
@@ -2686,26 +2664,14 @@ function ClienteApp({ onVolver }) {
   async function analizarComprobanteCliente(base64) {
     setAnalizandoCompCliente(true)
     try {
-      const resp = await fetch('https://api.anthropic.com/v1/messages', {
+      const mediaType = base64.startsWith('data:image/png') ? 'image/png' : 'image/jpeg'
+      const resp = await fetch('/api/analyze-comprobante', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({
-          model: 'claude-sonnet-4-20250514',
-          max_tokens: 300,
-          system: 'Eres un extractor de datos de comprobantes bancarios. Responde SOLO con JSON válido, sin texto adicional, sin markdown.',
-          messages: [{
-            role: 'user',
-            content: [
-              {type:'image', source:{type:'base64', media_type:'image/jpeg', data: base64.split(',')[1]}},
-              {type:'text', text:'Extrae exactamente estos 5 campos del comprobante y responde SOLO con JSON: {"monto":"","remitente":"","fecha":"","cuentaOrigen":"","nroComprobante":""}. Si no encuentras un campo pon cadena vacía.'}
-            ]
-          }]
-        })
+        body: JSON.stringify({ imageBase64: base64.split(',')[1], mediaType })
       })
-      const data = await resp.json()
-      const txt = data.content?.[0]?.text || '{}'
-      const clean = txt.replace(/```json|```/g,'').trim()
-      const parsed = JSON.parse(clean)
+      if (!resp.ok) throw new Error('Error ' + resp.status)
+      const parsed = await resp.json()
       setDatosComprobanteCliente(parsed)
       showToast('ok','Comprobante analizado')
     } catch(e) {
