@@ -836,11 +836,12 @@ function AdminApp() {
   async function analizarComprobante(pedidoId, base64) {
     setAnalizandoComp(p => ({...p, [pedidoId]: true}))
     try {
-      const mediaType = base64.startsWith('data:image/png') ? 'image/png' : 'image/jpeg'
+      const comprimida = await comprimirImagen(base64)
+      const mediaType = 'image/jpeg'
       const resp = await fetch('/api/analyze-comprobante', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({ imageBase64: base64.split(',')[1], mediaType })
+        body: JSON.stringify({ imageBase64: comprimida.split(',')[1], mediaType })
       })
       if (!resp.ok) throw new Error('Error ' + resp.status)
       const parsed = await resp.json()
@@ -862,6 +863,7 @@ function AdminApp() {
       analizarComprobante(pedidoId, b64)
     }
     reader.readAsDataURL(file)
+    e.target.value = ''
   }
 
   async function compartirComprobante(pedidoId) {
@@ -2661,14 +2663,31 @@ function ClienteApp({ onVolver }) {
     })
   }
 
+  function comprimirImagen(base64, maxWidth=800) {
+    return new Promise((resolve) => {
+      const img = new Image()
+      img.onload = () => {
+        const canvas = document.createElement('canvas')
+        const ratio = Math.min(1, maxWidth / img.width)
+        canvas.width = img.width * ratio
+        canvas.height = img.height * ratio
+        const ctx = canvas.getContext('2d')
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height)
+        resolve(canvas.toDataURL('image/jpeg', 0.7))
+      }
+      img.src = base64
+    })
+  }
+
   async function analizarComprobanteCliente(base64) {
     setAnalizandoCompCliente(true)
     try {
-      const mediaType = base64.startsWith('data:image/png') ? 'image/png' : 'image/jpeg'
+      const comprimida = await comprimirImagen(base64)
+      const mediaType = 'image/jpeg'
       const resp = await fetch('/api/analyze-comprobante', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({ imageBase64: base64.split(',')[1], mediaType })
+        body: JSON.stringify({ imageBase64: comprimida.split(',')[1], mediaType })
       })
       if (!resp.ok) throw new Error('Error ' + resp.status)
       const parsed = await resp.json()
@@ -3345,6 +3364,7 @@ function ClienteApp({ onVolver }) {
                     analizarComprobanteCliente(b64)
                   }
                   reader.readAsDataURL(file)
+                  e.target.value = ''
                 }}
               />
               {comprobanteCliente ? (
