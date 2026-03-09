@@ -543,8 +543,6 @@ function AdminApp() {
   const fotoPerfRef = useRef(null)
   // Comprobante camara
   const [fotoComprobante, setFotoComprobante] = useState({}) // {pedidoId: dataURL}
-  const [datosComprobante, setDatosComprobante] = useState({}) // {pedidoId: {monto,remitente,fecha,cuentaOrigen,nroComprobante}}
-  const [analizandoComp, setAnalizandoComp] = useState({}) // {pedidoId: true/false}
   const [modalTransferencia, setModalTransferencia] = useState(null) // pedido obj
   const [datosCliente, setDatosCliente] = useState({})
   const [dcAbierto, setDcAbierto] = useState({}) // acordeon datos cliente
@@ -801,15 +799,12 @@ function AdminApp() {
       telefono: dc.tel || '',
       email: dc.email || ''
     }
-    // Incluir datos del comprobante si existen
-    if (datosComprobante[id]) updateData.comprobante = datosComprobante[id]
+
     // Quitar inmediatamente de EN PROCESO
     setPedidosActivos(p => p.filter(x => x.id !== id))
     setPagoSel(p => { const n={...p}; delete n[id]; return n })
     setFotoComprobante(p => { const n={...p}; delete n[id]; return n })
     setDatosCliente(p => { const n={...p}; delete n[id]; return n })
-    setDatosComprobante(p => { const n={...p}; delete n[id]; return n })
-    setAnalizandoComp(p => { const n={...p}; delete n[id]; return n })
     try {
       await updateDoc(doc(db,'pedidos',id), updateData)
       try{Sound.play('success')}catch(e){}
@@ -849,34 +844,12 @@ function AdminApp() {
     if (cameraRefs.current[pedidoId]) cameraRefs.current[pedidoId].click()
   }
 
-  async function analizarComprobante(pedidoId, base64) {
-    setAnalizandoComp(p => ({...p, [pedidoId]: true}))
-    try {
-      const comprimida = await comprimirImagen(base64)
-      const mediaType = 'image/jpeg'
-      const resp = await fetch('/api/analyze-comprobante', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({ imageBase64: comprimida.split(',')[1], mediaType })
-      })
-      const result = await resp.json()
-      if (!resp.ok) throw new Error(result.detail?.error?.message || result.error || 'Error ' + resp.status)
-      setDatosComprobante(p => ({...p, [pedidoId]: result}))
-      showToast('ok','Comprobante analizado')
-    } catch(e) {
-      showToast('warn', e.message || 'No se pudo analizar el comprobante')
-    }
-    setAnalizandoComp(p => ({...p, [pedidoId]: false}))
-  }
-
   function onFotoCapturada(pedidoId, e) {
     const file = e.target.files[0]
     if (!file) return
     const reader = new FileReader()
     reader.onload = (ev) => {
-      const b64 = ev.target.result
-      setFotoComprobante(p => ({...p, [pedidoId]: b64}))
-      analizarComprobante(pedidoId, b64)
+      setFotoComprobante(p => ({...p, [pedidoId]: ev.target.result}))
     }
     reader.readAsDataURL(file)
     e.target.value = ''
@@ -1675,19 +1648,7 @@ function AdminApp() {
                               <svg width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='currentColor' strokeWidth='2' strokeLinecap='round'><rect x='2' y='7' width='20' height='15' rx='2'/><path d='M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2'/><circle cx='12' cy='14' r='3'/></svg>
                               Tomar foto del comprobante
                             </button>
-                            {analizandoComp[p.id] && (
-                              <div style={{textAlign:'center',fontSize:10,color:'#7C9263',fontFamily:'Poppins,sans-serif',marginTop:6,fontWeight:600,letterSpacing:0.5}}>
-                                Analizando comprobante...
-                              </div>
-                            )}
-                            {datosComprobante[p.id] && !analizandoComp[p.id] && (
-                              <div style={{background:'#f5f8f1',border:'1px solid #7C9263',borderRadius:7,padding:'7px 10px',marginTop:6}}>
-                                <div style={{fontSize:9,letterSpacing:2,textTransform:'uppercase',color:'#7C9263',fontWeight:700,marginBottom:5}}>Datos extraidos</div>
-                                {datosComprobante[p.id].monto && <div style={{fontSize:11,color:'#1a1a1a',marginBottom:2}}><span style={{color:'#999'}}>Monto: </span>{datosComprobante[p.id].monto}</div>}
-                                {datosComprobante[p.id].remitente && <div style={{fontSize:11,color:'#1a1a1a',marginBottom:2}}><span style={{color:'#999'}}>De: </span>{datosComprobante[p.id].remitente}</div>}
-                                {datosComprobante[p.id].nroComprobante && <div style={{fontSize:11,color:'#1a1a1a'}}><span style={{color:'#999'}}>N: </span>{datosComprobante[p.id].nroComprobante}</div>}
-                              </div>
-                            )}
+  
                           </div>
                         )}
                       </div>
@@ -2567,8 +2528,6 @@ function ClienteApp({ onVolver }) {
   const [modalPromos, setModalPromos] = useState(false)
   const [loadingGPS, setLoadingGPS] = useState(false)
   const [comprobanteCliente, setComprobanteCliente] = useState(null) // base64
-  const [datosComprobanteCliente, setDatosComprobanteCliente] = useState(null)
-  const [analizandoCompCliente, setAnalizandoCompCliente] = useState(false)
   const comprobanteRef = useRef(null)
   const [modalPerfilCliente, setModalPerfilCliente] = useState(false)
   const [modalHistorial, setModalHistorial] = useState(false)
@@ -2680,26 +2639,6 @@ function ClienteApp({ onVolver }) {
     })
   }
 
-  async function analizarComprobanteCliente(base64) {
-    setAnalizandoCompCliente(true)
-    try {
-      const comprimida = await comprimirImagen(base64)
-      const mediaType = 'image/jpeg'
-      const resp = await fetch('/api/analyze-comprobante', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({ imageBase64: comprimida.split(',')[1], mediaType })
-      })
-      const result = await resp.json()
-      if (!resp.ok) throw new Error(result.detail?.error?.message || result.error || 'Error ' + resp.status)
-      setDatosComprobanteCliente(result)
-      showToast('ok','Comprobante analizado')
-    } catch(e) {
-      showToast('warn', e.message || 'No se pudo analizar')
-    }
-    setAnalizandoCompCliente(false)
-  }
-
   async function cargarHistorial() {
     if (!cliente) return
     setLoadingHistorial(true)
@@ -2757,15 +2696,13 @@ function ClienteApp({ onVolver }) {
     // Guardar en Firestore coleccion domicilio
     const itemsData = carrito.map(x=>({nombre:x.nombre, cantidad:x.cantidad, precio:parseFloat(x.precio)}))
     try {
-      const domData = {
+      await addDoc(collection(db,'domicilio'), {
         cliente: n, telefono: tel, direccion: dir,
         referencia: cliente?.referencia||'',
         items: itemsData, subtotal, total,
         estado: 'A DOMICILIO',
         creadoEn: serverTimestamp()
-      }
-      if (datosComprobanteCliente) domData.comprobante = datosComprobanteCliente
-      await addDoc(collection(db,'domicilio'), domData)
+      })
     } catch(e) {}
 
     const lineas = carrito.map(x=>`  • ${x.cantidad}x ${x.nombre} — $${(parseFloat(x.precio)*x.cantidad).toFixed(2)}`).join('%0A')
@@ -2778,13 +2715,7 @@ function ClienteApp({ onVolver }) {
         ? '*Ubicacion GPS:* ' + dir 
         : '*Direccion:* ' + dir + (tmpDir && tmpDir.includes('maps.google') && tmpDir !== dir ? '%0A*Ubicacion GPS:* ' + tmpDir : '')) 
         : (tmpDir ? '*Ubicacion GPS:* ' + tmpDir : ''),
-      datosComprobanteCliente ? '----------------------------' : '',
-      datosComprobanteCliente ? '*Comprobante de Transferencia*' : '',
-      datosComprobanteCliente?.monto ? '*Monto:* ' + datosComprobanteCliente.monto : '',
-      datosComprobanteCliente?.remitente ? '*De:* ' + datosComprobanteCliente.remitente : '',
-      datosComprobanteCliente?.fecha ? '*Fecha:* ' + datosComprobanteCliente.fecha : '',
-      datosComprobanteCliente?.cuentaOrigen ? '*Cuenta Origen:* ' + datosComprobanteCliente.cuentaOrigen : '',
-      datosComprobanteCliente?.nroComprobante ? '*N Comprobante:* ' + datosComprobanteCliente.nroComprobante : '',
+
       cliente?.referencia ? '*Referencia:* ' + cliente.referencia : '',
       cliente?.cedula ? '*Cedula:* ' + cliente.cedula : '',
       '----------------------------',
@@ -2804,7 +2735,6 @@ function ClienteApp({ onVolver }) {
     setModalPedido(false)
     setCantidades({})
     setComprobanteCliente(null)
-    setDatosComprobanteCliente(null)
     setVistaCliente('menu')
     showToast('ok','Pedido enviado por WhatsApp')
   }
@@ -3221,7 +3151,7 @@ function ClienteApp({ onVolver }) {
 
       {/* VISTA PEDIDO */}
       {vistaCliente==='pedido' && (
-        <div style={{position:'fixed',inset:0,background:'#fff',zIndex:500,display:'flex',flexDirection:'column',paddingBottom:70}}>
+        <div style={{position:'fixed',top:0,left:0,right:0,bottom:56,background:'#fff',zIndex:500,display:'flex',flexDirection:'column'}}>
           <div style={{background:'#fff',padding:'14px 16px 10px',borderBottom:'1px solid #e0e0e0',display:'flex',alignItems:'center',justifyContent:'space-between'}}>
             <h3 style={{fontFamily:'Poppins,sans-serif',fontSize:17,fontWeight:700}}>Tu pedido</h3>
             {totalItems>0 && <span style={{background:'#1a1a1a',color:'#fff',borderRadius:100,padding:'3px 10px',fontSize:11,fontWeight:700}}>{totalItems} items</span>}
@@ -3373,11 +3303,7 @@ function ClienteApp({ onVolver }) {
                   const file=e.target.files?.[0]
                   if(!file) return
                   const reader=new FileReader()
-                  reader.onload=ev=>{
-                    const b64=ev.target.result
-                    setComprobanteCliente(b64)
-                    analizarComprobanteCliente(b64)
-                  }
+                  reader.onload=ev=>setComprobanteCliente(ev.target.result)
                   reader.readAsDataURL(file)
                   e.target.value = ''
                 }}
@@ -3385,23 +3311,11 @@ function ClienteApp({ onVolver }) {
               {comprobanteCliente ? (
                 <div>
                   <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:8}}>
-                    <div style={{width:44,height:44,borderRadius:7,overflow:'hidden',border:`1px solid #7C9263`,flexShrink:0}}>
+                    <div style={{width:44,height:44,borderRadius:7,overflow:'hidden',border:'1px solid #7C9263',flexShrink:0}}>
                       <img src={comprobanteCliente} alt='comp' style={{width:'100%',height:'100%',objectFit:'cover'}}/>
                     </div>
-                    <div style={{flex:1}}>
-                      {analizandoCompCliente ? (
-                        <div style={{fontSize:11,color:'#7C9263',fontWeight:600}}>Analizando comprobante...</div>
-                      ) : datosComprobanteCliente?.monto ? (
-                        <div>
-                          <div style={{fontSize:11,color:'#1a1a1a',fontWeight:700}}>{datosComprobanteCliente.monto}</div>
-                          <div style={{fontSize:10,color:'#666'}}>{datosComprobanteCliente.remitente}</div>
-                          <div style={{fontSize:10,color:'#999'}}>N° {datosComprobanteCliente.nroComprobante}</div>
-                        </div>
-                      ) : (
-                        <div style={{fontSize:11,color:'#999'}}>Comprobante adjunto</div>
-                      )}
-                    </div>
-                    <button onClick={()=>{setComprobanteCliente(null);setDatosComprobanteCliente(null)}} style={{background:'none',border:'none',color:'#c62828',fontSize:18,cursor:'pointer',lineHeight:1}}>x</button>
+                    <div style={{flex:1,fontSize:11,color:'#555',fontWeight:600}}>Comprobante adjunto</div>
+                    <button onClick={()=>setComprobanteCliente(null)} style={{background:'none',border:'none',color:'#c62828',fontSize:18,cursor:'pointer',lineHeight:1}}>x</button>
                   </div>
                 </div>
               ) : (
