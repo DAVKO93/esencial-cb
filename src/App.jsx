@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
-import { db, auth } from './firebase'
+import { db, auth, storage } from './firebase'
 import {
   collection, addDoc, getDocs, doc, updateDoc, deleteDoc,
   query, where, orderBy, onSnapshot, serverTimestamp
@@ -543,7 +543,7 @@ function AdminApp() {
   const fotoPerfRef = useRef(null)
   // Comprobante camara
   const [fotoComprobante, setFotoComprobante] = useState({}) // {pedidoId: dataURL}
-  const [modalTransferencia, setModalTransferencia] = useState(null) // pedido obj
+  const [modalComprobante, setModalComprobante] = useState(null) // url de imagen
   const [datosCliente, setDatosCliente] = useState({})
   const [dcAbierto, setDcAbierto] = useState({}) // acordeon datos cliente
   const [tiemposPedido, setTiemposPedido] = useState({}) // {id: minutos transcurridos}
@@ -1608,13 +1608,13 @@ function AdminApp() {
                     <div style={{display:'flex',gap:7,marginTop:10}}>
                       <button onClick={()=>setPagoSel(prev=>({...prev,[p.id]:'Efectivo'}))} style={{
                         flex:1,padding:'9px 6px',borderRadius:7,fontFamily:'Poppins,sans-serif',fontSize:11,fontWeight:600,letterSpacing:1,textTransform:'uppercase',cursor:'pointer',transition:'0.2s',
-                        background:pagoSel[p.id]==='Efectivo'?'#7C9263':'#fff',
+                        background:pagoSel[p.id]==='Efectivo'?'#1a1a1a':'#fff',
                         color:pagoSel[p.id]==='Efectivo'?'#fff':'#666',
                         border:`1.5px solid ${pagoSel[p.id]==='Efectivo'?'#7C9263':'#d0d0d0'}`
                       }}>Efectivo</button>
                       <button onClick={()=>setPagoSel(prev=>({...prev,[p.id]:'Transferencia'}))} style={{
                         flex:1,padding:'9px 6px',borderRadius:7,fontFamily:'Poppins,sans-serif',fontSize:11,fontWeight:600,letterSpacing:1,textTransform:'uppercase',cursor:'pointer',transition:'0.2s',
-                        background:pagoSel[p.id]==='Transferencia'?'#7C9263':'#fff',
+                        background:pagoSel[p.id]==='Transferencia'?'#1a1a1a':'#fff',
                         color:pagoSel[p.id]==='Transferencia'?'#fff':'#666',
                         border:`1.5px solid ${pagoSel[p.id]==='Transferencia'?'#7C9263':'#d0d0d0'}`
                       }}>Transferencia</button>
@@ -1738,16 +1738,14 @@ function AdminApp() {
                       </div>
                       {p.notas && <div style={{fontSize:11,color:'#666',background:'#fffdf0',border:'1px solid #e8e4c0',padding:'5px 9px',borderRadius:6,marginTop:7}}>Nota: {p.notas}</div>}
                       {/* Datos comprobante domicilio */}
-                      {p.comprobante && (
-                        <button onClick={()=>setModalTransferencia(p)} style={{
+                      {p.urlComprobante && (
+                        <button onClick={()=>setModalComprobante(p.urlComprobante)} style={{
                           width:'100%',marginTop:10,padding:'8px 14px',
-                          background:'#f5f8f1',border:'1.5px solid #7C9263',
+                          background:'#1a1a1a',border:'none',
                           borderRadius:8,fontFamily:'Poppins,sans-serif',fontSize:11,fontWeight:700,
-                          color:'#7C9263',cursor:'pointer',
-                          display:'flex',alignItems:'center',justifyContent:'center',gap:7
+                          color:'#fff',cursor:'pointer'
                         }}>
-                          <svg width='13' height='13' viewBox='0 0 24 24' fill='none' stroke='currentColor' strokeWidth='2.5' strokeLinecap='round'><rect x='2' y='3' width='20' height='18' rx='2'/><line x1='8' y1='9' x2='16' y2='9'/><line x1='8' y1='13' x2='16' y2='13'/><line x1='8' y1='17' x2='12' y2='17'/></svg>
-                          Ver transferencia
+                          Ver comprobante
                         </button>
                       )}
                       <div style={{display:'flex',gap:8,marginTop:10}}>
@@ -1870,15 +1868,13 @@ function AdminApp() {
                               <span style={{fontSize:11,color:'#666'}}>{p.empleado||'—'}</span>
                             </td>
                             <td style={{padding:'10px 14px'}}>
-                              {p.comprobante ? (
-                                <button onClick={()=>setModalTransferencia(p)} style={{
-                                  background:'#f5f8f1',border:'1.5px solid #7C9263',color:'#7C9263',
+                              {p.urlComprobante ? (
+                                <button onClick={()=>setModalComprobante(p.urlComprobante)} style={{
+                                  background:'#1a1a1a',border:'none',color:'#fff',
                                   padding:'4px 10px',borderRadius:6,fontFamily:'Poppins,sans-serif',
-                                  fontSize:10,fontWeight:700,cursor:'pointer',
-                                  display:'flex',alignItems:'center',gap:5,whiteSpace:'nowrap'
+                                  fontSize:10,fontWeight:700,cursor:'pointer',whiteSpace:'nowrap'
                                 }}>
-                                  <svg width='11' height='11' viewBox='0 0 24 24' fill='none' stroke='currentColor' strokeWidth='2.5' strokeLinecap='round'><rect x='2' y='3' width='20' height='18' rx='2'/><line x1='8' y1='9' x2='16' y2='9'/><line x1='8' y1='13' x2='16' y2='13'/><line x1='8' y1='17' x2='12' y2='17'/></svg>
-                                  Ver transferencia
+                                  Ver comprobante
                                 </button>
                               ) : <span style={{fontSize:10,color:'#ccc'}}>—</span>}
                             </td>
@@ -2004,7 +2000,7 @@ function AdminApp() {
             <div style={{fontWeight:600,fontSize:14,color:'#1a1a1a',marginBottom:3}}>{emp.nombre}</div>
             <div style={{fontSize:12,color:'#666',marginBottom:10}}>{emp.email}</div>
             <div style={{display:'flex',gap:8}}>
-              <button onClick={()=>aprobarEmpleado(emp.id)} style={{flex:1,padding:'9px',background:'#7C9263',color:'#fff',border:'none',borderRadius:7,fontFamily:'Poppins,sans-serif',fontSize:11,fontWeight:600,cursor:'pointer'}}>
+              <button onClick={()=>aprobarEmpleado(emp.id)} style={{flex:1,padding:'9px',background:'#1a1a1a',color:'#fff',border:'none',borderRadius:7,fontFamily:'Poppins,sans-serif',fontSize:11,fontWeight:600,cursor:'pointer'}}>
                 Aprobar acceso
               </button>
               <button onClick={()=>rechazarEmpleado(emp.id)} style={{flex:1,padding:'9px',background:'#fff',color:'#c62828',border:'1.5px solid #ffcdd2',borderRadius:7,fontFamily:'Poppins,sans-serif',fontSize:11,fontWeight:600,cursor:'pointer'}}>
@@ -2117,34 +2113,20 @@ function AdminApp() {
         )}
       </Modal>
 
-      {/* Modal Ver Transferencia */}
-      {modalTransferencia && (
-        <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.6)',zIndex:2000,display:'flex',alignItems:'center',justifyContent:'center',padding:20}}
-          onClick={e=>{if(e.target===e.currentTarget)setModalTransferencia(null)}}>
-          <div style={{background:'#fff',borderRadius:16,width:'100%',maxWidth:360,overflow:'hidden',boxShadow:'0 8px 32px rgba(0,0,0,0.18)'}}>
-            <div style={{background:'#1a1a1a',padding:'16px 20px',display:'flex',alignItems:'center',justifyContent:'space-between'}}>
-              <div>
-                <div style={{fontFamily:'Poppins,sans-serif',fontWeight:700,fontSize:14,color:'#fff'}}>Datos de Transferencia</div>
-                <div style={{fontSize:10,color:'#888',marginTop:2}}>{modalTransferencia.cliente} {modalTransferencia.mesa ? '— ' + modalTransferencia.mesa : ''}</div>
-              </div>
-              <button onClick={()=>setModalTransferencia(null)} style={{background:'none',border:'none',color:'#999',fontSize:20,cursor:'pointer',lineHeight:1}}>x</button>
+      {/* Modal Ver Comprobante */}
+      {modalComprobante && (
+        <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.85)',zIndex:2000,display:'flex',alignItems:'center',justifyContent:'center',padding:20}}
+          onClick={e=>{if(e.target===e.currentTarget)setModalComprobante(null)}}>
+          <div style={{background:'#fff',borderRadius:16,width:'100%',maxWidth:400,overflow:'hidden',boxShadow:'0 8px 32px rgba(0,0,0,0.3)'}}>
+            <div style={{background:'#1a1a1a',padding:'14px 18px',display:'flex',alignItems:'center',justifyContent:'space-between'}}>
+              <span style={{fontFamily:'Poppins,sans-serif',fontWeight:700,fontSize:14,color:'#fff'}}>Comprobante de pago</span>
+              <button onClick={()=>setModalComprobante(null)} style={{background:'none',border:'none',color:'#999',fontSize:22,cursor:'pointer',lineHeight:1}}>x</button>
             </div>
-            <div style={{padding:'18px 20px',display:'flex',flexDirection:'column',gap:0}}>
-              {[
-                {label:'Monto', value: modalTransferencia.comprobante?.monto},
-                {label:'Remitente', value: modalTransferencia.comprobante?.remitente},
-                {label:'Fecha', value: modalTransferencia.comprobante?.fecha},
-                {label:'Cuenta Origen', value: modalTransferencia.comprobante?.cuentaOrigen},
-                {label:'N Comprobante', value: modalTransferencia.comprobante?.nroComprobante},
-              ].map(({label, value}) => value ? (
-                <div key={label} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'10px 0',borderBottom:'1px solid #f0f0f0'}}>
-                  <span style={{fontSize:10,letterSpacing:1.5,textTransform:'uppercase',color:'#999',fontWeight:600}}>{label}</span>
-                  <span style={{fontFamily:'Poppins,sans-serif',fontSize:13,fontWeight:600,color:'#1a1a1a',textAlign:'right',maxWidth:'60%'}}>{value}</span>
-                </div>
-              ) : null)}
+            <div style={{padding:12,background:'#f8f8f8'}}>
+              <img src={modalComprobante} alt='Comprobante' style={{width:'100%',borderRadius:8,display:'block'}}/>
             </div>
-            <div style={{padding:'0 20px 20px'}}>
-              <button onClick={()=>setModalTransferencia(null)} style={{width:'100%',padding:'11px',background:'#1a1a1a',color:'#fff',border:'none',borderRadius:9,fontFamily:'Poppins,sans-serif',fontSize:12,fontWeight:600,cursor:'pointer'}}>
+            <div style={{padding:'12px 16px'}}>
+              <button onClick={()=>setModalComprobante(null)} style={{width:'100%',padding:'11px',background:'#1a1a1a',color:'#fff',border:'none',borderRadius:9,fontFamily:'Poppins,sans-serif',fontSize:12,fontWeight:600,cursor:'pointer'}}>
                 Cerrar
               </button>
             </div>
@@ -2510,6 +2492,7 @@ function ClienteApp({ onVolver }) {
   const [cantidades, setCantidades] = useState({})
   const [modalPedido, setModalPedido] = useState(false)
   const [vistaCliente, setVistaCliente] = useState('menu') // 'menu' | 'pedido'
+  const [modalCancelar, setModalCancelar] = useState(false)
   const [modalRegistro, setModalRegistro] = useState(() => {
     const ir = localStorage.getItem('esencial_ir_registro')
     if (ir) { localStorage.removeItem('esencial_ir_registro'); return true }
@@ -2527,8 +2510,6 @@ function ClienteApp({ onVolver }) {
   const [copiado, setCopiado] = useState(null)
   const [modalPromos, setModalPromos] = useState(false)
   const [loadingGPS, setLoadingGPS] = useState(false)
-  const [comprobanteCliente, setComprobanteCliente] = useState(null) // base64
-  const comprobanteRef = useRef(null)
   const [modalPerfilCliente, setModalPerfilCliente] = useState(false)
   const [modalHistorial, setModalHistorial] = useState(false)
   const [historialPedidos, setHistorialPedidos] = useState([])
@@ -2639,6 +2620,7 @@ function ClienteApp({ onVolver }) {
     })
   }
 
+
   async function cargarHistorial() {
     if (!cliente) return
     setLoadingHistorial(true)
@@ -2696,13 +2678,14 @@ function ClienteApp({ onVolver }) {
     // Guardar en Firestore coleccion domicilio
     const itemsData = carrito.map(x=>({nombre:x.nombre, cantidad:x.cantidad, precio:parseFloat(x.precio)}))
     try {
-      await addDoc(collection(db,'domicilio'), {
+      const domData = {
         cliente: n, telefono: tel, direccion: dir,
         referencia: cliente?.referencia||'',
         items: itemsData, subtotal, total,
         estado: 'A DOMICILIO',
         creadoEn: serverTimestamp()
-      })
+      }
+      await addDoc(collection(db,'domicilio'), domData)
     } catch(e) {}
 
     const lineas = carrito.map(x=>`  • ${x.cantidad}x ${x.nombre} — $${(parseFloat(x.precio)*x.cantidad).toFixed(2)}`).join('%0A')
@@ -2734,7 +2717,6 @@ function ClienteApp({ onVolver }) {
     setModalImportante(false)
     setModalPedido(false)
     setCantidades({})
-    setComprobanteCliente(null)
     setVistaCliente('menu')
     showToast('ok','Pedido enviado por WhatsApp')
   }
@@ -2823,7 +2805,7 @@ function ClienteApp({ onVolver }) {
           <div style={{padding:'8px 12px'}}>
             <button onClick={()=>setModalPromos(true)} style={{
               display:'flex',alignItems:'center',gap:8,padding:'8px 16px',
-              background: promociones.length>0 ? '#7C9263' : '#f4f4f4',
+              background: promociones.length>0 ? '#1a1a1a' : '#f4f4f4',
               color: promociones.length>0 ? '#fff' : '#bbb',
               border:'none',borderRadius:100,fontFamily:'Poppins,sans-serif',
               fontSize:11,fontWeight:700,letterSpacing:1,textTransform:'uppercase',
@@ -3009,7 +2991,7 @@ function ClienteApp({ onVolver }) {
             )}
             {cliente && (
               <button onClick={()=>{cargarHistorial();setModalHistorial(true)}} style={{
-                width:'100%',padding:'12px',background:'#7C9263',color:'#fff',
+                width:'100%',padding:'12px',background:'#1a1a1a',color:'#fff',
                 border:'none',borderRadius:10,
                 fontFamily:'Poppins,sans-serif',fontSize:12,fontWeight:600,cursor:'pointer',marginBottom:8,
                 display:'flex',alignItems:'center',justifyContent:'center',gap:8
@@ -3084,7 +3066,7 @@ function ClienteApp({ onVolver }) {
                     </div>
                     <div style={{padding:'0 14px 12px'}}>
                       <button onClick={()=>agregarDelHistorial(ped)} style={{
-                        width:'100%',padding:'9px',background:'#7C9263',color:'#fff',
+                        width:'100%',padding:'9px',background:'#1a1a1a',color:'#fff',
                         border:'none',borderRadius:8,fontFamily:'Poppins,sans-serif',
                         fontSize:11,fontWeight:700,letterSpacing:0.5,cursor:'pointer',
                         display:'flex',alignItems:'center',justifyContent:'center',gap:6
@@ -3293,42 +3275,6 @@ function ClienteApp({ onVolver }) {
               )}
             </div>
 
-            {/* Adjuntar Comprobante */}
-            <div style={{background:'#f5f8f1',border:`1.5px solid #7C9263`,borderRadius:11,padding:'14px 16px',marginBottom:14}}>
-              <div style={{fontSize:11,color:'#555',fontFamily:'Poppins,sans-serif',fontWeight:600,marginBottom:4,textAlign:'center'}}>
-                Adjunta el Comprobante aqui, tu pedido sera mas rapido
-              </div>
-              <input type='file' accept='image/*' style={{display:'none'}} ref={comprobanteRef}
-                onChange={e=>{
-                  const file=e.target.files?.[0]
-                  if(!file) return
-                  const reader=new FileReader()
-                  reader.onload=ev=>setComprobanteCliente(ev.target.result)
-                  reader.readAsDataURL(file)
-                  e.target.value = ''
-                }}
-              />
-              {comprobanteCliente ? (
-                <div>
-                  <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:8}}>
-                    <div style={{width:44,height:44,borderRadius:7,overflow:'hidden',border:'1px solid #7C9263',flexShrink:0}}>
-                      <img src={comprobanteCliente} alt='comp' style={{width:'100%',height:'100%',objectFit:'cover'}}/>
-                    </div>
-                    <div style={{flex:1,fontSize:11,color:'#555',fontWeight:600}}>Comprobante adjunto</div>
-                    <button onClick={()=>setComprobanteCliente(null)} style={{background:'none',border:'none',color:'#c62828',fontSize:18,cursor:'pointer',lineHeight:1}}>x</button>
-                  </div>
-                </div>
-              ) : (
-                <button onClick={()=>comprobanteRef.current?.click()} style={{
-                  width:'100%',padding:'9px',background:'#fff',border:`1.5px dashed #7C9263`,
-                  borderRadius:8,fontFamily:'Poppins,sans-serif',fontSize:11,fontWeight:600,
-                  color:'#7C9263',cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',gap:7
-                }}>
-                  <svg width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='currentColor' strokeWidth='2.5' strokeLinecap='round'><path d='M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4'/><polyline points='17 8 12 3 7 8'/><line x1='12' y1='3' x2='12' y2='15'/></svg>
-                  Adjuntar Comprobante
-                </button>
-              )}
-            </div>
 
           </div>
           {/* Botón WA fijo en fondo */}
@@ -3337,7 +3283,7 @@ function ClienteApp({ onVolver }) {
               width:'100%',padding:'15px',background:'#25d366',color:'#fff',border:'none',borderRadius:11,
               fontFamily:'Poppins,sans-serif',fontSize:13,fontWeight:700,letterSpacing:2,textTransform:'uppercase',cursor:'pointer'
             }}>Enviar pedido por WhatsApp</button>
-            <button onClick={()=>{setCantidades({});setComprobanteCliente(null);setDatosComprobanteCliente(null);setVistaCliente('menu')}} style={{
+            <button onClick={()=>setModalCancelar(true)} style={{
               width:'100%',padding:'12px',background:'#fff',color:'#c62828',border:'1.5px solid #ffcdd2',borderRadius:11,
               fontFamily:'Poppins,sans-serif',fontSize:12,fontWeight:700,letterSpacing:2,textTransform:'uppercase',cursor:'pointer'
             }}>Cancelar pedido</button>
@@ -3357,6 +3303,32 @@ function ClienteApp({ onVolver }) {
             <div style={{display:'flex',gap:10}}>
               <button onClick={()=>setModalImportante(false)} style={{flex:1,padding:'12px',background:'#fff',color:'#666',border:'1.5px solid #d0d0d0',borderRadius:9,fontFamily:'Poppins,sans-serif',fontSize:12,fontWeight:600,cursor:'pointer'}}>Cancelar</button>
               <button onClick={enviarWhatsApp} style={{flex:2,padding:'12px',background:'#25d366',color:'#fff',border:'none',borderRadius:9,fontFamily:'Poppins,sans-serif',fontSize:12,fontWeight:700,cursor:'pointer'}}>Aceptar y enviar</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL CANCELAR PEDIDO */}
+      {modalCancelar && (
+        <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.6)',zIndex:3000,display:'flex',alignItems:'center',justifyContent:'center',padding:24}}>
+          <div style={{background:'#fff',borderRadius:16,width:'100%',maxWidth:320,padding:'28px 24px',boxShadow:'0 8px 32px rgba(0,0,0,0.2)'}}>
+            <div style={{fontFamily:'Poppins,sans-serif',fontSize:16,fontWeight:700,color:'#1a1a1a',marginBottom:10,textAlign:'center'}}>
+              Cancelar pedido
+            </div>
+            <p style={{fontSize:13,color:'#666',lineHeight:1.6,textAlign:'center',marginBottom:24}}>
+              estas seguro que deseas cancelar tu pedido? Se eliminaran todos los productos agregados.
+            </p>
+            <div style={{display:'flex',gap:10}}>
+              <button onClick={()=>setModalCancelar(false)} style={{
+                flex:1,padding:'12px',background:'#fff',color:'#1a1a1a',
+                border:'1.5px solid #d0d0d0',borderRadius:9,
+                fontFamily:'Poppins,sans-serif',fontSize:12,fontWeight:700,cursor:'pointer'
+              }}>Volver</button>
+              <button onClick={()=>{setCantidades({});setModalCancelar(false);setVistaCliente('menu')}} style={{
+                flex:1,padding:'12px',background:'#1a1a1a',color:'#fff',
+                border:'none',borderRadius:9,
+                fontFamily:'Poppins,sans-serif',fontSize:12,fontWeight:700,cursor:'pointer'
+              }}>Si, cancelar</button>
             </div>
           </div>
         </div>
