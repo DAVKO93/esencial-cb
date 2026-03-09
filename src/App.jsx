@@ -544,6 +544,8 @@ function AdminApp() {
   const fotoPerfRef = useRef(null)
   // Comprobante camara
   const [fotoComprobante, setFotoComprobante] = useState({}) // {pedidoId: dataURL}
+  const [datosComprobanteMesa, setDatosComprobanteMesa] = useState({}) // {pedidoId: campos Vision}
+  const [subiendoFoto, setSubiendoFoto] = useState({}) // {pedidoId: bool}
   const [modalComprobante, setModalComprobante] = useState(null) // url de imagen
   const [datosCliente, setDatosCliente] = useState({})
   const [dcAbierto, setDcAbierto] = useState({}) // acordeon datos cliente
@@ -791,6 +793,8 @@ function AdminApp() {
     if (!pagoSel[id]) { showToast('err','Selecciona forma de pago'); return }
     const formaPago = pagoSel[id]
     const dc = datosCliente[id] || {}
+    const urlFoto = fotoComprobante[id]
+    const datosFoto = datosComprobanteMesa[id]
     const updateData = {
       estado:'LISTO',
       formaPago,
@@ -798,13 +802,17 @@ function AdminApp() {
       idDocumento: dc.id || '',
       cliente: dc.tipo==='cliente' ? (dc.nombre||'Sin nombre') : dc.tipo==='final' ? 'Consumidor Final' : 'Pendiente',
       telefono: dc.tel || '',
-      email: dc.email || ''
+      email: dc.email || '',
+      ...(urlFoto ? { urlComprobante: urlFoto } : {}),
+      ...(datosFoto ? { datosComprobante: datosFoto } : {})
     }
 
     // Quitar inmediatamente de EN PROCESO
     setPedidosActivos(p => p.filter(x => x.id !== id))
     setPagoSel(p => { const n={...p}; delete n[id]; return n })
     setFotoComprobante(p => { const n={...p}; delete n[id]; return n })
+    setDatosComprobanteMesa(p => { const n={...p}; delete n[id]; return n })
+    setSubiendoFoto(p => { const n={...p}; delete n[id]; return n })
     setDatosCliente(p => { const n={...p}; delete n[id]; return n })
     try {
       await updateDoc(doc(db,'pedidos',id), updateData)
@@ -845,12 +853,42 @@ function AdminApp() {
     if (cameraRefs.current[pedidoId]) cameraRefs.current[pedidoId].click()
   }
 
-  function onFotoCapturada(pedidoId, e) {
+  async function onFotoCapturada(pedidoId, e) {
     const file = e.target.files[0]
     if (!file) return
     const reader = new FileReader()
-    reader.onload = (ev) => {
-      setFotoComprobante(p => ({...p, [pedidoId]: ev.target.result}))
+    reader.onload = async (ev) => {
+      const base64 = ev.target.result
+      setFotoComprobante(p => ({...p, [pedidoId]: base64}))
+      setSubiendoFoto(p => ({...p, [pedidoId]: true}))
+      try {
+        // Subir a Firebase Storage
+        const res = await fetch(base64)
+        const blob = await res.blob()
+        const nombre = `comprobantes/mesa_${pedidoId}_${Date.now()}.jpg`
+        const storageRef = ref(storage, nombre)
+        await uploadBytes(storageRef, blob, { contentType: 'image/jpeg' })
+        const url = await getDownloadURL(storageRef)
+        setFotoComprobante(p => ({...p, [pedidoId]: url}))
+
+        // Analizar con Vision API
+        const pureBase64 = base64.split(',')[1] || base64
+        const visionRes = await fetch('/api/analyze-comprobante', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ imageBase64: pureBase64 })
+        })
+        if (visionRes.ok) {
+          const campos = await visionRes.json()
+          setDatosComprobanteMesa(p => ({...p, [pedidoId]: campos}))
+          showToast('ok', 'Comprobante analizado')
+        } else {
+          showToast('ok', 'Foto guardada')
+        }
+      } catch(err) {
+        showToast('warn', 'Error al procesar comprobante')
+      }
+      setSubiendoFoto(p => ({...p, [pedidoId]: false}))
     }
     reader.readAsDataURL(file)
     e.target.value = ''
@@ -892,7 +930,9 @@ function AdminApp() {
         tipoCliente: 'Domicilio',
         formaPago: 'Transferencia',
         empleado: nombreEmpleado,
-        creadoEn: p.creadoEn || serverTimestamp()
+        creadoEn: p.creadoEn || serverTimestamp(),
+        ...(p.urlComprobante ? { urlComprobante: p.urlComprobante } : {}),
+        ...(p.datosComprobante ? { datosComprobante: p.datosComprobante } : {})
       })
       // Eliminar de domicilio
       await deleteDoc(doc(db,'domicilio', p.id))
@@ -1649,7 +1689,20 @@ function AdminApp() {
                               <svg width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='currentColor' strokeWidth='2' strokeLinecap='round'><rect x='2' y='7' width='20' height='15' rx='2'/><path d='M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2'/><circle cx='12' cy='14' r='3'/></svg>
                               Tomar foto del comprobante
                             </button>
-  
+                            {subiendoFoto[p.id] && (
+                              <div style={{fontSize:10,color:'#7C9263',fontWeight:600,textAlign:'center',marginTop:4,fontFamily:'Poppins,sans-serif'}}>
+                                Analizando comprobante...
+                              </div>
+                            )}
+                            {datosComprobanteMesa[p.id] && !subiendoFoto[p.id] && (
+                              <div style={{marginTop:6,background:'#f5f8f1',borderRadius:7,padding:'6px 8px',fontSize:10,fontFamily:'Poppins,sans-serif',border:'1px solid #7C9263',color:'#333'}}>
+                                <div style={{fontWeight:700,color:'#2e7d32',marginBottom:3}}>✓ Datos extraídos</div>
+                                {datosComprobanteMesa[p.id].monto && <div><b>Monto:</b> {datosComprobanteMesa[p.id].monto}</div>}
+                                {datosComprobanteMesa[p.id].remitente && <div><b>De:</b> {datosComprobanteMesa[p.id].remitente}</div>}
+                                {datosComprobanteMesa[p.id].fecha && <div><b>Fecha:</b> {datosComprobanteMesa[p.id].fecha}</div>}
+                                {datosComprobanteMesa[p.id].nroComprobante && <div><b>N° comp:</b> {datosComprobanteMesa[p.id].nroComprobante}</div>}
+                              </div>
+                            )}
                           </div>
                         )}
                       </div>
@@ -1740,14 +1793,24 @@ function AdminApp() {
                       {p.notas && <div style={{fontSize:11,color:'#666',background:'#fffdf0',border:'1px solid #e8e4c0',padding:'5px 9px',borderRadius:6,marginTop:7}}>Nota: {p.notas}</div>}
                       {/* Datos comprobante domicilio */}
                       {p.urlComprobante && (
-                        <button onClick={()=>setModalComprobante(p.urlComprobante)} style={{
-                          width:'100%',marginTop:10,padding:'8px 14px',
-                          background:'#1a1a1a',border:'none',
-                          borderRadius:8,fontFamily:'Poppins,sans-serif',fontSize:11,fontWeight:700,
-                          color:'#fff',cursor:'pointer'
-                        }}>
-                          Ver comprobante
-                        </button>
+                        <div>
+                          <button onClick={()=>setModalComprobante({url: p.urlComprobante, datos: p.datosComprobante})} style={{
+                            width:'100%',marginTop:10,padding:'8px 14px',
+                            background:'#1a1a1a',border:'none',
+                            borderRadius:8,fontFamily:'Poppins,sans-serif',fontSize:11,fontWeight:700,
+                            color:'#fff',cursor:'pointer'
+                          }}>
+                            Ver transferencia
+                          </button>
+                          {p.datosComprobante && (
+                            <div style={{marginTop:8,background:'#f5f8f1',borderRadius:8,padding:'8px 10px',fontSize:10,fontFamily:'Poppins,sans-serif',border:'1px solid #7C9263'}}>
+                              {p.datosComprobante.monto && <div><b>Monto:</b> {p.datosComprobante.monto}</div>}
+                              {p.datosComprobante.remitente && <div><b>De:</b> {p.datosComprobante.remitente}</div>}
+                              {p.datosComprobante.fecha && <div><b>Fecha:</b> {p.datosComprobante.fecha}</div>}
+                              {p.datosComprobante.nroComprobante && <div><b>N° comp:</b> {p.datosComprobante.nroComprobante}</div>}
+                            </div>
+                          )}
+                        </div>
                       )}
                       <div style={{display:'flex',gap:8,marginTop:10}}>
                         <button onClick={()=>marcarEntregado(p)} style={{
@@ -1870,12 +1933,12 @@ function AdminApp() {
                             </td>
                             <td style={{padding:'10px 14px'}}>
                               {p.urlComprobante ? (
-                                <button onClick={()=>setModalComprobante(p.urlComprobante)} style={{
+                                <button onClick={()=>setModalComprobante({url: p.urlComprobante, datos: p.datosComprobante})} style={{
                                   background:'#1a1a1a',border:'none',color:'#fff',
                                   padding:'4px 10px',borderRadius:6,fontFamily:'Poppins,sans-serif',
                                   fontSize:10,fontWeight:700,cursor:'pointer',whiteSpace:'nowrap'
                                 }}>
-                                  Ver comprobante
+                                  Ver transferencia
                                 </button>
                               ) : <span style={{fontSize:10,color:'#ccc'}}>—</span>}
                             </td>
@@ -2120,12 +2183,23 @@ function AdminApp() {
           onClick={e=>{if(e.target===e.currentTarget)setModalComprobante(null)}}>
           <div style={{background:'#fff',borderRadius:16,width:'100%',maxWidth:400,overflow:'hidden',boxShadow:'0 8px 32px rgba(0,0,0,0.3)'}}>
             <div style={{background:'#1a1a1a',padding:'14px 18px',display:'flex',alignItems:'center',justifyContent:'space-between'}}>
-              <span style={{fontFamily:'Poppins,sans-serif',fontWeight:700,fontSize:14,color:'#fff'}}>Comprobante de pago</span>
+              <span style={{fontFamily:'Poppins,sans-serif',fontWeight:700,fontSize:14,color:'#fff'}}>Transferencia</span>
               <button onClick={()=>setModalComprobante(null)} style={{background:'none',border:'none',color:'#999',fontSize:22,cursor:'pointer',lineHeight:1}}>x</button>
             </div>
             <div style={{padding:12,background:'#f8f8f8'}}>
-              <img src={modalComprobante} alt='Comprobante' style={{width:'100%',borderRadius:8,display:'block'}}/>
+              <img src={modalComprobante?.url || modalComprobante} alt='Comprobante' style={{width:'100%',borderRadius:8,display:'block'}}/>
             </div>
+            {(modalComprobante?.datos) && (
+              <div style={{padding:'10px 14px',background:'#f5f8f1',borderTop:'1px solid #e0e0e0'}}>
+                <div style={{fontFamily:'Poppins,sans-serif',fontSize:11,fontWeight:700,color:'#2e7d32',marginBottom:6}}>Datos extraídos</div>
+                <div style={{fontFamily:'Poppins,sans-serif',fontSize:12,color:'#333',lineHeight:1.8}}>
+                  {modalComprobante.datos.monto && <div><b>Monto:</b> {modalComprobante.datos.monto}</div>}
+                  {modalComprobante.datos.remitente && <div><b>De:</b> {modalComprobante.datos.remitente}</div>}
+                  {modalComprobante.datos.fecha && <div><b>Fecha:</b> {modalComprobante.datos.fecha}</div>}
+                  {modalComprobante.datos.nroComprobante && <div><b>N° comprobante:</b> {modalComprobante.datos.nroComprobante}</div>}
+                </div>
+              </div>
+            )}
             <div style={{padding:'12px 16px'}}>
               <button onClick={()=>setModalComprobante(null)} style={{width:'100%',padding:'11px',background:'#1a1a1a',color:'#fff',border:'none',borderRadius:9,fontFamily:'Poppins,sans-serif',fontSize:12,fontWeight:600,cursor:'pointer'}}>
                 Cerrar
@@ -2495,6 +2569,7 @@ function ClienteApp({ onVolver }) {
   const [vistaCliente, setVistaCliente] = useState('menu') // 'menu' | 'pedido'
   const [comprobanteCliente, setComprobanteCliente] = useState(null) // base64 preview
   const [urlComprobante, setUrlComprobante] = useState(null) // URL Firebase Storage
+  const [datosComprobante, setDatosComprobante] = useState(null) // campos extraídos Vision
   const [subiendoComprobante, setSubiendoComprobante] = useState(false)
   const comprobanteRef = useRef(null)
   const [modalCancelar, setModalCancelar] = useState(false)
@@ -2629,6 +2704,7 @@ function ClienteApp({ onVolver }) {
   async function subirComprobante(base64) {
     setSubiendoComprobante(true)
     try {
+      // 1. Subir a Firebase Storage
       const res = await fetch(base64)
       const blob = await res.blob()
       const nombre = `comprobantes/${Date.now()}_${Math.random().toString(36).slice(2)}.jpg`
@@ -2636,6 +2712,18 @@ function ClienteApp({ onVolver }) {
       await uploadBytes(storageRef, blob, { contentType: 'image/jpeg' })
       const url = await getDownloadURL(storageRef)
       setUrlComprobante(url)
+
+      // 2. Analizar con Google Vision (en segundo plano)
+      const pureBase64 = base64.split(',')[1] || base64
+      const visionRes = await fetch('/api/analyze-comprobante', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ imageBase64: pureBase64 })
+      })
+      if (visionRes.ok) {
+        const campos = await visionRes.json()
+        setDatosComprobante(campos)
+      }
       showToast('ok', 'Comprobante adjunto')
     } catch(e) {
       showToast('warn', 'No se pudo subir el comprobante, intenta de nuevo')
@@ -2709,6 +2797,7 @@ function ClienteApp({ onVolver }) {
         creadoEn: serverTimestamp()
       }
       if (urlComprobante) domData.urlComprobante = urlComprobante
+      if (datosComprobante) domData.datosComprobante = datosComprobante
       await addDoc(collection(db,'domicilio'), domData)
     } catch(e) {}
 
@@ -2733,7 +2822,13 @@ function ClienteApp({ onVolver }) {
       `*Envio: $${DOMICILIO_COSTO.toFixed(2)}*`,
       `*TOTAL: $${total.toFixed(2)}*`,
       '',
-      'Enviado desde la app Esencial FC'
+      'Enviado desde la app Esencial FC',
+      datosComprobante ? '----------------------------' : '',
+      datosComprobante ? '*Comprobante de transferencia:*' : '',
+      datosComprobante?.monto ? '*Monto:* ' + datosComprobante.monto : '',
+      datosComprobante?.remitente ? '*De:* ' + datosComprobante.remitente : '',
+      datosComprobante?.fecha ? '*Fecha:* ' + datosComprobante.fecha : '',
+      datosComprobante?.nroComprobante ? '*N comprobante:* ' + datosComprobante.nroComprobante : '',
     ].filter(Boolean).join('%0A')
 
     try{Sound.play('success')}catch(e){}
@@ -2743,6 +2838,7 @@ function ClienteApp({ onVolver }) {
     setCantidades({})
     setComprobanteCliente(null)
     setUrlComprobante(null)
+    setDatosComprobante(null)
     setVistaCliente('menu')
     showToast('ok','Pedido enviado por WhatsApp')
   }
@@ -3386,7 +3482,7 @@ function ClienteApp({ onVolver }) {
                 border:'1.5px solid #d0d0d0',borderRadius:9,
                 fontFamily:'Poppins,sans-serif',fontSize:12,fontWeight:700,cursor:'pointer'
               }}>Volver</button>
-              <button onClick={()=>{setCantidades({});setComprobanteCliente(null);setUrlComprobante(null);setModalCancelar(false);setVistaCliente('menu')}} style={{
+              <button onClick={()=>{setCantidades({});setComprobanteCliente(null);setUrlComprobante(null);setDatosComprobante(null);setModalCancelar(false);setVistaCliente('menu')}} style={{
                 flex:1,padding:'12px',background:'#1a1a1a',color:'#fff',
                 border:'none',borderRadius:9,
                 fontFamily:'Poppins,sans-serif',fontSize:12,fontWeight:700,cursor:'pointer'
