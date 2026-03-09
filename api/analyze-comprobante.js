@@ -149,16 +149,20 @@ function extraerCampos(texto) {
     }
   }
 
-  // CUENTA ORIGEN — "Cuenta origen   220 160 9944"
+  // CUENTA ORIGEN — "Cuenta origen   220 454 4679" (con espacios entre grupos)
   for (let i = 0; i < lineas.length; i++) {
     const l = lineas[i].toLowerCase()
     if (l.includes('cuenta origen') || l.includes('cuenta debito') || l.includes('cuenta débito')) {
-      const sinEspacios = lineas[i].replace(/\s/g,'')
-      const num = sinEspacios.match(/\d{8,}/)
-      if (num) { resultado.cuentaOrigen = num[0]; break }
+      // Buscar grupos de números separados por espacios en la misma línea
+      const grupos = lineas[i].match(/\d[\d\s]+\d/)
+      if (grupos) {
+        resultado.cuentaOrigen = grupos[0].replace(/\s/g,'')
+        break
+      }
+      // Número en línea siguiente
       if (lineas[i+1]) {
-        const numSig = lineas[i+1].replace(/\s/g,'').match(/\d{8,}/)
-        if (numSig) { resultado.cuentaOrigen = numSig[0]; break }
+        const gruposSig = lineas[i+1].match(/\d[\d\s]+\d/)
+        if (gruposSig) { resultado.cuentaOrigen = gruposSig[0].replace(/\s/g,''); break }
       }
     }
   }
