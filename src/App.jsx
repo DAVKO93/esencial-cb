@@ -488,6 +488,22 @@ function FormProducto({ item, onClose, onSave }) {
 // ==========================================
 // APP PRINCIPAL
 // ==========================================
+function comprimirImagen(base64, maxWidth=800) {
+  return new Promise((resolve) => {
+    const img = new Image()
+    img.onload = () => {
+      const canvas = document.createElement('canvas')
+      const ratio = Math.min(1, maxWidth / img.width)
+      canvas.width = img.width * ratio
+      canvas.height = img.height * ratio
+      const ctx = canvas.getContext('2d')
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height)
+      resolve(canvas.toDataURL('image/jpeg', 0.7))
+    }
+    img.src = base64
+  })
+}
+
 function AdminApp() {
   const [user, setUser] = useState(null)
   const [authReady, setAuthReady] = useState(false)
@@ -2532,6 +2548,7 @@ function ClienteApp({ onVolver }) {
   const [catActiva, setCatActiva] = useState('Todos')
   const [cantidades, setCantidades] = useState({})
   const [modalPedido, setModalPedido] = useState(false)
+  const [vistaCliente, setVistaCliente] = useState('menu') // 'menu' | 'pedido'
   const [modalRegistro, setModalRegistro] = useState(() => {
     const ir = localStorage.getItem('esencial_ir_registro')
     if (ir) { localStorage.removeItem('esencial_ir_registro'); return true }
@@ -2663,22 +2680,6 @@ function ClienteApp({ onVolver }) {
     })
   }
 
-  function comprimirImagen(base64, maxWidth=800) {
-    return new Promise((resolve) => {
-      const img = new Image()
-      img.onload = () => {
-        const canvas = document.createElement('canvas')
-        const ratio = Math.min(1, maxWidth / img.width)
-        canvas.width = img.width * ratio
-        canvas.height = img.height * ratio
-        const ctx = canvas.getContext('2d')
-        ctx.drawImage(img, 0, 0, canvas.width, canvas.height)
-        resolve(canvas.toDataURL('image/jpeg', 0.7))
-      }
-      img.src = base64
-    })
-  }
-
   async function analizarComprobanteCliente(base64) {
     setAnalizandoCompCliente(true)
     try {
@@ -2802,6 +2803,9 @@ function ClienteApp({ onVolver }) {
     setModalImportante(false)
     setModalPedido(false)
     setCantidades({})
+    setComprobanteCliente(null)
+    setDatosComprobanteCliente(null)
+    setVistaCliente('menu')
     showToast('ok','Pedido enviado por WhatsApp')
   }
 
@@ -2981,15 +2985,26 @@ function ClienteApp({ onVolver }) {
             </span>
           </button>
         </div>
-        {/* Boton realizar pedido */}
-        <div style={{background:'#fff',padding:'10px 12px',borderTop:'1px solid #e0e0e0',boxShadow:'0 -4px 16px rgba(0,0,0,0.08)'}}>
-          <button onClick={()=>{if(carrito.length===0){showToast('warn','Agrega productos primero');return}setModalPedido(true)}} style={{
-            width:'100%',padding:'14px',background:carrito.length>0?'#1a1a1a':'#e0e0e0',
-            color:carrito.length>0?'#fff':'#999',border:'none',borderRadius:11,
-            fontFamily:'Poppins,sans-serif',fontSize:13,fontWeight:700,letterSpacing:2,
-            textTransform:'uppercase',cursor:carrito.length>0?'pointer':'not-allowed'
+        {/* Nav inferior MENÚ / PEDIDO */}
+        <div style={{background:'#fff',borderTop:'1.5px solid #e0e0e0',boxShadow:'0 -4px 16px rgba(0,0,0,0.08)',display:'flex'}}>
+          <button onClick={()=>setVistaCliente('menu')} style={{
+            flex:1,padding:'14px 0',background:'none',border:'none',cursor:'pointer',
+            borderBottom: vistaCliente==='menu' ? '2.5px solid #7C9263' : '2.5px solid transparent'
           }}>
-            Realizar pedido{totalItems>0?` (${totalItems})`:''}
+            <span style={{fontFamily:'Poppins,sans-serif',fontSize:12,fontWeight:700,letterSpacing:1.5,
+              color:vistaCliente==='menu'?'#7C9263':'#aaa'}}>MENÚ</span>
+          </button>
+          <button onClick={()=>setVistaCliente('pedido')} style={{
+            flex:1,padding:'14px 0',background:'none',border:'none',cursor:'pointer',position:'relative',
+            borderBottom: vistaCliente==='pedido' ? '2.5px solid #1a1a1a' : '2.5px solid transparent'
+          }}>
+            {totalItems>0 && (
+              <span style={{position:'absolute',top:6,right:'calc(50% - 22px)',background:'#1a1a1a',color:'#fff',
+                borderRadius:'50%',width:16,height:16,fontSize:9,fontWeight:700,
+                display:'inline-flex',alignItems:'center',justifyContent:'center'}}>{totalItems}</span>
+            )}
+            <span style={{fontFamily:'Poppins,sans-serif',fontSize:12,fontWeight:700,letterSpacing:1.5,
+              color:vistaCliente==='pedido'?'#1a1a1a':'#aaa'}}>PEDIDO</span>
           </button>
         </div>
       </div>
@@ -3204,14 +3219,17 @@ function ClienteApp({ onVolver }) {
         </div>
       )}
 
-      {/* MODAL PEDIDO */}
-      {modalPedido && (
-        <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.5)',zIndex:1000,display:'flex',alignItems:'flex-end'}}
-          onClick={e=>{if(e.target===e.currentTarget)setModalPedido(false)}}>
-          <div style={{background:'#fff',borderRadius:'20px 20px 0 0',width:'100%',maxWidth:480,margin:'0 auto',maxHeight:'92vh',overflowY:'auto',padding:'20px 20px 40px'}}>
-            <div style={{width:40,height:4,background:'#e0e0e0',borderRadius:2,margin:'0 auto 20px'}}/>
-            <h3 style={{fontFamily:'Poppins,sans-serif',fontSize:20,marginBottom:4}}>Confirmar pedido</h3>
-            <p style={{fontSize:11,color:'#999',marginBottom:16}}>Revisa antes de enviar</p>
+      {/* VISTA PEDIDO */}
+      {vistaCliente==='pedido' && (
+        <div style={{position:'fixed',inset:0,background:'#fff',zIndex:500,display:'flex',flexDirection:'column',paddingBottom:70}}>
+          <div style={{background:'#fff',padding:'14px 16px 10px',borderBottom:'1px solid #e0e0e0',display:'flex',alignItems:'center',gap:10}}>
+            <button onClick={()=>setVistaCliente('menu')} style={{background:'none',border:'none',cursor:'pointer',padding:4,display:'flex',alignItems:'center'}}>
+              <svg width='22' height='22' viewBox='0 0 24 24' fill='none' stroke='#1a1a1a' strokeWidth='2.5' strokeLinecap='round'><polyline points='15 18 9 12 15 6'/></svg>
+            </button>
+            <h3 style={{fontFamily:'Poppins,sans-serif',fontSize:17,fontWeight:700,flex:1}}>Tu pedido</h3>
+            {totalItems>0 && <span style={{background:'#1a1a1a',color:'#fff',borderRadius:100,padding:'3px 10px',fontSize:11,fontWeight:700}}>{totalItems} items</span>}
+          </div>
+          <div style={{flex:1,overflowY:'auto',padding:'16px 16px 0'}}>
 
             {/* Productos */}
             <div style={{background:'#f8f8f8',borderRadius:11,padding:'12px 14px',marginBottom:12}}>
@@ -3401,6 +3419,9 @@ function ClienteApp({ onVolver }) {
               )}
             </div>
 
+          </div>
+          {/* Botón WA fijo en fondo */}
+          <div style={{padding:'10px 16px',borderTop:'1px solid #e0e0e0',background:'#fff'}}>
             <button onClick={confirmarEnvio} style={{
               width:'100%',padding:'15px',background:'#25d366',color:'#fff',border:'none',borderRadius:11,
               fontFamily:'Poppins,sans-serif',fontSize:13,fontWeight:700,letterSpacing:2,textTransform:'uppercase',cursor:'pointer'
