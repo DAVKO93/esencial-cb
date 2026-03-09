@@ -66,42 +66,74 @@ function extraerCampos(texto) {
   const lineas = texto.split('\n').map(l => l.trim()).filter(Boolean)
   const resultado = { monto: '', remitente: '', fecha: '', cuentaOrigen: '', nroComprobante: '' }
 
-  for (const linea of lineas) {
+  const MESES = { enero:1,febrero:2,marzo:3,abril:4,mayo:5,junio:6,julio:7,agosto:8,septiembre:9,octubre:10,noviembre:11,diciembre:12 }
+
+  for (let i = 0; i < lineas.length; i++) {
+    const linea = lineas[i]
     const l = linea.toLowerCase()
 
-    // Monto — buscar patrones como $9.00, USD 9.00, valor: 9.00
+    // Monto — $ 4.00 / $4.00 / USD 4.00
     if (!resultado.monto) {
-      const monto = linea.match(/\$\s*[\d.,]+|\b(?:valor|monto|total|amount)[:\s]+\$?[\d.,]+/i)
-      if (monto) resultado.monto = monto[0].trim()
+      const monto = linea.match(/\$\s*[\d.,]+|\bUSD\s*[\d.,]+/i)
+      if (monto) resultado.monto = monto[0].replace(/\s+/g, '').trim()
     }
 
-    // Fecha — DD/MM/YYYY o YYYY-MM-DD o variantes
+    // Fecha — "El 06 de marzo de 2026" o DD/MM/YYYY o YYYY-MM-DD
     if (!resultado.fecha) {
-      const fecha = linea.match(/\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4}|\d{4}[\/\-]\d{2}[\/\-]\d{2}/)
-      if (fecha) resultado.fecha = fecha[0]
-    }
-
-    // N° comprobante — número largo o referencia
-    if (!resultado.nroComprobante) {
-      if (l.includes('comprobante') || l.includes('referencia') || l.includes('transacci') || l.includes('número')) {
-        const num = linea.match(/\d{6,}/)
-        if (num) resultado.nroComprobante = num[0]
+      // Formato Pichincha: "El DD de mes de YYYY"
+      const fechaLarga = l.match(/el\s+(\d{1,2})\s+de\s+(\w+)\s+de\s+(\d{4})/)
+      if (fechaLarga) {
+        const dia = fechaLarga[1].padStart(2,'0')
+        const mes = String(MESES[fechaLarga[2]] || '').padStart(2,'0')
+        const anio = fechaLarga[3]
+        if (mes) resultado.fecha = `${dia}/${mes}/${anio}`
+      } else {
+        // Formato numérico DD/MM/YYYY
+        const fechaNum = linea.match(/\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4}/)
+        if (fechaNum) resultado.fecha = fechaNum[0]
       }
     }
 
-    // Remitente — nombre después de "de:", "origen:", "ordenante:"
+    // N° comprobante — línea siguiente a "N° de comprobante" o "comprobante"
+    if (!resultado.nroComprobante) {
+      if (l.includes('comprobante') || l.includes('referencia') || l.includes('n°') || l.includes('numero')) {
+        // Buscar número en la misma línea
+        const num = linea.match(/\d{6,}/)
+        if (num) {
+          resultado.nroComprobante = num[0]
+        } else if (lineas[i+1]) {
+          // Banco Pichincha pone el número en la línea siguiente
+          const numSig = lineas[i+1].match(/^\d+$/)
+          if (numSig) resultado.nroComprobante = numSig[0]
+        }
+      }
+    }
+
+    // Remitente — "De Nombre Apellido" (Pichincha) o "De:" o "Ordenante"
     if (!resultado.remitente) {
-      if (l.includes('de:') || l.includes('origen:') || l.includes('ordenante') || l.includes('remitente')) {
+      // Formato Pichincha: línea que empieza con "De " seguida de nombre
+      const dePichincha = linea.match(/^De\s+([A-ZÁÉÍÓÚÑ][a-záéíóúñ]+(?:\s+[A-ZÁÉÍÓÚÑ][a-záéíóúñ]+)+)$/)
+      if (dePichincha) {
+        resultado.remitente = dePichincha[1]
+      } else if (l.startsWith('de ') && linea.length > 5 && /[A-Z]/.test(linea[3])) {
+        resultado.remitente = linea.slice(3).trim()
+      } else if (l.includes('ordenante') || l.includes('remitente')) {
         const idx = linea.indexOf(':')
         if (idx !== -1) resultado.remitente = linea.slice(idx + 1).trim()
+        else if (lineas[i+1]) resultado.remitente = lineas[i+1].trim()
       }
     }
 
-    // Cuenta origen
+    // Cuenta origen — "Cuenta origen  220 454 4679"
     if (!resultado.cuentaOrigen) {
-      if (l.includes('cuenta') && (l.includes('origen') || l.includes('débito') || l.includes('debito'))) {
-        const num = linea.match(/\d{6,}/)
-        if (num) resultado.cuentaOrigen = num[0]
+      if (l.includes('cuenta origen') || l.includes('cuenta débito') || l.includes('cuenta debito')) {
+        const num = linea.replace(/\s/g,'').match(/\d{8,}/)
+        if (num) {
+          resultado.cuentaOrigen = num[0]
+        } else if (lineas[i+1]) {
+          const numSig = lineas[i+1].replace(/\s/g,'').match(/\d{8,}/)
+          if (numSig) resultado.cuentaOrigen = numSig[0]
+        }
       }
     }
   }
