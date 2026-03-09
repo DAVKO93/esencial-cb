@@ -859,12 +859,12 @@ function AdminApp() {
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({ imageBase64: comprimida.split(',')[1], mediaType })
       })
-      if (!resp.ok) throw new Error('Error ' + resp.status)
-      const parsed = await resp.json()
-      setDatosComprobante(p => ({...p, [pedidoId]: parsed}))
+      const result = await resp.json()
+      if (!resp.ok) throw new Error(result.detail?.error?.message || result.error || 'Error ' + resp.status)
+      setDatosComprobante(p => ({...p, [pedidoId]: result}))
       showToast('ok','Comprobante analizado')
     } catch(e) {
-      showToast('warn','No se pudo analizar el comprobante')
+      showToast('warn', e.message || 'No se pudo analizar el comprobante')
     }
     setAnalizandoComp(p => ({...p, [pedidoId]: false}))
   }
@@ -2690,12 +2690,12 @@ function ClienteApp({ onVolver }) {
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({ imageBase64: comprimida.split(',')[1], mediaType })
       })
-      if (!resp.ok) throw new Error('Error ' + resp.status)
-      const parsed = await resp.json()
-      setDatosComprobanteCliente(parsed)
+      const result = await resp.json()
+      if (!resp.ok) throw new Error(result.detail?.error?.message || result.error || 'Error ' + resp.status)
+      setDatosComprobanteCliente(result)
       showToast('ok','Comprobante analizado')
     } catch(e) {
-      showToast('warn','No se pudo analizar, se adjuntara de todas formas')
+      showToast('warn', e.message || 'No se pudo analizar')
     }
     setAnalizandoCompCliente(false)
   }
@@ -2999,7 +2999,7 @@ function ClienteApp({ onVolver }) {
             borderBottom: vistaCliente==='pedido' ? '2.5px solid #1a1a1a' : '2.5px solid transparent'
           }}>
             {totalItems>0 && (
-              <span style={{position:'absolute',top:6,right:'calc(50% - 22px)',background:'#1a1a1a',color:'#fff',
+              <span style={{position:'absolute',top:6,right:'calc(50% - 22px)',background:'#e53935',color:'#fff',
                 borderRadius:'50%',width:16,height:16,fontSize:9,fontWeight:700,
                 display:'inline-flex',alignItems:'center',justifyContent:'center'}}>{totalItems}</span>
             )}
@@ -3222,11 +3222,8 @@ function ClienteApp({ onVolver }) {
       {/* VISTA PEDIDO */}
       {vistaCliente==='pedido' && (
         <div style={{position:'fixed',inset:0,background:'#fff',zIndex:500,display:'flex',flexDirection:'column',paddingBottom:70}}>
-          <div style={{background:'#fff',padding:'14px 16px 10px',borderBottom:'1px solid #e0e0e0',display:'flex',alignItems:'center',gap:10}}>
-            <button onClick={()=>setVistaCliente('menu')} style={{background:'none',border:'none',cursor:'pointer',padding:4,display:'flex',alignItems:'center'}}>
-              <svg width='22' height='22' viewBox='0 0 24 24' fill='none' stroke='#1a1a1a' strokeWidth='2.5' strokeLinecap='round'><polyline points='15 18 9 12 15 6'/></svg>
-            </button>
-            <h3 style={{fontFamily:'Poppins,sans-serif',fontSize:17,fontWeight:700,flex:1}}>Tu pedido</h3>
+          <div style={{background:'#fff',padding:'14px 16px 10px',borderBottom:'1px solid #e0e0e0',display:'flex',alignItems:'center',justifyContent:'space-between'}}>
+            <h3 style={{fontFamily:'Poppins,sans-serif',fontSize:17,fontWeight:700}}>Tu pedido</h3>
             {totalItems>0 && <span style={{background:'#1a1a1a',color:'#fff',borderRadius:100,padding:'3px 10px',fontSize:11,fontWeight:700}}>{totalItems} items</span>}
           </div>
           <div style={{flex:1,overflowY:'auto',padding:'16px 16px 0'}}>
@@ -3421,11 +3418,15 @@ function ClienteApp({ onVolver }) {
 
           </div>
           {/* Botón WA fijo en fondo */}
-          <div style={{padding:'10px 16px',borderTop:'1px solid #e0e0e0',background:'#fff'}}>
+          <div style={{padding:'10px 16px 16px',borderTop:'1px solid #e0e0e0',background:'#fff',display:'flex',flexDirection:'column',gap:8}}>
             <button onClick={confirmarEnvio} style={{
               width:'100%',padding:'15px',background:'#25d366',color:'#fff',border:'none',borderRadius:11,
               fontFamily:'Poppins,sans-serif',fontSize:13,fontWeight:700,letterSpacing:2,textTransform:'uppercase',cursor:'pointer'
             }}>Enviar pedido por WhatsApp</button>
+            <button onClick={()=>{setCantidades({});setComprobanteCliente(null);setDatosComprobanteCliente(null);setVistaCliente('menu')}} style={{
+              width:'100%',padding:'12px',background:'#fff',color:'#c62828',border:'1.5px solid #ffcdd2',borderRadius:11,
+              fontFamily:'Poppins,sans-serif',fontSize:12,fontWeight:700,letterSpacing:2,textTransform:'uppercase',cursor:'pointer'
+            }}>Cancelar pedido</button>
           </div>
         </div>
       )}
