@@ -1,9 +1,5 @@
 export const config = {
-  api: {
-    bodyParser: {
-      sizeLimit: '10mb',
-    },
-  },
+  api: { bodyParser: { sizeLimit: '10mb' } }
 }
 
 export default async function handler(req, res) {
@@ -20,41 +16,33 @@ export default async function handler(req, res) {
   if (!keyRaw) return res.status(500).json({ error: 'GOOGLE_VISION_KEY no configurada' })
 
   let credentials
-  try {
-    credentials = JSON.parse(keyRaw)
-  } catch {
-    return res.status(500).json({ error: 'GOOGLE_VISION_KEY formato invalido' })
-  }
+  try { credentials = JSON.parse(keyRaw) }
+  catch { return res.status(500).json({ error: 'GOOGLE_VISION_KEY formato invalido' }) }
 
   try {
-    // Obtener token de acceso con JWT
     const jwt = await getGoogleToken(credentials)
 
-    // Llamar a Cloud Vision API
-    const response = await fetch(
-      'https://vision.googleapis.com/v1/images:annotate',
-      {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${jwt}`
-        },
-        body: JSON.stringify({
-          requests: [{
-            image: { content: imageBase64 },
-            features: [{ type: 'TEXT_DETECTION', maxResults: 1 }]
-          }]
-        })
-      }
-    )
+    const response = await fetch('https://vision.googleapis.com/v1/images:annotate', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${jwt}`
+      },
+      body: JSON.stringify({
+        requests: [{
+          image: { content: imageBase64 },
+          features: [{ type: 'DOCUMENT_TEXT_DETECTION' }]
+        }]
+      })
+    })
 
     const data = await response.json()
     if (!response.ok) return res.status(502).json({ error: 'Error Vision API', detail: data })
 
-    const textoCompleto = data.responses?.[0]?.fullTextAnnotation?.text || ''
-    
-    // Extraer los 5 campos del texto usando patrones
-    const campos = extraerCampos(textoCompleto)
+    const annotation = data.responses?.[0]?.fullTextAnnotation
+    if (!annotation) return res.status(200).json({ monto:'', remitente:'', fecha:'', cuentaOrigen:'', nroComprobante:'' })
+
+    const campos = extraerConCoordenadas(annotation)
     return res.status(200).json(campos)
 
   } catch (err) {
@@ -62,21 +50,60 @@ export default async function handler(req, res) {
   }
 }
 
-function extraerCampos(texto) {
-  const lineas = texto.split('\n').map(l => l.trim()).filter(Boolean)
-  const resultado = { monto: '', remitente: '', fecha: '', cuentaOrigen: '', nroComprobante: '' }
+// Extrae palabras con sus coordenadas Y (posición vertical) para agrupar por fila
+function extraerConCoordenadas(annotation) {
+  const resultado = { monto:'', remitente:'', fecha:'', cuentaOrigen:'', nroComprobante:'' }
+
+  // Construir lista de palabras con su posición Y central
+  const palabras = []
+  for (const page of annotation.pages || []) {
+    for (const block of page.blocks || []) {
+      for (const para of block.paragraphs || []) {
+        for (const word of para.words || []) {
+          const texto = word.symbols.map(s => s.text).join('')
+          const ys = word.boundingBox.vertices.map(v => v.y || 0)
+          const yCentro = (Math.min(...ys) + Math.max(...ys)) / 2
+          const xs = word.boundingBox.vertices.map(v => v.x || 0)
+          const xIzq = Math.min(...xs)
+          palabras.push({ texto, y: yCentro, x: xIzq })
+        }
+      }
+    }
+  }
+
+  // Agrupar palabras por filas (palabras con Y similar están en la misma fila)
+  // Tolerancia: 15 píxeles
+  palabras.sort((a, b) => a.y - b.y)
+  const filas = []
+  const TOLERANCIA = 15
+
+  for (const palabra of palabras) {
+    let filaExistente = filas.find(f => Math.abs(f.yPromedio - palabra.y) <= TOLERANCIA)
+    if (filaExistente) {
+      filaExistente.palabras.push(palabra)
+      filaExistente.yPromedio = filaExistente.palabras.reduce((s,p) => s + p.y, 0) / filaExistente.palabras.length
+    } else {
+      filas.push({ yPromedio: palabra.y, palabras: [palabra] })
+    }
+  }
+
+  // Ordenar palabras de cada fila por X (izquierda a derecha)
+  for (const fila of filas) {
+    fila.palabras.sort((a, b) => a.x - b.x)
+    fila.texto = fila.palabras.map(p => p.texto).join(' ')
+  }
 
   const MESES = {
     enero:'01', febrero:'02', marzo:'03', abril:'04', mayo:'05', junio:'06',
     julio:'07', agosto:'08', septiembre:'09', octubre:'10', noviembre:'11', diciembre:'12'
   }
 
-  for (let i = 0; i < lineas.length; i++) {
-    const linea = lineas[i]
+  for (let i = 0; i < filas.length; i++) {
+    const linea = filas[i].texto.trim()
     const l = linea.toLowerCase()
-    const sig = lineas[i+1] || ''
+    const sigLinea = filas[i+1]?.texto || ''
 
-    // MONTO — primera línea con $ seguido de número
+    // MONTO — primera fila con $
     if (!resultado.monto && /\$\s*\d/.test(linea)) {
       const m = linea.match(/\$\s*[\d.,]+/)
       if (m) resultado.monto = m[0].replace(/\s/g, '')
@@ -88,41 +115,52 @@ function extraerCampos(texto) {
       if (m && MESES[m[2]]) {
         resultado.fecha = `${m[1].padStart(2,'0')}/${MESES[m[2]]}/${m[3]}`
       }
-      if (!resultado.fecha) {
-        const mNum = linea.match(/\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4}/)
-        if (mNum) resultado.fecha = mNum[0]
+    }
+
+    // REMITENTE — fila que empieza con "De " + mayúscula, no "Banco"
+    if (!resultado.remitente) {
+      const m = linea.match(/^De\s+([A-Z].+)/)
+      if (m && !m[1].toLowerCase().includes('banco')) {
+        resultado.remitente = m[1].trim()
       }
     }
 
-    // REMITENTE — línea que empieza con "De " seguida de nombre con mayúscula
-    if (!resultado.remitente && /^De\s+[A-Z]/.test(linea)) {
-      const nombre = linea.replace(/^De\s+/, '').trim()
-      if (!nombre.toLowerCase().includes('banco')) {
-        resultado.remitente = nombre
+    // CUENTA ORIGEN — buscar fila con esa etiqueta y tomar el valor numérico
+    if (!resultado.cuentaOrigen && l.includes('cuenta') && l.includes('origen')) {
+      // El valor puede estar en la misma fila (a la derecha) o en la siguiente
+      const valorEnFila = linea.replace(/cuenta\s+origen/i, '').replace(/[^0-9]/g, '')
+      if (valorEnFila.length >= 6) {
+        resultado.cuentaOrigen = valorEnFila
+      } else {
+        // Buscar la palabra más a la derecha de esta fila que sea numérica
+        const palabrasFila = filas[i].palabras
+        const xMitad = (palabrasFila[0].x + palabrasFila[palabrasFila.length-1].x) / 2
+        const palabrasDerecha = palabrasFila.filter(p => p.x > xMitad && /\d/.test(p.texto))
+        if (palabrasDerecha.length > 0) {
+          resultado.cuentaOrigen = palabrasDerecha.map(p => p.texto).join('').replace(/[^0-9]/g,'')
+        } else {
+          resultado.cuentaOrigen = sigLinea.replace(/[^0-9]/g, '')
+        }
       }
     }
 
-    // CUENTA ORIGEN — etiqueta + valor en misma línea o línea siguiente
-    if (!resultado.cuentaOrigen && l.includes('cuenta origen')) {
-      const parteValor = linea.replace(/cuenta origen/i, '').trim()
-      const digitos = parteValor.replace(/[^0-9]/g, '')
-      if (digitos.length >= 6) {
-        resultado.cuentaOrigen = digitos
-      } else if (sig) {
-        resultado.cuentaOrigen = sig.replace(/[^0-9]/g, '')
-      }
-    }
-
-    // N° COMPROBANTE — etiqueta + valor en misma línea o línea siguiente
+    // N° COMPROBANTE — etiqueta + valor numérico
     if (!resultado.nroComprobante && l.includes('comprobante') && !l.includes('transfer') && !l.includes('verific')) {
-      const parteValor = linea
-        .replace(/n\S?\s*\.?\s*de\s+comprobante/i, '')
-        .replace(/comprobante/i, '').trim()
-      const digitos = parteValor.replace(/[^0-9]/g, '')
-      if (digitos.length >= 4) {
-        resultado.nroComprobante = digitos
-      } else if (sig) {
-        resultado.nroComprobante = sig.replace(/[^0-9]/g, '')
+      const valorEnFila = linea
+        .replace(/n\S?\s*de\s+comprobante/i, '')
+        .replace(/comprobante/i, '')
+        .replace(/[^0-9]/g, '')
+      if (valorEnFila.length >= 4) {
+        resultado.nroComprobante = valorEnFila
+      } else {
+        const palabrasFila = filas[i].palabras
+        const xMitad = (palabrasFila[0].x + palabrasFila[palabrasFila.length-1].x) / 2
+        const palabrasDerecha = palabrasFila.filter(p => p.x > xMitad && /\d/.test(p.texto))
+        if (palabrasDerecha.length > 0) {
+          resultado.nroComprobante = palabrasDerecha.map(p => p.texto).join('').replace(/[^0-9]/g,'')
+        } else {
+          resultado.nroComprobante = sigLinea.replace(/[^0-9]/g, '')
+        }
       }
     }
   }
@@ -130,7 +168,7 @@ function extraerCampos(texto) {
   return resultado
 }
 
-// Genera un token JWT para Google APIs sin librerías externas
+// Genera token JWT para Google APIs
 async function getGoogleToken(credentials) {
   const now = Math.floor(Date.now() / 1000)
   const header = { alg: 'RS256', typ: 'JWT' }
@@ -142,16 +180,15 @@ async function getGoogleToken(credentials) {
     exp: now + 3600
   }
 
-  const b64Header = btoa(JSON.stringify(header)).replace(/=/g, '').replace(/\+/g, '-').replace(/\//g, '_')
-  const b64Payload = btoa(JSON.stringify(payload)).replace(/=/g, '').replace(/\+/g, '-').replace(/\//g, '_')
+  const b64Header = btoa(JSON.stringify(header)).replace(/=/g,'').replace(/\+/g,'-').replace(/\//g,'_')
+  const b64Payload = btoa(JSON.stringify(payload)).replace(/=/g,'').replace(/\+/g,'-').replace(/\//g,'_')
   const unsigned = `${b64Header}.${b64Payload}`
 
-  // Importar clave privada
   const pemKey = credentials.private_key
   const keyData = pemKey
-    .replace('-----BEGIN PRIVATE KEY-----', '')
-    .replace('-----END PRIVATE KEY-----', '')
-    .replace(/\n/g, '')
+    .replace('-----BEGIN PRIVATE KEY-----','')
+    .replace('-----END PRIVATE KEY-----','')
+    .replace(/\n/g,'')
   const binaryKey = Uint8Array.from(atob(keyData), c => c.charCodeAt(0))
 
   const cryptoKey = await crypto.subtle.importKey(
@@ -166,11 +203,10 @@ async function getGoogleToken(credentials) {
   )
 
   const b64Sig = btoa(String.fromCharCode(...new Uint8Array(signature)))
-    .replace(/=/g, '').replace(/\+/g, '-').replace(/\//g, '_')
+    .replace(/=/g,'').replace(/\+/g,'-').replace(/\//g,'_')
 
   const jwt = `${unsigned}.${b64Sig}`
 
-  // Intercambiar JWT por access token
   const tokenRes = await fetch('https://oauth2.googleapis.com/token', {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
