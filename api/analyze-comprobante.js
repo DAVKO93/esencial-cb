@@ -78,16 +78,28 @@ function extraerCampos(texto) {
   const matchMonto = texto.match(/\$\s*[\d,]+\.?\d{0,2}/)
   if (matchMonto) resultado.monto = matchMonto[0].replace(/\s/g,'')
 
-  // FECHA — "El 09 de marzo de 2026"
+  // FECHA — "El 09 de marzo de 2026" buscando en cada línea también
   const matchFecha = textoCompleto.match(/el\s+(\d{1,2})\s+de\s+([a-z]+)\s+de\s+(\d{4})/)
   if (matchFecha) {
     const dia = matchFecha[1].padStart(2,'0')
     const mes = MESES[matchFecha[2]] || ''
     const anio = matchFecha[3]
     if (mes) resultado.fecha = `${dia}/${mes}/${anio}`
-  } else {
-    const matchFechaNum = texto.match(/\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4}/)
-    if (matchFechaNum) resultado.fecha = matchFechaNum[0]
+  }
+  // Fallback: buscar línea que tenga "de" + mes en texto
+  if (!resultado.fecha) {
+    for (const linea of lineas) {
+      const l = linea.toLowerCase()
+      const m = l.match(/(\d{1,2})\s+de\s+([a-z]+)\s+(?:de\s+)?(\d{4})/)
+      if (m) {
+        const dia = m[1].padStart(2,'0')
+        const mes = MESES[m[2]] || ''
+        if (mes) { resultado.fecha = `${dia}/${mes}/${m[3]}`; break }
+      }
+      // Formato numérico
+      const mNum = linea.match(/\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4}/)
+      if (mNum) { resultado.fecha = mNum[0]; break }
+    }
   }
 
   // N° COMPROBANTE — buscar línea con "comprobante" y tomar número al final o línea siguiente
@@ -108,14 +120,23 @@ function extraerCampos(texto) {
     }
   }
 
-  // REMITENTE — línea que empieza con "De " seguida de nombre con mayúsculas
+  // REMITENTE — "De Espinosa Sarango Karolin Gissel"
+  // Buscar en todas las líneas sin exigir inicio exacto
   for (let i = 0; i < lineas.length; i++) {
-    const linea = lineas[i]
-    // "De Espinosa Sarango Karolin Gissel" — empieza con "De " y tiene mayúsculas
-    if (/^De\s+[A-Z]/.test(linea)) {
-      const nombre = linea.replace(/^De\s+/, '').trim()
-      // Verificar que parece un nombre (no "Banco Pichincha" ni "Quihivi...")
-      if (nombre.length > 5 && !nombre.toLowerCase().includes('banco') && !nombre.toLowerCase().includes('destino')) {
+    const linea = lineas[i].trim()
+    // Buscar patrón "De NombreApellido..." en cualquier parte de la línea
+    const matchDe = linea.match(/(?:^|\s)De\s+([A-Z][a-zA-Z]+(?:\s+[A-Z][a-zA-Z]+){1,4})/)
+    if (matchDe) {
+      const nombre = matchDe[1].trim()
+      const nombreMin = nombre.toLowerCase()
+      if (
+        nombre.length > 5 &&
+        !nombreMin.includes('banco') &&
+        !nombreMin.includes('destino') &&
+        !nombreMin.includes('origen') &&
+        !nombreMin.includes('pichincha') &&
+        !nombreMin.includes('quihivi') === false || true // aceptar cualquier nombre
+      ) {
         resultado.remitente = nombre
         break
       }
@@ -123,8 +144,8 @@ function extraerCampos(texto) {
     // Fallback: "ordenante:" o "remitente:"
     const lmin = linea.toLowerCase()
     if ((lmin.includes('ordenante') || lmin.includes('remitente')) && linea.includes(':')) {
-      resultado.remitente = linea.split(':').slice(1).join(':').trim()
-      if (resultado.remitente) break
+      const val = linea.split(':').slice(1).join(':').trim()
+      if (val) { resultado.remitente = val; break }
     }
   }
 
