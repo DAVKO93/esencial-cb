@@ -2762,7 +2762,7 @@ function ClienteRegistro({ onRegistrado, onSinRegistro, onVolver }) {
     const perfil = { nombre, cedula, direccion, referencia, telefono, creadoEn: new Date().toISOString() }
     try {
       // Asegurar autenticacion anonima antes de escribir en Firestore
-      if (!auth.currentUser) await signInAnonymously(auth)
+      if (!auth.currentUser || auth.currentUser.isAnonymous) await signInAnonymously(auth)
       const docRef = await addDoc(collection(db,'clientes'), perfil)
       const perfilConId = {...perfil, _id: docRef.id}
       localStorage.setItem('esencial_cliente', JSON.stringify(perfilConId))
@@ -2900,7 +2900,8 @@ function ClienteApp({ onVolver }) {
   // Autenticacion anonima para que el cliente pueda escribir en Firestore
   useEffect(() => {
     const iniciar = async () => {
-      if (!auth.currentUser) {
+      // Solo autenticar anónimamente si NO hay sesión de email (admin)
+      if (!auth.currentUser || auth.currentUser.isAnonymous) {
         await signInAnonymously(auth).catch(() => {})
       }
       // Registrar sesión de entrada
@@ -3287,72 +3288,98 @@ function ClienteApp({ onVolver }) {
           </div>
         )}
 
-        {/* MODO CARRUSEL — pantalla completa deslizable */}
+        {/* MODO CARRUSEL — imagen ocupa casi toda la pantalla */}
         {vistaGrid === 'slide' && (() => {
           const todosItems = [...menuFiltrado, ...promociones]
-          const prod = todosItems[indiceSlide] || todosItems[0]
           if (!todosItems.length) return (
-            <div style={{display:'flex',alignItems:'center',justifyContent:'center',height:'100%',color:'#ccc',fontSize:13,fontFamily:'Poppins,sans-serif'}}>Sin productos</div>
+            <div style={{display:'flex',alignItems:'center',justifyContent:'center',height:'60vh',color:'#ccc',fontSize:13,fontFamily:'Poppins,sans-serif'}}>Sin productos</div>
           )
-          const imgSrc = prod ? (imgError[prod.id]
+          const prod = todosItems[indiceSlide] || todosItems[0]
+          const imgSrc = imgError[prod.id]
             ? (IMGS_CATEGORIA[prod.categoria]||IMGS_CATEGORIA['default'])
-            : getImgProducto(prod)) : null
-          const cant = cantidades[prod?.id] || 0
+            : getImgProducto(prod)
+          const cant = cantidades[prod.id] || 0
           return (
-            <div style={{height:'100%',display:'flex',flexDirection:'column',userSelect:'none',paddingBottom:120}}
+            <div
+              style={{position:'relative',width:'100%',height:'calc(100vh - 56px - 108px)',userSelect:'none',overflow:'hidden',background:'#111'}}
               onTouchStart={e=>{touchStartX.current=e.touches[0].clientX;touchStartY.current=e.touches[0].clientY}}
               onTouchEnd={e=>{
                 if(touchStartX.current===null) return
                 const dx=e.changedTouches[0].clientX-touchStartX.current
                 const dy=Math.abs(e.changedTouches[0].clientY-touchStartY.current)
-                if(Math.abs(dx)<40||dy>80) return
+                if(Math.abs(dx)<35||dy>90) return
                 const next = dx<0 ? Math.min(indiceSlide+1,todosItems.length-1) : Math.max(indiceSlide-1,0)
                 setIndiceSlide(next)
                 touchStartX.current=null
               }}>
 
-              {/* Imagen grande */}
-              <div style={{flex:'0 0 55vw',maxHeight:'55vh',background:'#111',overflow:'hidden',position:'relative'}}>
-                {imgSrc && <img key={prod.id} src={imgSrc} alt={prod.nombre}
-                  onError={()=>setImgError(p=>({...p,[prod.id]:true}))}
-                  style={{width:'100%',height:'100%',objectFit:'cover',display:'block',animation:'fadeUp 0.25s ease'}}/>}
-                {prod._esPromo && (
-                  <div style={{position:'absolute',top:12,left:12,background:'#7C9263',color:'#fff',padding:'4px 12px',borderRadius:100,fontSize:10,fontWeight:700,letterSpacing:1,textTransform:'uppercase',fontFamily:'Poppins,sans-serif'}}>Promo</div>
-                )}
-                {/* Indicadores */}
-                <div style={{position:'absolute',bottom:12,left:0,right:0,display:'flex',justifyContent:'center',gap:5}}>
-                  {todosItems.map((_,i)=>(
-                    <div key={i} onClick={()=>setIndiceSlide(i)} style={{
-                      width:i===indiceSlide?20:6,height:6,borderRadius:3,cursor:'pointer',transition:'0.3s',
-                      background:i===indiceSlide?'#fff':'rgba(255,255,255,0.35)'
-                    }}/>
-                  ))}
-                </div>
-                {/* Flechas */}
-                {indiceSlide > 0 && <button onClick={()=>setIndiceSlide(i=>i-1)} style={{position:'absolute',left:10,top:'50%',transform:'translateY(-50%)',background:'rgba(0,0,0,0.4)',border:'none',color:'#fff',width:36,height:36,borderRadius:'50%',fontSize:20,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center'}}>‹</button>}
-                {indiceSlide < todosItems.length-1 && <button onClick={()=>setIndiceSlide(i=>i+1)} style={{position:'absolute',right:10,top:'50%',transform:'translateY(-50%)',background:'rgba(0,0,0,0.4)',border:'none',color:'#fff',width:36,height:36,borderRadius:'50%',fontSize:20,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center'}}>›</button>}
-              </div>
+              {/* Imagen de fondo full */}
+              <img key={prod.id} src={imgSrc} alt={prod.nombre}
+                onError={()=>setImgError(p=>({...p,[prod.id]:true}))}
+                style={{position:'absolute',inset:0,width:'100%',height:'100%',objectFit:'cover',display:'block'}}/>
 
-              {/* Info producto */}
-              <div style={{flex:1,padding:'20px 20px 0',background:'#fff'}}>
-                <div style={{display:'flex',alignItems:'flex-start',justifyContent:'space-between',marginBottom:6}}>
+              {/* Degradado inferior para texto legible */}
+              <div style={{position:'absolute',bottom:0,left:0,right:0,height:'55%',background:'linear-gradient(to top, rgba(0,0,0,0.88) 0%, rgba(0,0,0,0.3) 60%, transparent 100%)'}}/>
+
+              {/* Badge promo */}
+              {prod._esPromo && (
+                <div style={{position:'absolute',top:14,left:14,background:'#7C9263',color:'#fff',padding:'4px 12px',borderRadius:100,fontSize:10,fontWeight:700,letterSpacing:1,textTransform:'uppercase',fontFamily:'Poppins,sans-serif'}}>Promo</div>
+              )}
+
+              {/* Flechas navegación */}
+              {indiceSlide > 0 && (
+                <button onClick={()=>setIndiceSlide(i=>i-1)} style={{
+                  position:'absolute',left:12,top:'50%',transform:'translateY(-50%)',
+                  background:'rgba(0,0,0,0.35)',backdropFilter:'blur(4px)',
+                  border:'none',color:'#fff',width:40,height:40,borderRadius:'50%',
+                  fontSize:22,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',zIndex:2
+                }}>‹</button>
+              )}
+              {indiceSlide < todosItems.length-1 && (
+                <button onClick={()=>setIndiceSlide(i=>i+1)} style={{
+                  position:'absolute',right:12,top:'50%',transform:'translateY(-50%)',
+                  background:'rgba(0,0,0,0.35)',backdropFilter:'blur(4px)',
+                  border:'none',color:'#fff',width:40,height:40,borderRadius:'50%',
+                  fontSize:22,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',zIndex:2
+                }}>›</button>
+              )}
+
+              {/* Info + controles superpuestos sobre la imagen */}
+              <div style={{position:'absolute',bottom:0,left:0,right:0,padding:'0 20px 16px',zIndex:2}}>
+                <div style={{fontSize:10,fontWeight:700,letterSpacing:2,textTransform:'uppercase',color:'rgba(255,255,255,0.55)',fontFamily:'Poppins,sans-serif',marginBottom:4}}>
+                  {prod._esPromo ? 'Promoción del día' : prod.categoria}
+                </div>
+                <div style={{display:'flex',alignItems:'flex-end',justifyContent:'space-between',gap:12,marginBottom:14}}>
                   <div style={{flex:1}}>
-                    <div style={{fontSize:10,fontWeight:700,letterSpacing:1.5,textTransform:'uppercase',color:'#bbb',fontFamily:'Poppins,sans-serif',marginBottom:6}}>{prod._esPromo ? 'Promoción del día' : prod.categoria}</div>
-                    <h2 style={{fontFamily:'Poppins,sans-serif',fontSize:22,fontWeight:700,color:'#1a1a1a',lineHeight:1.2,marginBottom:8}}>{prod.nombre}</h2>
-                    {prod.descripcion && <p style={{fontSize:13,color:'#888',lineHeight:1.6,fontFamily:'Poppins,sans-serif'}}>{prod.descripcion}</p>}
+                    <h2 style={{fontFamily:'Poppins,sans-serif',fontSize:24,fontWeight:700,color:'#fff',lineHeight:1.15,margin:0}}>{prod.nombre}</h2>
+                    {prod.descripcion && (
+                      <p style={{fontSize:12,color:'rgba(255,255,255,0.65)',lineHeight:1.5,fontFamily:'Poppins,sans-serif',margin:'5px 0 0',display:'-webkit-box',WebkitLineClamp:2,WebkitBoxOrient:'vertical',overflow:'hidden'}}>
+                        {prod.descripcion}
+                      </p>
+                    )}
                   </div>
-                  <span style={{fontFamily:'Poppins,sans-serif',fontSize:24,fontWeight:700,color:'#1a1a1a',marginLeft:16}}>${parseFloat(prod.precio).toFixed(2)}</span>
+                  <span style={{fontFamily:'Poppins,sans-serif',fontSize:26,fontWeight:700,color:'#fff',flexShrink:0}}>${parseFloat(prod.precio).toFixed(2)}</span>
                 </div>
 
                 {/* Controles cantidad */}
-                <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginTop:20,paddingTop:16,borderTop:'1px solid #f0f0f0'}}>
-                  <span style={{fontSize:12,color:'#aaa',fontFamily:'Poppins,sans-serif',letterSpacing:0.5}}>Cantidad</span>
-                  <div style={{display:'flex',alignItems:'center',gap:14}}>
-                    <button onClick={()=>addCant(prod.id,-1)} style={{width:36,height:36,borderRadius:'50%',border:'1.5px solid #e0e0e0',background:'#fff',fontSize:18,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',color:'#555'}}>-</button>
-                    <span style={{fontFamily:'Poppins,sans-serif',fontSize:18,fontWeight:700,minWidth:24,textAlign:'center'}}>{cant}</span>
-                    <button onClick={()=>addCant(prod.id,1)} style={{width:36,height:36,borderRadius:'50%',border:'none',background:'#1a1a1a',fontSize:18,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',color:'#fff'}}>+</button>
+                <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',background:'rgba(255,255,255,0.12)',backdropFilter:'blur(8px)',borderRadius:14,padding:'10px 16px',border:'1px solid rgba(255,255,255,0.15)'}}>
+                  <span style={{fontSize:12,color:'rgba(255,255,255,0.7)',fontFamily:'Poppins,sans-serif',fontWeight:500}}>Cantidad</span>
+                  <div style={{display:'flex',alignItems:'center',gap:16}}>
+                    <button onClick={()=>addCant(prod.id,-1)} style={{width:34,height:34,borderRadius:'50%',border:'1.5px solid rgba(255,255,255,0.4)',background:'rgba(0,0,0,0.3)',color:'#fff',fontSize:18,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center'}}>-</button>
+                    <span style={{fontFamily:'Poppins,sans-serif',fontSize:20,fontWeight:700,minWidth:26,textAlign:'center',color:'#fff'}}>{cant}</span>
+                    <button onClick={()=>addCant(prod.id,1)} style={{width:34,height:34,borderRadius:'50%',border:'none',background:'#fff',color:'#1a1a1a',fontSize:18,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',fontWeight:700}}>+</button>
                   </div>
                 </div>
+              </div>
+
+              {/* Indicadores de punto */}
+              <div style={{position:'absolute',top:14,right:14,display:'flex',flexDirection:'column',gap:4,zIndex:2}}>
+                {todosItems.map((_,i)=>(
+                  <div key={i} onClick={()=>setIndiceSlide(i)} style={{
+                    width:4,height:i===indiceSlide?20:4,borderRadius:2,cursor:'pointer',
+                    transition:'0.3s',background:i===indiceSlide?'#fff':'rgba(255,255,255,0.35)'
+                  }}/>
+                ))}
               </div>
             </div>
           )
@@ -3874,6 +3901,19 @@ function ClienteApp({ onVolver }) {
 // ==========================================
 export default function App() {
   const [modo, setModo] = useState(() => localStorage.getItem('esencial_modo') || null)
+
+  // Auto-detectar sesión admin activa para no pedir login de nuevo
+  useEffect(() => {
+    if (localStorage.getItem('esencial_modo')) return // ya hay modo seleccionado
+    const unsub = onAuthStateChanged(auth, (u) => {
+      if (u && u.email && !u.isAnonymous) {
+        // Hay sesión de email activa → ir directo al admin sin pedir credenciales
+        localStorage.setItem('esencial_modo', 'admin')
+        setModo('admin')
+      }
+    })
+    return unsub
+  }, [])
 
   function seleccionar(m) {
     if (m === 'cliente-registro') {
