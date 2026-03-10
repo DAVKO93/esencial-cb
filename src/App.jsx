@@ -2482,9 +2482,10 @@ function ClienteRegistro({ onRegistrado, onSinRegistro, onVolver }) {
     try {
       // Asegurar autenticacion anonima antes de escribir en Firestore
       if (!auth.currentUser) await signInAnonymously(auth)
-      await addDoc(collection(db,'clientes'), perfil)
-      localStorage.setItem('esencial_cliente', JSON.stringify(perfil))
-      onRegistrado(perfil)
+      const docRef = await addDoc(collection(db,'clientes'), perfil)
+      const perfilConId = {...perfil, _id: docRef.id}
+      localStorage.setItem('esencial_cliente', JSON.stringify(perfilConId))
+      onRegistrado(perfilConId)
     } catch(e) {
       // Solo guardar local si es problema de red real
       if (e.code === 'unavailable' || (e.message && e.message.includes('network'))) {
@@ -2596,6 +2597,13 @@ function ClienteApp({ onVolver }) {
   const [modalPromos, setModalPromos] = useState(false)
   const [loadingGPS, setLoadingGPS] = useState(false)
   const [modalPerfilCliente, setModalPerfilCliente] = useState(false)
+  const [editandoPerfil, setEditandoPerfil] = useState(false)
+  const [editNombre, setEditNombre] = useState('')
+  const [editTelefono, setEditTelefono] = useState('')
+  const [editDireccion, setEditDireccion] = useState('')
+  const [editCedula, setEditCedula] = useState('')
+  const [editReferencia, setEditReferencia] = useState('')
+  const [guardandoPerfil, setGuardandoPerfil] = useState(false)
   const [modalHistorial, setModalHistorial] = useState(false)
   const [historialPedidos, setHistorialPedidos] = useState([])
   const [loadingHistorial, setLoadingHistorial] = useState(false)
@@ -2863,402 +2871,229 @@ function ClienteApp({ onVolver }) {
     showToast('ok','Pedido enviado por WhatsApp')
   }
 
-  const imgSrc = prod ? (imgError[prod.id]
-    ? (IMGS_CATEGORIA[prod.categoria]||IMGS_CATEGORIA['default'])
-    : getImgProducto(prod)) : null
-
   if (loadingMenu) return (
-    <div style={{display:'flex',alignItems:'center',justifyContent:'center',height:'100vh',flexDirection:'column',gap:13}}>
-      <div style={{width:32,height:32,border:'2px solid #d0d0d0',borderTopColor:'#1a1a1a',borderRadius:'50%',animation:'spin 0.8s linear infinite'}}/>
-      <p style={{color:'#999',fontSize:12}}>Cargando menu...</p>
+    <div style={{display:'flex',alignItems:'center',justifyContent:'center',height:'100vh',flexDirection:'column',gap:12}}>
+      <div style={{width:28,height:28,border:'2px solid #e0e0e0',borderTopColor:'#1a1a1a',borderRadius:'50%',animation:'spin 0.8s linear infinite'}}/>
+      <p style={{color:'#bbb',fontSize:12,fontFamily:'Poppins,sans-serif',letterSpacing:1}}>Cargando...</p>
     </div>
   )
 
   return (
-    <div style={{minHeight:'100vh',background:'#f7f7f7',display:'flex',flexDirection:'column',maxWidth:480,margin:'0 auto',position:'relative'}}>
+    <div style={{minHeight:'100vh',background:'#fff',display:'flex',flexDirection:'column',maxWidth:480,margin:'0 auto',position:'relative'}}>
       <style>{`
-        @keyframes slideLeft{from{opacity:0;transform:translateX(60px)}to{opacity:1;transform:translateX(0)}}
-        @keyframes slideRight{from{opacity:0;transform:translateX(-60px)}to{opacity:1;transform:translateX(0)}}
+        @keyframes spin{to{transform:rotate(360deg)}}
+        @keyframes fadeUp{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}}
       `}</style>
 
-      {/* CONTENIDO PRINCIPAL (arriba del header fijo) */}
-      <div style={{flex:1,overflowY:'auto',paddingBottom:130}}>
+      {/* HEADER SUPERIOR */}
+      <div style={{position:'sticky',top:0,zIndex:100,background:'#fff',borderBottom:'1px solid #f0f0f0',padding:'0 16px',height:56,display:'flex',alignItems:'center',justifyContent:'space-between'}}>
+        <div style={{display:'flex',alignItems:'center',gap:8}}>
+          <img src='/logo.png' alt='logo' style={{height:28,width:28,objectFit:'contain',borderRadius:4}}/>
+          <span style={{fontFamily:'Poppins,sans-serif',fontSize:15,fontWeight:700,color:'#1a1a1a',letterSpacing:0.5}}>Esencial FC</span>
+        </div>
+        <button onClick={()=>setModalPerfilCliente(true)} style={{display:'flex',alignItems:'center',gap:8,background:'#f7f7f7',border:'1px solid #ebebeb',borderRadius:100,padding:'5px 12px 5px 6px',cursor:'pointer'}}>
+          <div style={{width:26,height:26,borderRadius:'50%',background:'#1a1a1a',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0,overflow:'hidden'}}>
+            {fotoPerfilCliente
+              ? <img src={fotoPerfilCliente} alt='p' style={{width:'100%',height:'100%',objectFit:'cover'}}/>
+              : <span style={{color:'#fff',fontSize:11,fontWeight:700}}>{cliente ? cliente.nombre?.charAt(0)?.toUpperCase() : 'U'}</span>
+            }
+          </div>
+          <span style={{fontFamily:'Poppins,sans-serif',fontSize:12,fontWeight:600,color:'#1a1a1a',maxWidth:72,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>
+            {cliente ? cliente.nombre?.split(' ')[0] : 'Entrar'}
+          </span>
+        </button>
+      </div>
 
-        {/* IMAGEN GRANDE CARRUSEL */}
-        {prod ? (
-          <div style={{position:'relative',background:'#111',userSelect:'none',aspectRatio:'1/1',maxHeight:'50vh',overflow:'hidden'}}
-            onTouchStart={onTouchStart} onTouchEnd={onTouchEnd}>
-            <img
-              key={prod.id}
-              src={imgSrc}
-              alt={prod.nombre}
-              onError={()=>setImgError(p=>({...p,[prod.id]:true}))}
-              style={{
-                width:'100%',height:'100%',objectFit:'cover',display:'block',
-                animation: animDir==='left'?'slideLeft 0.35s ease':animDir==='right'?'slideRight 0.35s ease':'none'
-              }}
-            />
-            {prod._esPromo && (
-              <div style={{position:'absolute',top:12,left:12,background:'#c62828',color:'#fff',padding:'4px 12px',borderRadius:100,fontSize:10,fontWeight:700,letterSpacing:1,textTransform:'uppercase'}}>
-                Promocion
-              </div>
-            )}
-            <div style={{position:'absolute',bottom:0,left:0,right:0,height:80,background:'linear-gradient(transparent,rgba(0,0,0,0.65))'}}/>
-            {/* Indicadores */}
-            <div style={{position:'absolute',bottom:12,left:0,right:0,display:'flex',justifyContent:'center',gap:5,flexWrap:'wrap',padding:'0 20px'}}>
-              {items.map((_,i)=>(
-                <div key={i} onClick={()=>irA(i)} style={{
-                  width:i===indice?18:6,height:6,borderRadius:3,cursor:'pointer',transition:'0.3s',
-                  background:i===indice?'#fff':'rgba(255,255,255,0.35)'
-                }}/>
-              ))}
-            </div>
-            {indice>0 && <button onClick={()=>irA(indice-1)} style={{position:'absolute',left:10,top:'50%',transform:'translateY(-50%)',background:'rgba(0,0,0,0.4)',border:'none',color:'#fff',width:38,height:38,borderRadius:'50%',fontSize:20,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center'}}>‹</button>}
-            {indice<items.length-1 && <button onClick={()=>irA(indice+1)} style={{position:'absolute',right:10,top:'50%',transform:'translateY(-50%)',background:'rgba(0,0,0,0.4)',border:'none',color:'#fff',width:38,height:38,borderRadius:'50%',fontSize:20,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center'}}>›</button>}
+      {/* CATEGORÍAS */}
+      <div style={{background:'#fff',borderBottom:'1px solid #f0f0f0',padding:'0 16px',display:'flex',gap:4,overflowX:'auto',scrollbarWidth:'none'}}>
+        {[
+          {key:'Todos', label:'Todo'},
+          {key:'Frio',  label:'Frío'},
+          {key:'Caliente', label:'Caliente'},
+        ].map(({key, label}) => {
+          const activo = macroActiva === key
+          return (
+            <button key={key} onClick={()=>{setMacroActiva(key);setIndice(0)}} style={{
+              flexShrink:0,padding:'10px 16px',border:'none',background:'none',
+              borderBottom: activo ? '2px solid #1a1a1a' : '2px solid transparent',
+              fontFamily:'Poppins,sans-serif',fontSize:12,fontWeight: activo ? 700 : 500,
+              color: activo ? '#1a1a1a' : '#aaa',cursor:'pointer',transition:'0.15s',whiteSpace:'nowrap'
+            }}>{label}</button>
+          )
+        })}
+        {promociones.length > 0 && (
+          <button onClick={()=>setModalPromos(true)} style={{
+            flexShrink:0,padding:'10px 16px',border:'none',background:'none',
+            borderBottom:'2px solid transparent',
+            fontFamily:'Poppins,sans-serif',fontSize:12,fontWeight:500,
+            color:'#7C9263',cursor:'pointer',whiteSpace:'nowrap',
+            display:'flex',alignItems:'center',gap:6
+          }}>
+            Promociones
+            <span style={{background:'#7C9263',color:'#fff',borderRadius:100,minWidth:16,height:16,fontSize:9,fontWeight:700,display:'inline-flex',alignItems:'center',justifyContent:'center',padding:'0 4px'}}>{promociones.length}</span>
+          </button>
+        )}
+      </div>
+
+      {/* GRID DE PRODUCTOS */}
+      <div style={{flex:1,overflowY:'auto',padding:'16px 12px',paddingBottom:100}}>
+        {menuFiltrado.length === 0 ? (
+          <div style={{textAlign:'center',padding:'60px 20px',color:'#ccc'}}>
+            <div style={{fontSize:13,fontFamily:'Poppins,sans-serif'}}>Sin productos en esta categoría</div>
           </div>
         ) : (
-          <div style={{aspectRatio:'1/1',maxHeight:'50vh',background:'#e0e0e0',display:'flex',alignItems:'center',justifyContent:'center'}}>
-            <span style={{color:'#bbb',fontSize:13}}>Sin productos disponibles</span>
-          </div>
-        )}
-
-        {/* CATEGORIAS + BOTON PROMOCIONES */}
-        <div style={{background:'#fff',borderBottom:'1px solid #e0e0e0'}}>
-          {/* 3 tabs principales */}
-          <div style={{display:'flex',gap:0}}>
-            {[
-              {key:'Todos',    color:'#7C9263'},
-              {key:'Frio',     color:'#1565c0'},
-              {key:'Caliente', color:'#e65100'},
-            ].map(({key,color}) => {
-              const activo = macroActiva === key
+          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10}}>
+            {menuFiltrado.map(prod => {
+              const imgSrc = imgError[prod.id]
+                ? (IMGS_CATEGORIA[prod.categoria]||IMGS_CATEGORIA['default'])
+                : getImgProducto(prod)
+              const cant = cantidades[prod.id] || 0
               return (
-                <button key={key} onClick={()=>{setMacroActiva(key);setIndice(0)}} style={{
-                  flex:1,padding:'11px 6px',border:'none',
-                  borderBottom: activo?`3px solid ${color}`:'3px solid transparent',
-                  fontFamily:'Poppins,sans-serif',fontSize:11,fontWeight:700,letterSpacing:1,
-                  textTransform:'uppercase',cursor:'pointer',transition:'0.2s',background:'#fff',
-                  color: activo ? color : '#bbb'
-                }}>{key}</button>
+                <div key={prod.id} style={{
+                  background:'#fff',border:'1px solid #ebebeb',borderRadius:14,
+                  overflow:'hidden',display:'flex',flexDirection:'column',
+                  animation:'fadeUp 0.25s ease',boxShadow:'0 1px 4px rgba(0,0,0,0.04)'
+                }}>
+                  {/* Imagen */}
+                  <div style={{aspectRatio:'4/3',background:'#f5f5f5',overflow:'hidden',position:'relative'}}>
+                    <img
+                      src={imgSrc}
+                      alt={prod.nombre}
+                      onError={()=>setImgError(p=>({...p,[prod.id]:true}))}
+                      style={{width:'100%',height:'100%',objectFit:'cover',display:'block'}}
+                    />
+                    <div style={{
+                      position:'absolute',top:8,left:8,background:'rgba(255,255,255,0.92)',
+                      borderRadius:6,padding:'2px 7px',
+                      fontSize:9,fontWeight:700,color:'#555',letterSpacing:0.8,
+                      textTransform:'uppercase',fontFamily:'Poppins,sans-serif',
+                      backdropFilter:'blur(4px)'
+                    }}>{prod.categoria}</div>
+                  </div>
+                  {/* Info */}
+                  <div style={{padding:'10px 10px 12px',flex:1,display:'flex',flexDirection:'column',justifyContent:'space-between'}}>
+                    <div>
+                      <div style={{fontFamily:'Poppins,sans-serif',fontSize:13,fontWeight:700,color:'#1a1a1a',marginBottom:2,lineHeight:1.3}}>{prod.nombre}</div>
+                      {prod.descripcion && <div style={{fontSize:11,color:'#aaa',lineHeight:1.4,marginBottom:6,display:'-webkit-box',WebkitLineClamp:2,WebkitBoxOrient:'vertical',overflow:'hidden'}}>{prod.descripcion}</div>}
+                    </div>
+                    <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginTop:8}}>
+                      <span style={{fontFamily:'Poppins,sans-serif',fontSize:15,fontWeight:700,color:'#1a1a1a'}}>${parseFloat(prod.precio).toFixed(2)}</span>
+                      {cant === 0 ? (
+                        <button onClick={()=>addCant(prod.id,1)} style={{
+                          width:30,height:30,borderRadius:'50%',border:'none',
+                          background:'#1a1a1a',color:'#fff',fontSize:18,
+                          cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',
+                          lineHeight:1
+                        }}>+</button>
+                      ) : (
+                        <div style={{display:'flex',alignItems:'center',gap:6}}>
+                          <button onClick={()=>addCant(prod.id,-1)} style={{width:26,height:26,borderRadius:'50%',border:'1.5px solid #d0d0d0',background:'#fff',fontSize:16,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',color:'#555'}}>-</button>
+                          <span style={{fontFamily:'Poppins,sans-serif',fontSize:13,fontWeight:700,minWidth:16,textAlign:'center'}}>{cant}</span>
+                          <button onClick={()=>addCant(prod.id,1)} style={{width:26,height:26,borderRadius:'50%',border:'none',background:'#1a1a1a',fontSize:16,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',color:'#fff'}}>+</button>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
               )
             })}
           </div>
-          {/* Botón Promociones */}
-          <div style={{padding:'8px 12px'}}>
-            <button onClick={()=>setModalPromos(true)} style={{
-              display:'flex',alignItems:'center',gap:8,padding:'8px 16px',
-              background: promociones.length>0 ? '#1a1a1a' : '#f4f4f4',
-              color: promociones.length>0 ? '#fff' : '#bbb',
-              border:'none',borderRadius:100,fontFamily:'Poppins,sans-serif',
-              fontSize:11,fontWeight:700,letterSpacing:1,textTransform:'uppercase',
-              cursor:'pointer',position:'relative'
-            }}>
-              Promociones
-              {promociones.length > 0 && (
-                <span style={{background:'#c62828',color:'#fff',borderRadius:100,minWidth:18,height:18,fontSize:9,fontWeight:700,display:'flex',alignItems:'center',justifyContent:'center',padding:'0 5px'}}>
-                  {promociones.length}
-                </span>
-              )}
-            </button>
-          </div>
-        </div>
+        )}
 
-        {/* DETALLE PRODUCTO */}
-        {prod && (
-          <div key={prod.id} style={{background:'#fff',margin:'8px 12px 0',borderRadius:14,padding:'16px',border:'1px solid #e0e0e0',boxShadow:'0 2px 8px rgba(0,0,0,0.05)',
-            animation:animDir==='left'?'slideLeft 0.35s ease':animDir==='right'?'slideRight 0.35s ease':'none'}}>
-            <div style={{display:'flex',alignItems:'flex-start',justifyContent:'space-between',marginBottom:6}}>
-              <div style={{flex:1}}>
-                <h2 style={{fontFamily:'Poppins,sans-serif',fontSize:20,fontWeight:700,color:'#1a1a1a',marginBottom:6}}>{prod.nombre}</h2>
-                <span style={{background:prod._esPromo?'#c62828':'#1a1a1a',color:'#fff',fontSize:9,fontWeight:700,letterSpacing:1,textTransform:'uppercase',padding:'3px 9px',borderRadius:100}}>
-                  {prod._esPromo ? 'Promocion' : prod.categoria}
-                </span>
-              </div>
-              <span style={{fontFamily:'Poppins,sans-serif',fontSize:26,color:'#1a1a1a',fontWeight:700,marginLeft:12}}>${parseFloat(prod.precio).toFixed(2)}</span>
-            </div>
-            {prod.descripcion && <p style={{fontSize:13,color:'#666',lineHeight:1.6,marginTop:10}}>{prod.descripcion}</p>}
-            <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginTop:14,paddingTop:14,borderTop:'1px solid #e0e0e0'}}>
-              <span style={{fontSize:12,fontWeight:600,color:'#666',letterSpacing:1,textTransform:'uppercase'}}>Cantidad</span>
-              <div style={{display:'flex',alignItems:'center',gap:12}}>
-                <button onClick={()=>addCant(prod.id,-1)} style={{width:34,height:34,borderRadius:'50%',border:'2px solid #d0d0d0',background:'#fff',fontSize:20,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',color:'#666'}}>-</button>
-                <span style={{fontSize:18,fontWeight:700,minWidth:24,textAlign:'center'}}>{cantidades[prod.id]||0}</span>
-                <button onClick={()=>addCant(prod.id,1)} style={{width:34,height:34,borderRadius:'50%',border:'none',background:'#1a1a1a',fontSize:20,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',color:'#fff'}}>+</button>
-              </div>
+        {/* PROMOCIONES en grid también */}
+        {promociones.length > 0 && macroActiva === 'Todos' && (
+          <div style={{marginTop:20}}>
+            <div style={{fontSize:10,fontWeight:700,letterSpacing:1.5,textTransform:'uppercase',color:'#7C9263',marginBottom:10,fontFamily:'Poppins,sans-serif',paddingLeft:2}}>Promociones del día</div>
+            <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10}}>
+              {promociones.map(prod => {
+                const cant = cantidades[prod.id] || 0
+                return (
+                  <div key={prod.id} style={{
+                    background:'#fff',border:'1.5px solid #7C9263',borderRadius:14,
+                    overflow:'hidden',display:'flex',flexDirection:'column',
+                    boxShadow:'0 1px 4px rgba(124,146,99,0.10)'
+                  }}>
+                    {prod.imagen && (
+                      <div style={{aspectRatio:'4/3',background:'#f5f5f5',overflow:'hidden'}}>
+                        <img src={prod.imagen} alt={prod.nombre} style={{width:'100%',height:'100%',objectFit:'cover'}}/>
+                      </div>
+                    )}
+                    <div style={{padding:'10px 10px 12px',flex:1,display:'flex',flexDirection:'column',justifyContent:'space-between'}}>
+                      <div>
+                        <div style={{background:'#7C9263',color:'#fff',fontSize:9,fontWeight:700,letterSpacing:1,textTransform:'uppercase',borderRadius:4,padding:'2px 7px',display:'inline-block',marginBottom:5,fontFamily:'Poppins,sans-serif'}}>Promo hoy</div>
+                        <div style={{fontFamily:'Poppins,sans-serif',fontSize:13,fontWeight:700,color:'#1a1a1a',marginBottom:2,lineHeight:1.3}}>{prod.nombre}</div>
+                        {prod.descripcion && <div style={{fontSize:11,color:'#aaa',lineHeight:1.4,marginBottom:6}}>{prod.descripcion}</div>}
+                      </div>
+                      <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginTop:8}}>
+                        <span style={{fontFamily:'Poppins,sans-serif',fontSize:15,fontWeight:700,color:'#1a1a1a'}}>${parseFloat(prod.precio).toFixed(2)}</span>
+                        {cant === 0 ? (
+                          <button onClick={()=>addCant(prod.id,1)} style={{width:30,height:30,borderRadius:'50%',border:'none',background:'#1a1a1a',color:'#fff',fontSize:18,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center'}}>+</button>
+                        ) : (
+                          <div style={{display:'flex',alignItems:'center',gap:6}}>
+                            <button onClick={()=>addCant(prod.id,-1)} style={{width:26,height:26,borderRadius:'50%',border:'1.5px solid #d0d0d0',background:'#fff',fontSize:16,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',color:'#555'}}>-</button>
+                            <span style={{fontFamily:'Poppins,sans-serif',fontSize:13,fontWeight:700,minWidth:16,textAlign:'center'}}>{cant}</span>
+                            <button onClick={()=>addCant(prod.id,1)} style={{width:26,height:26,borderRadius:'50%',border:'none',background:'#1a1a1a',fontSize:16,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',color:'#fff'}}>+</button>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                )
+              })}
             </div>
           </div>
         )}
-
-        {/* RESUMEN PEDIDO */}
-        <div style={{background:'#fff',margin:'10px 12px 0',borderRadius:14,padding:'14px 16px',border:'1px solid #e0e0e0',boxShadow:'0 2px 8px rgba(0,0,0,0.05)'}}>
-          <div style={{fontSize:10,letterSpacing:2,textTransform:'uppercase',color:'#999',fontWeight:600,marginBottom:10}}>Tu pedido</div>
-          {carrito.length===0 ? (
-            <p style={{fontSize:12,color:'#ccc',textAlign:'center',padding:'10px 0'}}>Desliza y agrega productos</p>
-          ) : (
-            <>
-              {carrito.map(x=>(
-                <div key={x.id} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'5px 0',borderBottom:'1px solid #f0f0f0'}}>
-                  <div style={{flex:1}}>
-                    <span style={{fontSize:12,color:'#1a1a1a',fontWeight:500}}>{x.nombre}</span>
-                    <span style={{fontSize:11,color:'#999',marginLeft:8}}>x{x.cantidad}</span>
-                  </div>
-                  <div style={{display:'flex',alignItems:'center',gap:8}}>
-                    <span style={{fontSize:13,fontWeight:600}}>${(parseFloat(x.precio)*x.cantidad).toFixed(2)}</span>
-                    <button onClick={()=>addCant(x.id,-x.cantidad)} style={{background:'none',border:'none',color:'#ccc',fontSize:16,cursor:'pointer'}}>×</button>
-                  </div>
-                </div>
-              ))}
-              <div style={{display:'flex',justifyContent:'space-between',fontSize:12,color:'#666',padding:'8px 0 4px',borderTop:'1px solid #e0e0e0',marginTop:6}}>
-                <span>Subtotal</span><span>${subtotal.toFixed(2)}</span>
-              </div>
-              <div style={{display:'flex',justifyContent:'space-between',fontSize:12,color:'#666',padding:'4px 0'}}>
-                <span>Envio a domicilio</span><span>${DOMICILIO_COSTO.toFixed(2)}</span>
-              </div>
-              <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',paddingTop:8,borderTop:'1.5px solid #d0d0d0',marginTop:4}}>
-                <span style={{fontSize:10,letterSpacing:2,textTransform:'uppercase',color:'#666',fontWeight:600}}>Total</span>
-                <span style={{fontFamily:'Poppins,sans-serif',fontSize:22,fontWeight:700}}>${total.toFixed(2)}</span>
-              </div>
-            </>
-          )}
-        </div>
       </div>
 
-      {/* HEADER FIJO ABAJO */}
-      <div style={{position:'fixed',bottom:0,left:'50%',transform:'translateX(-50%)',width:'100%',maxWidth:480,zIndex:200}}>
-        {/* Barra nombre + perfil */}
-        <div style={{background:'#1a1a1a',padding:'10px 16px',display:'flex',alignItems:'center',justifyContent:'space-between'}}>
-          <div style={{display:'flex',alignItems:'center',gap:8}}>
-            <img src='/logo.png' alt='logo' style={{height:26,width:26,objectFit:'contain',borderRadius:3,flexShrink:0}}/>
-            <span style={{fontFamily:'Poppins,sans-serif',fontSize:14,fontWeight:700,color:'#fff',letterSpacing:2}}>Esencial FC</span>
-          </div>
-          <button onClick={()=>setModalPerfilCliente(true)} style={{display:'flex',alignItems:'center',gap:7,background:'#333',border:'1px solid #555',borderRadius:20,padding:'5px 10px 5px 6px',cursor:'pointer'}}>
-            <div style={{width:24,height:24,borderRadius:'50%',background:'#555',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>
-              <span style={{color:'#ccc',fontSize:11,fontWeight:700}}>{cliente?cliente.nombre?.charAt(0)?.toUpperCase():'U'}</span>
-            </div>
-            <span style={{color:'#ccc',fontSize:11,fontWeight:600,maxWidth:80,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>
-              {cliente ? cliente.nombre?.split(' ')[0] : 'Usuario'}
-            </span>
-          </button>
-        </div>
-        {/* Nav inferior MENÚ / PEDIDO */}
-        <div style={{background:'#fff',borderTop:'1.5px solid #e0e0e0',boxShadow:'0 -4px 16px rgba(0,0,0,0.08)',display:'flex'}}>
-          <button onClick={()=>setVistaCliente('menu')} style={{
-            flex:1,padding:'14px 0',background:'none',border:'none',cursor:'pointer',
-            borderBottom: vistaCliente==='menu' ? '2.5px solid #7C9263' : '2.5px solid transparent'
-          }}>
-            <span style={{fontFamily:'Poppins,sans-serif',fontSize:12,fontWeight:700,letterSpacing:1.5,
-              color:vistaCliente==='menu'?'#7C9263':'#aaa'}}>MENÚ</span>
-          </button>
+      {/* BOTÓN FLOTANTE CARRITO */}
+      {totalItems > 0 && vistaCliente === 'menu' && (
+        <div style={{position:'fixed',bottom:24,left:'50%',transform:'translateX(-50%)',zIndex:300,animation:'fadeUp 0.2s ease'}}>
           <button onClick={()=>setVistaCliente('pedido')} style={{
-            flex:1,padding:'14px 0',background:'none',border:'none',cursor:'pointer',position:'relative',
-            borderBottom: vistaCliente==='pedido' ? '2.5px solid #1a1a1a' : '2.5px solid transparent'
+            display:'flex',alignItems:'center',gap:12,
+            background:'#1a1a1a',color:'#fff',border:'none',
+            borderRadius:100,padding:'13px 22px',
+            boxShadow:'0 6px 24px rgba(0,0,0,0.22)',cursor:'pointer',
+            fontFamily:'Poppins,sans-serif'
           }}>
-            {totalItems>0 && (
-              <span style={{position:'absolute',top:6,right:'calc(50% - 22px)',background:'#e53935',color:'#fff',
-                borderRadius:'50%',width:16,height:16,fontSize:9,fontWeight:700,
-                display:'inline-flex',alignItems:'center',justifyContent:'center'}}>{totalItems}</span>
-            )}
-            <span style={{fontFamily:'Poppins,sans-serif',fontSize:12,fontWeight:700,letterSpacing:1.5,
-              color:vistaCliente==='pedido'?'#1a1a1a':'#aaa'}}>PEDIDO</span>
+            <span style={{background:'#7C9263',color:'#fff',borderRadius:'50%',width:22,height:22,fontSize:11,fontWeight:700,display:'inline-flex',alignItems:'center',justifyContent:'center'}}>{totalItems}</span>
+            <span style={{fontSize:13,fontWeight:700,letterSpacing:0.5}}>Ver pedido</span>
+            <span style={{fontSize:14,fontWeight:700}}>${total.toFixed(2)}</span>
           </button>
         </div>
-      </div>
-
-      {/* MODAL PERFIL CLIENTE */}
-      {modalPerfilCliente && (
-        <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.55)',zIndex:1000,display:'flex',alignItems:'flex-end'}}
-          onClick={e=>{if(e.target===e.currentTarget)setModalPerfilCliente(false)}}>
-          <div style={{background:'#fff',borderRadius:'20px 20px 0 0',width:'100%',maxWidth:480,margin:'0 auto',padding:'24px 20px 36px'}}>
-            <div style={{width:40,height:4,background:'#e0e0e0',borderRadius:2,margin:'0 auto 20px'}}/>
-            {cliente ? (
-              <>
-                <div style={{display:'flex',alignItems:'center',gap:14,marginBottom:20,paddingBottom:16,borderBottom:'1px solid #e0e0e0'}}>
-                  <div onClick={()=>fotoClienteRef.current?.click()} style={{
-                    width:52,height:52,borderRadius:'50%',background:'#1a1a1a',
-                    display:'flex',alignItems:'center',justifyContent:'center',
-                    flexShrink:0,cursor:'pointer',overflow:'hidden',position:'relative',
-                    border:`2px solid #7C9263`
-                  }}>
-                    {fotoPerfilCliente
-                      ? <img src={fotoPerfilCliente} alt='perfil' style={{width:'100%',height:'100%',objectFit:'cover'}}/>
-                      : <span style={{color:'#fff',fontSize:20,fontWeight:700}}>{cliente.nombre?.charAt(0)?.toUpperCase()}</span>
-                    }
-                    <div style={{position:'absolute',bottom:0,left:0,right:0,background:'rgba(0,0,0,0.45)',fontSize:8,color:'#fff',textAlign:'center',padding:'2px',fontFamily:'Poppins,sans-serif'}}>editar</div>
-                  </div>
-                  <input type='file' accept='image/*' style={{display:'none'}} ref={fotoClienteRef}
-                    onChange={e=>{
-                      const file=e.target.files?.[0]
-                      if(!file) return
-                      const reader=new FileReader()
-                      reader.onload=ev=>{
-                        const img=new window.Image()
-                        img.onload=()=>{
-                          const MAX=200
-                          const scale=Math.min(MAX/img.width,MAX/img.height,1)
-                          const canvas=document.createElement('canvas')
-                          canvas.width=Math.round(img.width*scale)
-                          canvas.height=Math.round(img.height*scale)
-                          canvas.getContext('2d').drawImage(img,0,0,canvas.width,canvas.height)
-                          const compressed=canvas.toDataURL('image/jpeg',0.72)
-                          setFotoPerfilCliente(compressed)
-                          try{localStorage.setItem('esencial_foto_cliente',compressed)}catch(err){}
-                        }
-                        img.src=ev.target.result
-                      }
-                      reader.readAsDataURL(file)
-                    }}
-                  />
-                  <div>
-                    <div style={{fontFamily:'Poppins,sans-serif',fontWeight:700,fontSize:16}}>{cliente.nombre}</div>
-                    <div style={{fontSize:12,color:'#888',marginTop:2}}>Cliente registrado</div>
-                  </div>
-                </div>
-                <div style={{display:'flex',flexDirection:'column',gap:8,marginBottom:20}}>
-                  {cliente.telefono && <div style={{fontSize:12,color:'#555',fontFamily:'Poppins,sans-serif'}}>📱 {cliente.telefono}</div>}
-                  {cliente.direccion && <div style={{fontSize:12,color:'#555',fontFamily:'Poppins,sans-serif'}}>📍 {cliente.direccion}</div>}
-                  {cliente.cedula && <div style={{fontSize:12,color:'#555',fontFamily:'Poppins,sans-serif'}}>🪪 {cliente.cedula}</div>}
-                </div>
-              </>
-            ) : (
-              <div style={{textAlign:'center',padding:'16px 0 20px'}}>
-                <div style={{width:52,height:52,borderRadius:'50%',background:'#f4f4f4',display:'flex',alignItems:'center',justifyContent:'center',margin:'0 auto 12px'}}>
-                  <span style={{fontSize:24}}>👤</span>
-                </div>
-                <div style={{fontFamily:'Poppins,sans-serif',fontWeight:600,fontSize:15,marginBottom:4}}>Usuario</div>
-                <div style={{fontSize:12,color:'#aaa',marginBottom:16}}>No registrado</div>
-                <button onClick={()=>{setModalPerfilCliente(false);setModalRegistro(true)}} style={{
-                  padding:'10px 24px',background:'#1a1a1a',color:'#fff',border:'none',
-                  borderRadius:10,fontFamily:'Poppins,sans-serif',fontSize:12,fontWeight:600,cursor:'pointer'
-                }}>Registrarme</button>
-              </div>
-            )}
-            {cliente && (
-              <button onClick={()=>{cargarHistorial();setModalHistorial(true)}} style={{
-                width:'100%',padding:'12px',background:'#1a1a1a',color:'#fff',
-                border:'none',borderRadius:10,
-                fontFamily:'Poppins,sans-serif',fontSize:12,fontWeight:600,cursor:'pointer',marginBottom:8,
-                display:'flex',alignItems:'center',justifyContent:'center',gap:8
-              }}>
-                <svg width='15' height='15' viewBox='0 0 24 24' fill='none' stroke='currentColor' strokeWidth='2.5' strokeLinecap='round'>
-                  <path d='M9 11l3 3L22 4'/><path d='M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11'/>
-                </svg>
-                Mis Pedidos
-              </button>
-            )}
-            <button onClick={()=>{setModalPerfilCliente(false);localStorage.removeItem('esencial_modo');window.location.reload()}} style={{
-              width:'100%',padding:'12px',background:'#f4f4f4',color:'#1a1a1a',
-              border:'1px solid #e0e0e0',borderRadius:10,
-              fontFamily:'Poppins,sans-serif',fontSize:12,fontWeight:600,cursor:'pointer',marginTop:4
-            }}>← Regresar a Inicio</button>
-          </div>
-        </div>
       )}
 
-      {/* MODAL HISTORIAL DE PEDIDOS */}
-      {modalHistorial && (
-        <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.65)',zIndex:1100,display:'flex',alignItems:'flex-end'}}
-          onClick={e=>{if(e.target===e.currentTarget)setModalHistorial(false)}}>
-          <div style={{background:'#fff',borderRadius:'20px 20px 0 0',width:'100%',maxWidth:480,margin:'0 auto',maxHeight:'85vh',overflow:'hidden',display:'flex',flexDirection:'column'}}>
-            <div style={{padding:'16px 20px 0',flexShrink:0}}>
-              <div style={{width:40,height:4,background:'#e0e0e0',borderRadius:2,margin:'0 auto 16px'}}/>
-              <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:14}}>
-                <div style={{fontFamily:'Poppins,sans-serif',fontWeight:700,fontSize:16}}>Mis Pedidos</div>
-                <button onClick={()=>setModalHistorial(false)} style={{background:'none',border:'none',fontSize:20,cursor:'pointer',color:'#999'}}>×</button>
-              </div>
-            </div>
-            <div style={{flex:1,overflowY:'auto',padding:'0 20px 24px'}}>
-              {loadingHistorial ? (
-                <div style={{textAlign:'center',padding:40,color:'#999',fontFamily:'Poppins,sans-serif',fontSize:13}}>Cargando...</div>
-              ) : historialPedidos.length === 0 ? (
-                <div style={{textAlign:'center',padding:40}}>
-                  <div style={{fontSize:32,marginBottom:12}}>📦</div>
-                  <div style={{fontFamily:'Poppins,sans-serif',fontSize:13,color:'#999'}}>Aún no tienes pedidos registrados</div>
-                </div>
-              ) : (
-                historialPedidos.map((ped, idx) => (
-                  <div key={ped.id} style={{border:'1px solid #e0e0e0',borderRadius:12,marginBottom:12,overflow:'hidden',boxShadow:'0 1px 4px rgba(0,0,0,0.06)'}}>
-                    <div style={{background:'#f8f8f8',padding:'10px 14px',display:'flex',alignItems:'center',justifyContent:'space-between',borderBottom:'1px solid #e0e0e0'}}>
-                      <div>
-                        <div style={{fontFamily:'Poppins,sans-serif',fontSize:12,fontWeight:700,color:'#1a1a1a'}}>
-                          Pedido #{idx + 1}
-                        </div>
-                        <div style={{fontSize:10,color:'#999',marginTop:1}}>
-                          {ped.creadoEn?.toDate?.()?.toLocaleDateString('es-EC',{day:'2-digit',month:'short',year:'numeric'}) || ''}
-                        </div>
-                      </div>
-                      <div style={{fontFamily:'Poppins,sans-serif',fontSize:14,fontWeight:700,color:'#7C9263'}}>
-                        ${parseFloat(ped.total||0).toFixed(2)}
-                      </div>
-                    </div>
-                    <div style={{padding:'10px 14px'}}>
-                      {ped.items?.slice(0,3).map((it,j) => (
-                        <div key={j} style={{display:'flex',justifyContent:'space-between',fontSize:12,color:'#555',padding:'2px 0'}}>
-                          <span>{it.cantidad}x {it.nombre}</span>
-                          <span>${(it.precio*it.cantidad).toFixed(2)}</span>
-                        </div>
-                      ))}
-                      {ped.items?.length > 3 && (
-                        <div style={{fontSize:11,color:'#999',marginTop:2}}>+{ped.items.length-3} más...</div>
-                      )}
-                      {ped.direccion && (
-                        <div style={{fontSize:11,color:'#888',marginTop:6,display:'flex',gap:4,alignItems:'center'}}>
-                          <span>📍</span>
-                          <span style={{flex:1,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{ped.direccion}</span>
-                        </div>
-                      )}
-                    </div>
-                    <div style={{padding:'0 14px 12px'}}>
-                      <button onClick={()=>agregarDelHistorial(ped)} style={{
-                        width:'100%',padding:'9px',background:'#1a1a1a',color:'#fff',
-                        border:'none',borderRadius:8,fontFamily:'Poppins,sans-serif',
-                        fontSize:11,fontWeight:700,letterSpacing:0.5,cursor:'pointer',
-                        display:'flex',alignItems:'center',justifyContent:'center',gap:6
-                      }}>
-                        <svg width='13' height='13' viewBox='0 0 24 24' fill='none' stroke='currentColor' strokeWidth='2.5' strokeLinecap='round'>
-                          <path d='M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2 9m13-9l2 9m-5-9v9m-4-9v9'/>
-                        </svg>
-                        Agregar al carrito
-                      </button>
-                    </div>
-                  </div>
-                ))
-              )}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* MODAL PROMOCIONES CLIENTES */}
+      {/* MODAL PROMOCIONES */}
       {modalPromos && (
-        <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.55)',zIndex:1000,display:'flex',alignItems:'flex-end'}}
+        <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.45)',zIndex:1000,display:'flex',alignItems:'flex-end'}}
           onClick={e=>{if(e.target===e.currentTarget)setModalPromos(false)}}>
-          <div style={{background:'#fff',borderRadius:'20px 20px 0 0',width:'100%',maxWidth:480,margin:'0 auto',maxHeight:'88vh',overflowY:'auto',padding:'20px 20px 36px'}}>
-            <div style={{width:40,height:4,background:'#e0e0e0',borderRadius:2,margin:'0 auto 16px'}}/>
-            <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:16}}>
+          <div style={{background:'#fff',borderRadius:'20px 20px 0 0',width:'100%',maxWidth:480,margin:'0 auto',maxHeight:'88vh',overflowY:'auto',padding:'20px 16px 36px'}}>
+            <div style={{width:36,height:4,background:'#e0e0e0',borderRadius:2,margin:'0 auto 20px'}}/>
+            <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:20}}>
               <div>
-                <h3 style={{fontFamily:'Poppins,sans-serif',fontSize:20}}>Promociones</h3>
-                <p style={{fontSize:11,color:'#999',marginTop:2}}>Solo por hoy</p>
+                <h3 style={{fontFamily:'Poppins,sans-serif',fontSize:18,fontWeight:700,color:'#1a1a1a'}}>Promociones</h3>
+                <p style={{fontSize:11,color:'#aaa',marginTop:2,fontFamily:'Poppins,sans-serif'}}>Solo por hoy</p>
               </div>
-              <button onClick={()=>setModalPromos(false)} style={{background:'none',border:'none',fontSize:22,cursor:'pointer',color:'#bbb'}}>×</button>
+              <button onClick={()=>setModalPromos(false)} style={{background:'#f4f4f4',border:'none',width:32,height:32,borderRadius:'50%',cursor:'pointer',fontSize:16,color:'#888',display:'flex',alignItems:'center',justifyContent:'center'}}>×</button>
             </div>
             {promociones.length === 0 ? (
-              <div style={{textAlign:'center',padding:'30px 0',color:'#999',fontSize:13}}>Sin promociones activas hoy</div>
+              <div style={{textAlign:'center',padding:'30px 0',color:'#bbb',fontSize:13,fontFamily:'Poppins,sans-serif'}}>Sin promociones activas hoy</div>
             ) : promociones.map(p => (
-              <div key={p.id} style={{border:'2px solid #1a1a1a',borderRadius:13,overflow:'hidden',marginBottom:14}}>
-                {p.imagen && <img src={p.imagen} alt={p.nombre} style={{width:'100%',height:160,objectFit:'cover',display:'block'}}/>}
+              <div key={p.id} style={{border:'1px solid #ebebeb',borderRadius:14,overflow:'hidden',marginBottom:12}}>
+                {p.imagen && <img src={p.imagen} alt={p.nombre} style={{width:'100%',height:150,objectFit:'cover',display:'block'}}/>}
                 <div style={{padding:'14px 16px'}}>
-                  <div style={{display:'flex',alignItems:'flex-start',justifyContent:'space-between',marginBottom:6}}>
+                  <div style={{display:'flex',alignItems:'flex-start',justifyContent:'space-between',marginBottom:4}}>
                     <div style={{flex:1}}>
-                      <div style={{fontWeight:700,fontSize:16,color:'#1a1a1a'}}>{p.nombre}</div>
-                      {p.descripcion && <div style={{fontSize:12,color:'#666',marginTop:4,lineHeight:1.5}}>{p.descripcion}</div>}
+                      <div style={{fontWeight:700,fontSize:15,color:'#1a1a1a',fontFamily:'Poppins,sans-serif'}}>{p.nombre}</div>
+                      {p.descripcion && <div style={{fontSize:12,color:'#aaa',marginTop:3,lineHeight:1.5}}>{p.descripcion}</div>}
                     </div>
-                    <span style={{fontFamily:'Poppins,sans-serif',fontSize:20,fontWeight:700,color:'#1a1a1a',marginLeft:12}}>${parseFloat(p.precio).toFixed(2)}</span>
+                    <span style={{fontFamily:'Poppins,sans-serif',fontSize:18,fontWeight:700,color:'#1a1a1a',marginLeft:12}}>${parseFloat(p.precio).toFixed(2)}</span>
                   </div>
-                  <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginTop:12,paddingTop:12,borderTop:'1px solid #e0e0e0'}}>
-                    <span style={{fontSize:12,fontWeight:600,color:'#666',letterSpacing:1,textTransform:'uppercase'}}>Cantidad</span>
-                    <div style={{display:'flex',alignItems:'center',gap:12}}>
-                      <button onClick={()=>addCant(p.id,-1)} style={{width:34,height:34,borderRadius:'50%',border:'2px solid #d0d0d0',background:'#fff',fontSize:20,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',color:'#666'}}>-</button>
-                      <span style={{fontSize:18,fontWeight:700,minWidth:24,textAlign:'center'}}>{cantidades[p.id]||0}</span>
-                      <button onClick={()=>addCant(p.id,1)} style={{width:34,height:34,borderRadius:'50%',border:'none',background:'#1a1a1a',fontSize:20,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',color:'#fff'}}>+</button>
+                  <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginTop:12,paddingTop:12,borderTop:'1px solid #f0f0f0'}}>
+                    <span style={{fontSize:11,color:'#aaa',fontFamily:'Poppins,sans-serif',letterSpacing:0.5}}>Cantidad</span>
+                    <div style={{display:'flex',alignItems:'center',gap:10}}>
+                      <button onClick={()=>addCant(p.id,-1)} style={{width:30,height:30,borderRadius:'50%',border:'1.5px solid #d0d0d0',background:'#fff',fontSize:17,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',color:'#555'}}>-</button>
+                      <span style={{fontSize:16,fontWeight:700,minWidth:20,textAlign:'center',fontFamily:'Poppins,sans-serif'}}>{cantidades[p.id]||0}</span>
+                      <button onClick={()=>addCant(p.id,1)} style={{width:30,height:30,borderRadius:'50%',border:'none',background:'#1a1a1a',fontSize:17,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',color:'#fff'}}>+</button>
                     </div>
                   </div>
                 </div>
@@ -3266,223 +3101,175 @@ function ClienteApp({ onVolver }) {
             ))}
             <button onClick={()=>setModalPromos(false)} style={{
               width:'100%',padding:'13px',background:'#1a1a1a',color:'#fff',border:'none',borderRadius:11,
-              fontFamily:'Poppins,sans-serif',fontSize:12,fontWeight:700,letterSpacing:2,
+              fontFamily:'Poppins,sans-serif',fontSize:12,fontWeight:700,letterSpacing:1.5,
               textTransform:'uppercase',cursor:'pointer',marginTop:4
-            }}>Ver menu completo</button>
+            }}>Ver menú completo</button>
           </div>
         </div>
       )}
 
       {/* VISTA PEDIDO */}
       {vistaCliente==='pedido' && (
-        <div style={{position:'fixed',top:0,left:0,right:0,bottom:56,background:'#fff',zIndex:500,display:'flex',flexDirection:'column'}}>
-          <div style={{background:'#fff',padding:'14px 16px 10px',borderBottom:'1px solid #e0e0e0',display:'flex',alignItems:'center',justifyContent:'space-between'}}>
-            <h3 style={{fontFamily:'Poppins,sans-serif',fontSize:17,fontWeight:700}}>Tu pedido</h3>
-            {totalItems>0 && <span style={{background:'#1a1a1a',color:'#fff',borderRadius:100,padding:'3px 10px',fontSize:11,fontWeight:700}}>{totalItems} items</span>}
+        <div style={{position:'fixed',inset:0,background:'#fff',zIndex:500,display:'flex',flexDirection:'column',maxWidth:480,margin:'0 auto',left:'50%',transform:'translateX(-50%)',width:'100%'}}>
+
+          {/* Header */}
+          <div style={{padding:'0 16px',height:56,borderBottom:'1px solid #f0f0f0',display:'flex',alignItems:'center',justifyContent:'space-between',flexShrink:0}}>
+            <button onClick={()=>setVistaCliente('menu')} style={{background:'none',border:'none',cursor:'pointer',padding:'8px 0',display:'flex',alignItems:'center',gap:6,color:'#1a1a1a'}}>
+              <svg width='18' height='18' viewBox='0 0 24 24' fill='none' stroke='currentColor' strokeWidth='2.5' strokeLinecap='round' strokeLinejoin='round'><path d='M19 12H5M12 5l-7 7 7 7'/></svg>
+              <span style={{fontFamily:'Poppins,sans-serif',fontSize:13,fontWeight:600}}>Menú</span>
+            </button>
+            <span style={{fontFamily:'Poppins,sans-serif',fontSize:15,fontWeight:700,color:'#1a1a1a'}}>Tu pedido</span>
+            {carrito.length > 0 && (
+              <button onClick={()=>setModalCancelar(true)} style={{background:'none',border:'none',cursor:'pointer',fontSize:11,color:'#bbb',fontFamily:'Poppins,sans-serif',fontWeight:500}}>Cancelar</button>
+            )}
+            {carrito.length === 0 && <div style={{width:60}}/>}
           </div>
-          <div style={{flex:1,overflowY:'auto',padding:'16px 16px 0'}}>
 
-            {/* Productos */}
-            <div style={{background:'#f8f8f8',borderRadius:11,padding:'12px 14px',marginBottom:12}}>
-              {carrito.map(x=>(
-                <div key={x.id} style={{display:'flex',justifyContent:'space-between',fontSize:13,padding:'4px 0',borderBottom:'1px solid #eee'}}>
-                  <span>{x.cantidad}x {x.nombre}</span>
-                  <span style={{fontWeight:600}}>${(parseFloat(x.precio)*x.cantidad).toFixed(2)}</span>
-                </div>
-              ))}
-              <div style={{display:'flex',justifyContent:'space-between',fontSize:12,color:'#666',padding:'8px 0 4px',borderTop:'1px solid #ddd',marginTop:6}}>
-                <span>Subtotal</span><span>${subtotal.toFixed(2)}</span>
-              </div>
-              <div style={{display:'flex',justifyContent:'space-between',fontSize:12,color:'#666',padding:'4px 0'}}>
-                <span>Entrega a domicilio</span><span>${DOMICILIO_COSTO.toFixed(2)}</span>
-              </div>
-              <div style={{display:'flex',justifyContent:'space-between',paddingTop:9,marginTop:4,borderTop:'1.5px solid #d0d0d0'}}>
-                <span style={{fontSize:11,fontWeight:700,letterSpacing:1,textTransform:'uppercase',color:'#666'}}>Total</span>
-                <span style={{fontFamily:'Poppins,sans-serif',fontSize:20,fontWeight:700}}>${total.toFixed(2)}</span>
-              </div>
-            </div>
-
-            {/* Cuenta bancaria */}
-            <div style={{background:'#f0f4ff',border:'1px solid #c5d0e8',borderRadius:11,padding:'14px',marginBottom:12}}>
-              <div style={{fontSize:10,letterSpacing:2,textTransform:'uppercase',color:'#555',fontWeight:600,marginBottom:10}}>Datos de pago</div>
-              <div style={{fontSize:13,fontWeight:600,color:'#1a1a1a',marginBottom:6}}>Cuenta Pichincha Ahorros</div>
-              <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:10}}>
-                <span style={{fontSize:15,fontWeight:700,letterSpacing:1,color:'#1a1a1a'}}>{CUENTA}</span>
-                <button onClick={()=>copiar(CUENTA,'cuenta')} style={{background:'#1a1a1a',color:'#fff',border:'none',borderRadius:7,padding:'5px 12px',fontSize:10,fontWeight:600,cursor:'pointer',fontFamily:'Poppins,sans-serif'}}>
-                  {copiado==='cuenta'?'Copiado':'Copiar'}
-                </button>
-              </div>
-              <div style={{borderTop:'1px solid #c5d0e8',paddingTop:10,display:'flex',alignItems:'center',justifyContent:'space-between'}}>
-                <span style={{fontSize:13,color:'#444'}}>WhatsApp: 0996368109</span>
-                <div style={{display:'flex',gap:6}}>
-                  <button onClick={()=>copiar('0996368109','tel')} style={{background:'#fff',color:'#1a1a1a',border:'1px solid #c5d0e8',borderRadius:7,padding:'5px 10px',fontSize:10,fontWeight:600,cursor:'pointer',fontFamily:'Poppins,sans-serif'}}>
-                    {copiado==='tel'?'Copiado':'Copiar'}
-                  </button>
-                  <button onClick={()=>window.open(`https://wa.me/${WA_NUM}`,'_blank')} style={{background:'#25d366',color:'#fff',border:'none',borderRadius:7,padding:'5px 10px',fontSize:10,fontWeight:600,cursor:'pointer',fontFamily:'Poppins,sans-serif'}}>
-                    WA
-                  </button>
-                </div>
-              </div>
-            </div>
-
-            {/* Datos cliente */}
-            <div style={{background:'#f8f8f8',borderRadius:11,padding:'14px',marginBottom:16}}>
-              <div style={{fontSize:10,letterSpacing:2,textTransform:'uppercase',color:'#999',fontWeight:600,marginBottom:10}}>Tus datos</div>
-              {cliente ? (
-                <>
-                  <div style={{fontSize:13,fontWeight:600,color:'#1a1a1a',marginBottom:3}}>{cliente.nombre}</div>
-                  <div style={{fontSize:12,color:'#666',marginBottom:2}}>{cliente.telefono}</div>
-                  <div style={{fontSize:12,color:'#666'}}>{cliente.direccion}</div>
-                  {cliente.referencia && <div style={{fontSize:12,color:'#999',marginTop:2}}>{cliente.referencia}</div>}
-                  <button type='button' onClick={async ()=>{
-                    if (!navigator.geolocation){ showToast('err','GPS no disponible'); return }
-                    setLoadingGPS(true)
-                    navigator.geolocation.getCurrentPosition(
-                      pos=>{
-                        const lat=pos.coords.latitude.toFixed(6)
-                        const lng=pos.coords.longitude.toFixed(6)
-                        const link=`https://maps.google.com/?q=${lat},${lng}`
-                        showToast('ok','Ubicacion lista — se incluira en el pedido')
-                        setTmpDir(link)
-                        setLoadingGPS(false)
-                      },
-                      ()=>{ setLoadingGPS(false); showToast('err','No se pudo obtener ubicacion') },
-                      {enableHighAccuracy:true,timeout:12000}
-                    )
-                  }} style={{
-                    width:'100%',marginTop:8,padding:'8px 14px',
-                    background:loadingGPS?'#f0f0f0':'#f5f8f1',
-                    border:`1.5px solid #7C9263`,borderRadius:8,cursor:'pointer',
-                    display:'flex',alignItems:'center',justifyContent:'center',gap:7,
-                    fontFamily:'Poppins,sans-serif',fontSize:11,fontWeight:600,
-                    color:loadingGPS?'#aaa':'#7C9263'
-                  }}>
-                    <svg width='13' height='13' viewBox='0 0 24 24' fill='none' stroke='currentColor' strokeWidth='2.5' strokeLinecap='round'>
-                      <circle cx='12' cy='12' r='3'/><line x1='12' y1='2' x2='12' y2='6'/><line x1='12' y1='18' x2='12' y2='22'/>
-                      <line x1='2' y1='12' x2='6' y2='12'/><line x1='18' y1='12' x2='22' y2='12'/>
-                    </svg>
-                    {loadingGPS?'Obteniendo ubicacion...':'Enviar mi ubicacion actual'}
-                  </button>
-                  {tmpDir && tmpDir.includes('maps.google') && (
-                    <div style={{fontSize:10,color:'#7C9263',marginTop:4,fontWeight:600}}>Ubicacion GPS incluida en el pedido</div>
-                  )}
-                </>
-              ) : (
-                <>
-                  <div style={{marginBottom:10}}>
-                    <label style={{display:'block',fontSize:9,letterSpacing:2,textTransform:'uppercase',color:'#999',marginBottom:5,fontWeight:600}}>Nombre *</label>
-                    <input value={tmpNombre} onChange={e=>setTmpNombre(e.target.value)} placeholder='Tu nombre'
-                      style={{width:'100%',border:'1.5px solid #d0d0d0',borderRadius:8,fontFamily:'Poppins,sans-serif',fontSize:13,padding:'9px 12px',outline:'none'}}/>
-                  </div>
-                  <div style={{marginBottom:10}}>
-                    <label style={{display:'block',fontSize:9,letterSpacing:2,textTransform:'uppercase',color:'#999',marginBottom:5,fontWeight:600}}>Telefono *</label>
-                    <input value={tmpTel} onChange={e=>setTmpTel(e.target.value)} placeholder='09XXXXXXXX' type='tel'
-                      style={{width:'100%',border:'1.5px solid #d0d0d0',borderRadius:8,fontFamily:'Poppins,sans-serif',fontSize:13,padding:'9px 12px',outline:'none'}}/>
-                  </div>
-                  <div>
-                    <label style={{display:'block',fontSize:9,letterSpacing:2,textTransform:'uppercase',color:'#999',marginBottom:5,fontWeight:600}}>Direccion</label>
-                    <input value={tmpDir} onChange={e=>setTmpDir(e.target.value)} placeholder='Barrio o lugar de entrega'
-                      style={{width:'100%',border:'1.5px solid #d0d0d0',borderRadius:8,fontFamily:'Poppins,sans-serif',fontSize:13,padding:'9px 12px',outline:'none'}}/>
-                    <button type='button' onClick={async ()=>{
-                      if (!navigator.geolocation){ showToast('err','GPS no disponible'); return }
-                      setLoadingGPS(true)
-                      navigator.geolocation.getCurrentPosition(
-                        pos=>{
-                          const lat=pos.coords.latitude.toFixed(6)
-                          const lng=pos.coords.longitude.toFixed(6)
-                          const link=`https://maps.google.com/?q=${lat},${lng}`
-                          setTmpDir(prev=>prev?`${prev} ${link}`:link)
-                          setLoadingGPS(false)
-                          showToast('ok','Ubicacion agregada')
-                        },
-                        ()=>{ setLoadingGPS(false); showToast('err','No se pudo obtener la ubicacion. Activa el GPS') },
-                        {enableHighAccuracy:true,timeout:12000}
-                      )
-                    }} style={{
-                      width:'100%',marginTop:6,padding:'9px 14px',
-                      background:loadingGPS?'#f0f0f0':'#f5f8f1',
-                      border:`1.5px solid #7C9263`,borderRadius:8,cursor:'pointer',
-                      display:'flex',alignItems:'center',justifyContent:'center',gap:7,
-                      fontFamily:'Poppins,sans-serif',fontSize:11,fontWeight:600,
-                      color:loadingGPS?'#aaa':'#7C9263'
-                    }}>
-                      <svg width='13' height='13' viewBox='0 0 24 24' fill='none' stroke='currentColor' strokeWidth='2.5' strokeLinecap='round'>
-                        <circle cx='12' cy='12' r='3'/><line x1='12' y1='2' x2='12' y2='6'/><line x1='12' y1='18' x2='12' y2='22'/>
-                        <line x1='2' y1='12' x2='6' y2='12'/><line x1='18' y1='12' x2='22' y2='12'/>
-                      </svg>
-                      {loadingGPS ? 'Obteniendo ubicacion...' : 'Usar mi ubicacion actual'}
-                    </button>
-                  </div>
-                </>
-              )}
-            </div>
-
-
-          </div>
-          {/* Botón WA fijo en fondo */}
-          <div style={{padding:'10px 16px 16px',borderTop:'1px solid #e0e0e0',background:'#fff',display:'flex',flexDirection:'column',gap:8}}>
-            {/* Adjuntar comprobante */}
-            <input type='file' accept='image/*' style={{display:'none'}} ref={comprobanteRef}
-              onChange={e=>{
-                const file=e.target.files?.[0]
-                if(!file) return
-                const reader=new FileReader()
-                reader.onload=ev=>{
-                  setComprobanteCliente(ev.target.result)
-                  subirComprobante(ev.target.result)
-                }
-                reader.readAsDataURL(file)
-                e.target.value=''
-              }}
-            />
-            {comprobanteCliente ? (
-              <div style={{display:'flex',alignItems:'center',gap:10,background:'#f5f8f1',borderRadius:9,padding:'8px 12px',border:'1px solid #7C9263'}}>
-                <div style={{width:36,height:36,borderRadius:6,overflow:'hidden',flexShrink:0}}>
-                  <img src={comprobanteCliente} alt='comp' style={{width:'100%',height:'100%',objectFit:'cover'}}/>
-                </div>
-                <div style={{flex:1,fontSize:11,fontFamily:'Poppins,sans-serif'}}>
-                  {subiendoComprobante
-                    ? <span style={{color:'#7C9263',fontWeight:600}}>Subiendo...</span>
-                    : <span style={{color:'#2e7d32',fontWeight:600}}>Comprobante adjunto</span>
-                  }
-                </div>
-                <button onClick={()=>{setComprobanteCliente(null);setUrlComprobante(null)}}
-                  style={{background:'none',border:'none',color:'#c62828',fontSize:18,cursor:'pointer',lineHeight:1}}>x</button>
+          <div style={{flex:1,overflowY:'auto',padding:'16px 16px 24px'}}>
+            {carrito.length === 0 ? (
+              <div style={{textAlign:'center',padding:'60px 20px',color:'#ccc'}}>
+                <div style={{fontSize:13,fontFamily:'Poppins,sans-serif',marginBottom:16}}>Tu pedido está vacío</div>
+                <button onClick={()=>setVistaCliente('menu')} style={{background:'#1a1a1a',color:'#fff',border:'none',borderRadius:100,padding:'10px 24px',fontFamily:'Poppins,sans-serif',fontSize:12,fontWeight:600,cursor:'pointer'}}>Ver menú</button>
               </div>
             ) : (
-              <button onClick={()=>comprobanteRef.current?.click()} style={{
-                width:'100%',padding:'11px',background:'#fff',
-                border:'1.5px dashed #7C9263',borderRadius:9,
-                fontFamily:'Poppins,sans-serif',fontSize:11,fontWeight:700,
-                color:'#7C9263',cursor:'pointer',letterSpacing:1
-              }}>Adjuntar comprobante de pago</button>
-            )}
-            <button onClick={confirmarEnvio} style={{
-              width:'100%',padding:'15px',background:'#25d366',color:'#fff',border:'none',borderRadius:11,
-              fontFamily:'Poppins,sans-serif',fontSize:13,fontWeight:700,letterSpacing:2,textTransform:'uppercase',cursor:'pointer'
-            }}>Enviar pedido por WhatsApp</button>
-            <button onClick={()=>setModalCancelar(true)} style={{
-              width:'100%',padding:'12px',background:'#fff',color:'#c62828',border:'1.5px solid #ffcdd2',borderRadius:11,
-              fontFamily:'Poppins,sans-serif',fontSize:12,fontWeight:700,letterSpacing:2,textTransform:'uppercase',cursor:'pointer'
-            }}>Cancelar pedido</button>
-          </div>
-        </div>
-      )}
+              <>
+                {/* Items del pedido */}
+                <div style={{marginBottom:16}}>
+                  {carrito.map(x=>(
+                    <div key={x.id} style={{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'12px 0',borderBottom:'1px solid #f5f5f5'}}>
+                      <div style={{flex:1}}>
+                        <div style={{fontFamily:'Poppins,sans-serif',fontSize:13,fontWeight:600,color:'#1a1a1a'}}>{x.nombre}</div>
+                        <div style={{fontSize:12,color:'#aaa',marginTop:2}}>${parseFloat(x.precio).toFixed(2)} c/u</div>
+                      </div>
+                      <div style={{display:'flex',alignItems:'center',gap:8}}>
+                        <button onClick={()=>addCant(x.id,-1)} style={{width:26,height:26,borderRadius:'50%',border:'1.5px solid #e0e0e0',background:'#fff',fontSize:15,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',color:'#555'}}>-</button>
+                        <span style={{fontFamily:'Poppins,sans-serif',fontSize:14,fontWeight:700,minWidth:20,textAlign:'center'}}>{x.cantidad}</span>
+                        <button onClick={()=>addCant(x.id,1)} style={{width:26,height:26,borderRadius:'50%',border:'none',background:'#1a1a1a',fontSize:15,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',color:'#fff'}}>+</button>
+                        <span style={{fontFamily:'Poppins,sans-serif',fontSize:13,fontWeight:700,color:'#1a1a1a',minWidth:48,textAlign:'right'}}>${(parseFloat(x.precio)*x.cantidad).toFixed(2)}</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
 
-      {/* MODAL IMPORTANTE */}
-      {modalImportante && (
-        <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.6)',zIndex:2000,display:'flex',alignItems:'center',justifyContent:'center',padding:20}}>
-          <div style={{background:'#fff',borderRadius:16,padding:'28px 24px',maxWidth:340,width:'100%'}}>
-            <div style={{fontSize:10,letterSpacing:3,textTransform:'uppercase',fontWeight:700,color:'#c62828',marginBottom:10}}>Importante</div>
-            <h3 style={{fontFamily:'Poppins,sans-serif',fontSize:18,marginBottom:12}}>Antes de enviar</h3>
-            <p style={{fontSize:13,color:'#555',lineHeight:1.7,marginBottom:20}}>
-              Se enviara tu pedido por WhatsApp pero debes <strong>adjuntar el comprobante de la transferencia</strong> y enviarlo a los datos indicados. Si no lo haces, tu pedido tardara mas en procesarse.
-            </p>
-            <div style={{display:'flex',gap:10}}>
-              <button onClick={()=>setModalImportante(false)} style={{flex:1,padding:'12px',background:'#fff',color:'#666',border:'1.5px solid #d0d0d0',borderRadius:9,fontFamily:'Poppins,sans-serif',fontSize:12,fontWeight:600,cursor:'pointer'}}>Cancelar</button>
-              <button onClick={enviarWhatsApp} style={{flex:2,padding:'12px',background:'#25d366',color:'#fff',border:'none',borderRadius:9,fontFamily:'Poppins,sans-serif',fontSize:12,fontWeight:700,cursor:'pointer'}}>Aceptar y enviar</button>
-            </div>
+                {/* Totales */}
+                <div style={{background:'#f9f9f9',borderRadius:12,padding:'14px 16px',marginBottom:16}}>
+                  <div style={{display:'flex',justifyContent:'space-between',fontSize:12,color:'#888',marginBottom:8,fontFamily:'Poppins,sans-serif'}}>
+                    <span>Subtotal ({totalItems} items)</span>
+                    <span>${subtotal.toFixed(2)}</span>
+                  </div>
+                  <div style={{display:'flex',justifyContent:'space-between',fontSize:12,color:'#888',marginBottom:12,fontFamily:'Poppins,sans-serif',paddingBottom:12,borderBottom:'1px solid #ebebeb'}}>
+                    <span>Envío a domicilio</span>
+                    <span>${DOMICILIO_COSTO.toFixed(2)}</span>
+                  </div>
+                  <div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+                    <span style={{fontFamily:'Poppins,sans-serif',fontSize:12,fontWeight:700,color:'#1a1a1a',letterSpacing:0.5}}>Total</span>
+                    <span style={{fontFamily:'Poppins,sans-serif',fontSize:22,fontWeight:700,color:'#1a1a1a'}}>${total.toFixed(2)}</span>
+                  </div>
+                </div>
+
+                {/* Datos de pago */}
+                <div style={{border:'1px solid #ebebeb',borderRadius:12,padding:'14px 16px',marginBottom:16}}>
+                  <div style={{fontSize:10,fontWeight:700,letterSpacing:1.5,textTransform:'uppercase',color:'#aaa',marginBottom:12,fontFamily:'Poppins,sans-serif'}}>Datos de transferencia</div>
+                  <div style={{fontSize:13,fontWeight:600,color:'#1a1a1a',marginBottom:4,fontFamily:'Poppins,sans-serif'}}>Banco Pichincha — Cuenta Ahorros</div>
+                  <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:12}}>
+                    <span style={{fontFamily:'Poppins,sans-serif',fontSize:16,fontWeight:700,letterSpacing:1,color:'#1a1a1a'}}>{CUENTA}</span>
+                    <button onClick={()=>copiar(CUENTA,'cuenta')} style={{background:copiado==='cuenta'?'#7C9263':'#1a1a1a',color:'#fff',border:'none',borderRadius:7,padding:'6px 14px',fontSize:11,fontWeight:600,cursor:'pointer',fontFamily:'Poppins,sans-serif',transition:'0.2s'}}>
+                      {copiado==='cuenta' ? 'Copiado' : 'Copiar'}
+                    </button>
+                  </div>
+                  <div style={{borderTop:'1px solid #f0f0f0',paddingTop:12,display:'flex',alignItems:'center',justifyContent:'space-between'}}>
+                    <span style={{fontSize:12,color:'#888',fontFamily:'Poppins,sans-serif'}}>WhatsApp: 0996368109</span>
+                    <button onClick={()=>copiar('0996368109','tel')} style={{background:'#f4f4f4',color:'#1a1a1a',border:'1px solid #e0e0e0',borderRadius:7,padding:'5px 12px',fontSize:11,fontWeight:600,cursor:'pointer',fontFamily:'Poppins,sans-serif'}}>
+                      {copiado==='tel' ? 'Copiado' : 'Copiar'}
+                    </button>
+                  </div>
+                </div>
+
+                {/* Adjuntar comprobante */}
+                <div style={{border:'1px dashed #d0d0d0',borderRadius:12,padding:'14px 16px',marginBottom:16}}>
+                  <div style={{fontSize:10,fontWeight:700,letterSpacing:1.5,textTransform:'uppercase',color:'#aaa',marginBottom:10,fontFamily:'Poppins,sans-serif'}}>Comprobante de pago</div>
+                  {!comprobanteCliente ? (
+                    <button onClick={()=>comprobanteRef.current?.click()} style={{
+                      width:'100%',padding:'11px',background:'#f9f9f9',
+                      border:'1px solid #e0e0e0',borderRadius:10,
+                      fontFamily:'Poppins,sans-serif',fontSize:12,fontWeight:600,
+                      color:'#888',cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',gap:8
+                    }}>
+                      <svg width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='currentColor' strokeWidth='2' strokeLinecap='round'><path d='M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4'/><polyline points='17 8 12 3 7 8'/><line x1='12' y1='3' x2='12' y2='15'/></svg>
+                      Subir foto del comprobante
+                    </button>
+                  ) : subiendoComprobante ? (
+                    <div style={{display:'flex',alignItems:'center',justifyContent:'center',gap:8,padding:'10px'}}>
+                      <div style={{width:16,height:16,border:'2px solid #e0e0e0',borderTopColor:'#1a1a1a',borderRadius:'50%',animation:'spin 0.8s linear infinite'}}/>
+                      <span style={{fontSize:12,color:'#888',fontFamily:'Poppins,sans-serif'}}>Subiendo...</span>
+                    </div>
+                  ) : (
+                    <div style={{position:'relative'}}>
+                      <img src={comprobanteCliente} alt='comprobante' style={{width:'100%',maxHeight:160,objectFit:'contain',borderRadius:8,display:'block'}}/>
+                      <div style={{marginTop:8,display:'flex',alignItems:'center',gap:6}}>
+                        <div style={{width:8,height:8,borderRadius:'50%',background:'#7C9263',flexShrink:0}}/>
+                        <span style={{fontSize:12,color:'#7C9263',fontFamily:'Poppins,sans-serif',fontWeight:600}}>Comprobante adjunto</span>
+                        <button onClick={()=>{setComprobanteCliente(null);setUrlComprobante(null)}} style={{marginLeft:'auto',background:'none',border:'none',fontSize:12,color:'#ccc',cursor:'pointer',fontFamily:'Poppins,sans-serif'}}>Quitar</button>
+                      </div>
+                    </div>
+                  )}
+                  <input type='file' accept='image/*' capture='environment' style={{display:'none'}} ref={comprobanteRef}
+                    onChange={e=>{
+                      const file=e.target.files?.[0]; if(!file) return
+                      const reader=new FileReader()
+                      reader.onload=ev=>{
+                        const img=new window.Image()
+                        img.onload=()=>{
+                          const MAX=1200; const scale=Math.min(MAX/img.width,MAX/img.height,1)
+                          const canvas=document.createElement('canvas')
+                          canvas.width=Math.round(img.width*scale); canvas.height=Math.round(img.height*scale)
+                          canvas.getContext('2d').drawImage(img,0,0,canvas.width,canvas.height)
+                          const compressed=canvas.toDataURL('image/jpeg',0.82)
+                          setComprobanteCliente(compressed)
+                          subirComprobante(compressed)
+                        }
+                        img.src=ev.target.result
+                      }
+                      reader.readAsDataURL(file)
+                    }}
+                  />
+                </div>
+
+                {/* Datos del cliente (si no tiene perfil) */}
+                {!cliente && (
+                  <div style={{border:'1px solid #ebebeb',borderRadius:12,padding:'14px 16px',marginBottom:16}}>
+                    <div style={{fontSize:10,fontWeight:700,letterSpacing:1.5,textTransform:'uppercase',color:'#aaa',marginBottom:12,fontFamily:'Poppins,sans-serif'}}>Tus datos</div>
+                    {[
+                      {label:'Nombre',val:tmpNombre,set:setTmpNombre,ph:'Tu nombre',type:'text'},
+                      {label:'Teléfono',val:tmpTel,set:setTmpTel,ph:'09XXXXXXXX',type:'tel'},
+                      {label:'Dirección',val:tmpDir,set:setTmpDir,ph:'Barrio o dirección',type:'text'},
+                    ].map(f=>(
+                      <div key={f.label} style={{marginBottom:10}}>
+                        <label style={{display:'block',fontSize:10,letterSpacing:1,textTransform:'uppercase',color:'#bbb',marginBottom:5,fontFamily:'Poppins,sans-serif',fontWeight:600}}>{f.label}</label>
+                        <input value={f.val} onChange={e=>f.set(e.target.value)} placeholder={f.ph} type={f.type}
+                          style={{width:'100%',border:'1.5px solid #e8e8e8',borderRadius:9,fontFamily:'Poppins,sans-serif',fontSize:13,padding:'10px 13px',outline:'none',color:'#1a1a1a',boxSizing:'border-box'}}/>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </>
+            )}
           </div>
+
+          {/* Botón enviar */}
+          {carrito.length > 0 && (
+            <div style={{padding:'12px 16px 24px',borderTop:'1px solid #f0f0f0',background:'#fff',flexShrink:0}}>
+              <button onClick={confirmarEnvio} style={{
+                width:'100%',padding:'15px',background:'#1a1a1a',color:'#fff',
+                border:'none',borderRadius:12,fontFamily:'Poppins,sans-serif',
+                fontSize:14,fontWeight:700,letterSpacing:0.5,cursor:'pointer',
+                display:'flex',alignItems:'center',justifyContent:'center',gap:10
+              }}>
+                <svg width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='currentColor' strokeWidth='2.5' strokeLinecap='round' strokeLinejoin='round'><path d='M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07A19.5 19.5 0 013.07 9.81 19.79 19.79 0 01.04 1.22 2 2 0 012 .04h3a2 2 0 012 1.72 12.84 12.84 0 00.7 2.81 2 2 0 01-.45 2.11L6.09 7.91a16 16 0 006 6l1.27-1.27a2 2 0 012.11-.45 12.84 12.84 0 002.81.7A2 2 0 0122 14.92z'/></svg>
+                Enviar pedido por WhatsApp — ${total.toFixed(2)}
+              </button>
+            </div>
+          )}
         </div>
       )}
 
