@@ -516,7 +516,7 @@ function comprimirImagen(base64, maxWidth=800) {
   })
 }
 
-function AdminApp() {
+function AdminApp({ onVerComoCliente }) {
   const [user, setUser] = useState(null)
   const [authReady, setAuthReady] = useState(false)
   const [aprobado, setAprobado] = useState(false)
@@ -2326,19 +2326,16 @@ function AdminApp() {
               background:'#f4f4f4',border:'1px solid #e0e0e0',color:'#1a1a1a',
               borderRadius:7,padding:'8px 20px',fontFamily:'Poppins,sans-serif',fontSize:11,fontWeight:600,cursor:'pointer',width:'100%'
             }}>← Regresar a Inicio</button>
-            <button onClick={async ()=>{
-              localStorage.removeItem('esencial_modo')
-              localStorage.setItem('esencial_modo','cliente')
-              localStorage.setItem('esencial_desde_admin','1')
-              window.location.reload()
-            }} style={{
-              background:'#7C9263',border:'none',color:'#fff',
-              borderRadius:7,padding:'8px 20px',fontFamily:'Poppins,sans-serif',fontSize:11,fontWeight:600,cursor:'pointer',width:'100%',
-              display:'flex',alignItems:'center',justifyContent:'center',gap:6
-            }}>
-              <svg width='13' height='13' viewBox='0 0 24 24' fill='none' stroke='currentColor' strokeWidth='2.5' strokeLinecap='round'><path d='M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z'/><circle cx='12' cy='12' r='3'/></svg>
-              Ver como Cliente
-            </button>
+            {onVerComoCliente && (
+              <button onClick={onVerComoCliente} style={{
+                background:'#7C9263',border:'none',color:'#fff',
+                borderRadius:7,padding:'8px 20px',fontFamily:'Poppins,sans-serif',fontSize:11,fontWeight:600,cursor:'pointer',width:'100%',
+                display:'flex',alignItems:'center',justifyContent:'center',gap:6
+              }}>
+                <svg width='13' height='13' viewBox='0 0 24 24' fill='none' stroke='currentColor' strokeWidth='2.5' strokeLinecap='round'><path d='M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z'/><circle cx='12' cy='12' r='3'/></svg>
+                Ver como Cliente
+              </button>
+            )}
             <button onClick={()=>signOut(auth)} style={{background:'none',border:'1px solid #ffcdd2',color:'#c62828',borderRadius:7,padding:'8px 20px',fontFamily:'Poppins,sans-serif',fontSize:11,fontWeight:600,cursor:'pointer'}}>
               Cerrar Sesion
             </button>
@@ -2859,7 +2856,7 @@ function ClienteRegistro({ onRegistrado, onSinRegistro, onVolver }) {
 // ==========================================
 // APP CLIENTE
 // ==========================================
-function ClienteApp({ onVolver }) {
+function ClienteApp({ onVolver, esPreview }) {
   const DOMICILIO_COSTO = 1.50
   const WA_NUM = '593996368109'
   const CUENTA = '2207515308'
@@ -2917,8 +2914,8 @@ function ClienteApp({ onVolver }) {
   // Autenticacion anonima para que el cliente pueda escribir en Firestore
   useEffect(() => {
     const iniciar = async () => {
-      // Solo autenticar anónimamente si NO hay sesión de email (admin)
-      if (!auth.currentUser || auth.currentUser.isAnonymous) {
+      // En modo preview (admin viendo cliente) NO tocar la sesión de Firebase
+      if (!esPreview && (!auth.currentUser || auth.currentUser.isAnonymous)) {
         await signInAnonymously(auth).catch(() => {})
       }
       // Registrar sesión de entrada
@@ -2962,7 +2959,7 @@ function ClienteApp({ onVolver }) {
   const [macroActiva, setMacroActiva] = useState('Todos')
   const [busquedaMenu, setBusquedaMenu] = useState('')
   const [vistaGrid, setVistaGrid] = useState('slide') // 'slide' | 'grid'
-  const desdeAdmin = localStorage.getItem('esencial_desde_admin') === '1'
+  // desdeAdmin ahora es la prop esPreview
   const [indiceSlide, setIndiceSlide] = useState(0)
   const [buscadorAbierto, setBuscadorAbierto] = useState(false)
   const [indicePromo, setIndicePromo] = useState(0)
@@ -3464,11 +3461,7 @@ function ClienteApp({ onVolver }) {
         <div style={{position:'fixed',inset:0,background:'#fff',zIndex:500,display:'flex',flexDirection:'column',maxWidth:480,margin:'0 auto',left:'50%',transform:'translateX(-50%)',width:'100%'}}>
 
           {/* Header */}
-          <div style={{padding:'0 16px',height:56,borderBottom:'1px solid #f0f0f0',display:'flex',alignItems:'center',justifyContent:'space-between',flexShrink:0}}>
-            <button onClick={()=>setVistaCliente('menu')} style={{background:'none',border:'none',cursor:'pointer',padding:'8px 0',display:'flex',alignItems:'center',gap:6,color:'#1a1a1a'}}>
-              <svg width='18' height='18' viewBox='0 0 24 24' fill='none' stroke='currentColor' strokeWidth='2.5' strokeLinecap='round' strokeLinejoin='round'><path d='M19 12H5M12 5l-7 7 7 7'/></svg>
-              <span style={{fontFamily:'Poppins,sans-serif',fontSize:13,fontWeight:600}}>Menú</span>
-            </button>
+          <div style={{padding:'0 16px',height:56,borderBottom:'1px solid #f0f0f0',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>
             <span style={{fontFamily:'Poppins,sans-serif',fontSize:15,fontWeight:700,color:'#1a1a1a'}}>Tu pedido</span>
             {carrito.length > 0 && (
               <button onClick={()=>setModalCancelar(true)} style={{background:'none',border:'none',cursor:'pointer',fontSize:11,color:'#bbb',fontFamily:'Poppins,sans-serif',fontWeight:500}}>Cancelar</button>
@@ -3629,17 +3622,14 @@ function ClienteApp({ onVolver }) {
         <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.6)',zIndex:3000,display:'flex',flexDirection:'column'}}
           onClick={e=>{if(e.target===e.currentTarget){setBuscadorAbierto(false)}}}>
           <div style={{background:'#fff',padding:'16px 16px 0'}}>
-            <div style={{display:'flex',alignItems:'center',gap:10,marginBottom:12}}>
-              <div style={{position:'relative',flex:1}}>
-                <svg style={{position:'absolute',left:11,top:'50%',transform:'translateY(-50%)',pointerEvents:'none'}} width='15' height='15' viewBox='0 0 24 24' fill='none' stroke='#bbb' strokeWidth='2' strokeLinecap='round'><circle cx='11' cy='11' r='8'/><line x1='21' y1='21' x2='16.65' y2='16.65'/></svg>
-                <input autoFocus value={busquedaMenu} onChange={e=>setBusquedaMenu(e.target.value)}
-                  placeholder='Buscar producto...'
-                  style={{width:'100%',padding:'11px 36px 11px 36px',border:'1.5px solid #ebebeb',borderRadius:12,fontFamily:'Poppins,sans-serif',fontSize:14,color:'#1a1a1a',outline:'none',boxSizing:'border-box',background:'#f9f9f9'}}/>
-                {busquedaMenu && (
-                  <button onClick={()=>setBusquedaMenu('')} style={{position:'absolute',right:11,top:'50%',transform:'translateY(-50%)',background:'none',border:'none',cursor:'pointer',color:'#bbb',fontSize:20,lineHeight:1}}>×</button>
-                )}
-              </div>
-              <button onClick={()=>{setBuscadorAbierto(false);setBusquedaMenu('')}} style={{background:'none',border:'none',cursor:'pointer',color:'#555',fontFamily:'Poppins,sans-serif',fontSize:12,fontWeight:600,padding:'8px 4px',flexShrink:0}}>Cancelar</button>
+            <div style={{position:'relative'}}>
+              <svg style={{position:'absolute',left:11,top:'50%',transform:'translateY(-50%)',pointerEvents:'none'}} width='15' height='15' viewBox='0 0 24 24' fill='none' stroke='#bbb' strokeWidth='2' strokeLinecap='round'><circle cx='11' cy='11' r='8'/><line x1='21' y1='21' x2='16.65' y2='16.65'/></svg>
+              <input autoFocus value={busquedaMenu} onChange={e=>setBusquedaMenu(e.target.value)}
+                placeholder='Buscar producto...'
+                style={{width:'100%',padding:'11px 36px 11px 36px',border:'1.5px solid #ebebeb',borderRadius:12,fontFamily:'Poppins,sans-serif',fontSize:14,color:'#1a1a1a',outline:'none',boxSizing:'border-box',background:'#f9f9f9',marginBottom:12}}/>
+              {busquedaMenu && (
+                <button onClick={()=>setBusquedaMenu('')} style={{position:'absolute',right:11,top:'50%',transform:'translateY(-57%)',background:'none',border:'none',cursor:'pointer',color:'#bbb',fontSize:20,lineHeight:1}}>×</button>
+              )}
             </div>
           </div>
           {/* Resultados */}
@@ -3682,6 +3672,13 @@ function ClienteApp({ onVolver }) {
               <div style={{textAlign:'center',padding:'40px 0',color:'#ccc',fontFamily:'Poppins,sans-serif',fontSize:13}}>Escribe para buscar...</div>
             )}
           </div>
+          {/* Botón cerrar al fondo */}
+          <div style={{background:'#fff',padding:'12px 16px',paddingBottom:'calc(12px + env(safe-area-inset-bottom))'}}>
+            <button onClick={()=>{setBuscadorAbierto(false);setBusquedaMenu('')}} style={{
+              width:'100%',padding:'14px',background:'#1a1a1a',color:'#fff',border:'none',
+              borderRadius:12,fontFamily:'Poppins,sans-serif',fontSize:13,fontWeight:700,cursor:'pointer'
+            }}>Cerrar búsqueda</button>
+          </div>
         </div>
       )}
 
@@ -3707,8 +3704,8 @@ function ClienteApp({ onVolver }) {
                 onError={()=>setImgError(p=>({...p,[prod.id]:true}))}
                 style={{position:'absolute',inset:0,width:'100%',height:'100%',objectFit:'cover',display:'block'}}/>}
               <div style={{position:'absolute',inset:0,background:'linear-gradient(to top,rgba(0,0,0,0.88) 0%,rgba(0,0,0,0.2) 50%,transparent 100%)'}}/>
-              {/* Cerrar */}
-              <button onClick={()=>setModalPromos(false)} style={{position:'absolute',top:16,right:16,background:'rgba(0,0,0,0.4)',backdropFilter:'blur(4px)',border:'none',color:'#fff',width:36,height:36,borderRadius:'50%',fontSize:20,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',zIndex:3}}>×</button>
+              {/* X discreta arriba — solo para emergencia */}
+              <button onClick={()=>setModalPromos(false)} style={{position:'absolute',top:14,right:14,background:'rgba(0,0,0,0.25)',border:'none',color:'rgba(255,255,255,0.6)',width:30,height:30,borderRadius:'50%',fontSize:16,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',zIndex:3}}>×</button>
               {/* Badge promo */}
               <div style={{position:'absolute',top:16,left:16,background:'#7C9263',color:'#fff',padding:'4px 12px',borderRadius:100,fontSize:10,fontWeight:700,letterSpacing:1,textTransform:'uppercase',fontFamily:'Poppins,sans-serif',zIndex:3}}>Promo del día</div>
               {/* Flechas */}
@@ -3729,13 +3726,19 @@ function ClienteApp({ onVolver }) {
               </div>
             </div>
             {/* Indicadores */}
-            {promociones.length > 1 && (
-              <div style={{background:'#000',padding:'10px 0',display:'flex',justifyContent:'center',gap:6}}>
-                {promociones.map((_,i)=>(
-                  <div key={i} onClick={()=>setIndicePromo(i)} style={{width:i===idxP?20:6,height:6,borderRadius:3,background:i===idxP?'#7C9263':'rgba(255,255,255,0.25)',transition:'0.3s',cursor:'pointer'}}/>
-                ))}
-              </div>
-            )}
+            <div style={{background:'#000',padding:'10px 16px 16px',paddingBottom:'calc(16px + env(safe-area-inset-bottom))'}}>
+              {promociones.length > 1 && (
+                <div style={{display:'flex',justifyContent:'center',gap:6,marginBottom:12}}>
+                  {promociones.map((_,i)=>(
+                    <div key={i} onClick={()=>setIndicePromo(i)} style={{width:i===idxP?20:6,height:6,borderRadius:3,background:i===idxP?'#7C9263':'rgba(255,255,255,0.25)',transition:'0.3s',cursor:'pointer'}}/>
+                  ))}
+                </div>
+              )}
+              <button onClick={()=>setModalPromos(false)} style={{
+                width:'100%',padding:'14px',background:'#fff',color:'#1a1a1a',border:'none',
+                borderRadius:12,fontFamily:'Poppins,sans-serif',fontSize:13,fontWeight:700,cursor:'pointer'
+              }}>Cerrar promociones</button>
+            </div>
           </div>
         )
       })()}
@@ -3969,14 +3972,10 @@ function ClienteApp({ onVolver }) {
       <Toast/>
 
       {/* BOTÓN REGRESO AL ADMIN */}
-      {desdeAdmin && (
+      {esPreview && (
         <div style={{position:'fixed',top:66,right:0,left:0,maxWidth:480,margin:'0 auto',zIndex:3000,pointerEvents:'none'}}>
           <div style={{display:'flex',justifyContent:'flex-end',paddingRight:12}}>
-            <button onClick={()=>{
-              localStorage.removeItem('esencial_desde_admin')
-              localStorage.setItem('esencial_modo','admin')
-              window.location.reload()
-            }} style={{
+            <button onClick={()=>onVolver()} style={{
               pointerEvents:'all',
               background:'#1a1a1a',color:'#fff',border:'none',borderRadius:100,
               padding:'8px 14px',display:'flex',alignItems:'center',gap:6,
@@ -4018,5 +4017,6 @@ export default function App() {
 
   if (!modo) return <><style>{G}</style><AppSelector onSelect={seleccionar}/></>
   if (modo === 'cliente') return <><style>{G}</style><ClienteApp onVolver={volver}/></>
-  return <AdminApp/>
+  if (modo === 'cliente-preview') return <><style>{G}</style><ClienteApp esPreview onVolver={()=>setModo('admin')}/></>
+  return <AdminApp onVerComoCliente={()=>setModo('cliente-preview')}/>
 }
