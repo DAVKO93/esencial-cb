@@ -3463,10 +3463,6 @@ function ClienteApp({ onVolver, esPreview }) {
           {/* Header */}
           <div style={{padding:'0 16px',height:56,borderBottom:'1px solid #f0f0f0',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>
             <span style={{fontFamily:'Poppins,sans-serif',fontSize:15,fontWeight:700,color:'#1a1a1a'}}>Tu pedido</span>
-            {carrito.length > 0 && (
-              <button onClick={()=>setModalCancelar(true)} style={{background:'none',border:'none',cursor:'pointer',fontSize:11,color:'#bbb',fontFamily:'Poppins,sans-serif',fontWeight:500}}>Cancelar</button>
-            )}
-            {carrito.length === 0 && <div style={{width:60}}/>}
           </div>
 
           <div style={{flex:1,overflowY:'auto',padding:'16px 16px 24px'}}>
@@ -3557,7 +3553,7 @@ function ClienteApp({ onVolver, esPreview }) {
                       </div>
                     </div>
                   )}
-                  <input type='file' accept='image/*' capture='environment' style={{display:'none'}} ref={comprobanteRef}
+                  <input type='file' accept='image/*' style={{display:'none'}} ref={comprobanteRef}
                     onChange={e=>{
                       const file=e.target.files?.[0]; if(!file) return
                       const reader=new FileReader()
@@ -3579,30 +3575,102 @@ function ClienteApp({ onVolver, esPreview }) {
                   />
                 </div>
 
-                {/* Datos del cliente (si no tiene perfil) */}
-                {!cliente && (
-                  <div style={{border:'1px solid #ebebeb',borderRadius:12,padding:'14px 16px',marginBottom:16}}>
-                    <div style={{fontSize:10,fontWeight:700,letterSpacing:1.5,textTransform:'uppercase',color:'#aaa',marginBottom:12,fontFamily:'Poppins,sans-serif'}}>Tus datos</div>
-                    {[
-                      {label:'Nombre',val:tmpNombre,set:setTmpNombre,ph:'Tu nombre',type:'text'},
-                      {label:'Teléfono',val:tmpTel,set:setTmpTel,ph:'09XXXXXXXX',type:'tel'},
-                      {label:'Dirección',val:tmpDir,set:setTmpDir,ph:'Barrio o dirección',type:'text'},
-                    ].map(f=>(
-                      <div key={f.label} style={{marginBottom:10}}>
-                        <label style={{display:'block',fontSize:10,letterSpacing:1,textTransform:'uppercase',color:'#bbb',marginBottom:5,fontFamily:'Poppins,sans-serif',fontWeight:600}}>{f.label}</label>
-                        <input value={f.val} onChange={e=>f.set(e.target.value)} placeholder={f.ph} type={f.type}
-                          style={{width:'100%',border:'1.5px solid #e8e8e8',borderRadius:9,fontFamily:'Poppins,sans-serif',fontSize:13,padding:'10px 13px',outline:'none',color:'#1a1a1a',boxSizing:'border-box'}}/>
+                {/* Datos de envío — siempre visible, pre-llenado si hay cliente */}
+                {(()=>{
+                  const [envNombre, setEnvNombre] = [
+                    tmpNombre || (cliente?.nombre||''),
+                    v => setTmpNombre(v)
+                  ]
+                  const [envTel, setEnvTel] = [
+                    tmpTel || (cliente?.telefono||''),
+                    v => setTmpTel(v)
+                  ]
+                  const [envDir, setEnvDir] = [
+                    tmpDir || (cliente?.direccion||''),
+                    v => setTmpDir(v)
+                  ]
+                  const esRegistrado = !!cliente
+                  return (
+                    <div style={{border:'1px solid #ebebeb',borderRadius:12,padding:'14px 16px',marginBottom:16}}>
+                      <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:12}}>
+                        <div style={{fontSize:10,fontWeight:700,letterSpacing:1.5,textTransform:'uppercase',color:'#aaa',fontFamily:'Poppins,sans-serif'}}>Datos de envío</div>
+                        {esRegistrado && (
+                          <span style={{fontSize:10,color:'#7C9263',fontFamily:'Poppins,sans-serif',fontWeight:600}}>✓ Datos guardados</span>
+                        )}
                       </div>
-                    ))}
-                  </div>
-                )}
+                      {[
+                        {label:'Nombre *',val:tmpNombre||(cliente?.nombre||''),set:setTmpNombre,ph:'Tu nombre',type:'text'},
+                        {label:'Teléfono *',val:tmpTel||(cliente?.telefono||''),set:setTmpTel,ph:'09XXXXXXXX',type:'tel'},
+                      ].map(f=>(
+                        <div key={f.label} style={{marginBottom:10}}>
+                          <label style={{display:'block',fontSize:10,letterSpacing:1,textTransform:'uppercase',color:'#bbb',marginBottom:5,fontFamily:'Poppins,sans-serif',fontWeight:600}}>{f.label}</label>
+                          <input value={f.val} onChange={e=>f.set(e.target.value)} placeholder={f.ph} type={f.type}
+                            style={{width:'100%',border:'1.5px solid #e8e8e8',borderRadius:9,fontFamily:'Poppins,sans-serif',fontSize:13,padding:'10px 13px',outline:'none',color:'#1a1a1a',boxSizing:'border-box'}}/>
+                        </div>
+                      ))}
+                      {/* Dirección + GPS */}
+                      <div style={{marginBottom:6}}>
+                        <label style={{display:'block',fontSize:10,letterSpacing:1,textTransform:'uppercase',color:'#bbb',marginBottom:5,fontFamily:'Poppins,sans-serif',fontWeight:600}}>Dirección / Ubicación</label>
+                        <input value={tmpDir||(cliente?.direccion||'')} onChange={e=>setTmpDir(e.target.value)}
+                          placeholder='Barrio, calle o dirección'
+                          style={{width:'100%',border:'1.5px solid #e8e8e8',borderRadius:9,fontFamily:'Poppins,sans-serif',fontSize:13,padding:'10px 13px',outline:'none',color:'#1a1a1a',boxSizing:'border-box',marginBottom:6}}/>
+                        <button onClick={()=>{
+                          setLoadingGPS(true)
+                          navigator.geolocation.getCurrentPosition(pos=>{
+                            const url = `https://maps.google.com/?q=${pos.coords.latitude},${pos.coords.longitude}`
+                            setTmpDir(url)
+                            setLoadingGPS(false)
+                            showToast('ok','Ubicación GPS obtenida')
+                          }, err=>{
+                            setLoadingGPS(false)
+                            showToast('warn','No se pudo obtener la ubicación')
+                          }, {timeout:10000})
+                        }} disabled={loadingGPS} style={{
+                          width:'100%',padding:'9px',background:'#f0f7ed',color:'#7C9263',
+                          border:'1.5px solid #c8dfc0',borderRadius:9,fontFamily:'Poppins,sans-serif',
+                          fontSize:12,fontWeight:600,cursor:'pointer',display:'flex',alignItems:'center',
+                          justifyContent:'center',gap:6
+                        }}>
+                          {loadingGPS
+                            ? <><div style={{width:12,height:12,border:'2px solid #7C9263',borderTopColor:'transparent',borderRadius:'50%',animation:'spin 0.8s linear infinite'}}/> Obteniendo ubicación...</>
+                            : <><svg width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='currentColor' strokeWidth='2.5' strokeLinecap='round'><circle cx='12' cy='12' r='3'/><path d='M12 2v3m0 14v3M2 12h3m14 0h3'/></svg>Usar mi ubicación GPS</>
+                          }
+                        </button>
+                      </div>
+                      {esRegistrado && cliente?.referencia && (
+                        <div style={{marginTop:8,padding:'8px 10px',background:'#f9f9f9',borderRadius:8,fontSize:11,color:'#888',fontFamily:'Poppins,sans-serif'}}>
+                          Referencia: {cliente.referencia}
+                        </div>
+                      )}
+                    </div>
+                  )
+                })()}
               </>
+            )}
+          </div>
+
+          {/* Botones fondo */}
+          <div style={{padding:'8px 16px 0',borderTop:'1px solid #f0f0f0',background:'#fff',flexShrink:0,display:'flex',gap:8}}>
+            <button onClick={()=>setVistaCliente('menu')} style={{
+              flex:1,padding:'12px',background:'#f4f4f4',color:'#1a1a1a',
+              border:'none',borderRadius:11,fontFamily:'Poppins,sans-serif',fontSize:12,
+              fontWeight:700,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',gap:5
+            }}>
+              <svg width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='currentColor' strokeWidth='2.5' strokeLinecap='round'><path d='M19 12H5M12 5l-7 7 7 7'/></svg>
+              Menú
+            </button>
+            {carrito.length > 0 && (
+              <button onClick={()=>setModalCancelar(true)} style={{
+                flex:1,padding:'12px',background:'#fff',color:'#c62828',
+                border:'1.5px solid #ffcdd2',borderRadius:11,fontFamily:'Poppins,sans-serif',fontSize:12,
+                fontWeight:700,cursor:'pointer'
+              }}>Cancelar pedido</button>
             )}
           </div>
 
           {/* Botón enviar */}
           {carrito.length > 0 && (
-            <div style={{padding:'12px 16px 24px',borderTop:'1px solid #f0f0f0',background:'#fff',flexShrink:0}}>
+            <div style={{padding:'8px 16px 20px',background:'#fff',flexShrink:0}}>
               <button onClick={confirmarEnvio} style={{
                 width:'100%',padding:'15px',background:'#1a1a1a',color:'#fff',
                 border:'none',borderRadius:12,fontFamily:'Poppins,sans-serif',
@@ -3973,17 +4041,17 @@ function ClienteApp({ onVolver, esPreview }) {
 
       {/* BOTÓN REGRESO AL ADMIN */}
       {esPreview && (
-        <div style={{position:'fixed',top:66,right:0,left:0,maxWidth:480,margin:'0 auto',zIndex:3000,pointerEvents:'none'}}>
-          <div style={{display:'flex',justifyContent:'flex-end',paddingRight:12}}>
+        <div style={{position:'fixed',bottom:'calc(130px + env(safe-area-inset-bottom))',left:'50%',transform:'translateX(-50%)',zIndex:3000,pointerEvents:'none',width:'100%',maxWidth:480}}>
+          <div style={{display:'flex',justifyContent:'center',paddingBottom:6}}>
             <button onClick={()=>onVolver()} style={{
               pointerEvents:'all',
               background:'#1a1a1a',color:'#fff',border:'none',borderRadius:100,
-              padding:'8px 14px',display:'flex',alignItems:'center',gap:6,
-              fontFamily:'Poppins,sans-serif',fontSize:11,fontWeight:700,
-              boxShadow:'0 4px 14px rgba(0,0,0,0.35)',cursor:'pointer',letterSpacing:0.5
+              padding:'10px 20px',display:'flex',alignItems:'center',gap:6,
+              fontFamily:'Poppins,sans-serif',fontSize:12,fontWeight:700,
+              boxShadow:'0 4px 18px rgba(0,0,0,0.45)',cursor:'pointer',letterSpacing:0.5
             }}>
               <svg width='13' height='13' viewBox='0 0 24 24' fill='none' stroke='currentColor' strokeWidth='2.5' strokeLinecap='round'><polyline points='15 18 9 12 15 6'/></svg>
-              Volver a Admin
+              ← Volver a Admin
             </button>
           </div>
         </div>
