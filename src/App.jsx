@@ -1192,6 +1192,38 @@ function AdminApp() {
     showToast('ok', 'PDF generado y descargado')
   }
 
+  // ---- STATS ----
+  const [statsRegistros, setStatsRegistros] = useState([])
+  const [loadingStats, setLoadingStats] = useState(false)
+  const [statsPeriodo, setStatsPeriodo] = useState('hoy')
+
+  async function cargarStats(periodo) {
+    setLoadingStats(true)
+    try {
+      const hoy = new Date()
+      const pad = n => String(n).padStart(2,'0')
+      const fmt = d => `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`
+      let fechaDesde, fechaHasta
+      if (periodo === 'hoy') {
+        fechaDesde = fechaHasta = fmt(hoy)
+      } else if (periodo === 'semana') {
+        const lunes = new Date(hoy); lunes.setDate(hoy.getDate() - hoy.getDay() + 1)
+        fechaDesde = fmt(lunes); fechaHasta = fmt(hoy)
+      } else if (periodo === 'mes') {
+        fechaDesde = `${hoy.getFullYear()}-${pad(hoy.getMonth()+1)}-01`
+        fechaHasta = fmt(hoy)
+      }
+      const q = query(
+        collection(db,'registros'),
+        where('fecha','>=',fechaDesde),
+        where('fecha','<=',fechaHasta)
+      )
+      const snap = await getDocs(q)
+      setStatsRegistros(snap.docs.map(d => ({id:d.id,...d.data()})))
+    } catch(e) { setStatsRegistros([]) }
+    setLoadingStats(false)
+  }
+
   // ---- HISTORIAL ----
   async function loadHistorial(desde, hasta) {
     setLoadingHist(true)
@@ -1287,6 +1319,7 @@ function AdminApp() {
     { key:'proceso', label:'En Proceso', badge: pedidosActivos.length+pendientesSync.length },
     { key:'domicilio', label:'Domicilio', badge: pedidosDomicilioHoy.length },
     { key:'historial', label:'Historial' },
+    { key:'stats', label:'Stats' },
   ]
 
   return (
@@ -1828,6 +1861,220 @@ function AdminApp() {
           </div>
         )}
 
+        {/* ===== STATS ===== */}
+        {tab==='stats' && (() => {
+          // Calcular métricas desde registros
+          const ventas = statsRegistros.filter(r => r.tipo === 'venta_completada')
+          const cancelados = statsRegistros.filter(r => r.tipo === 'pedido_cancelado')
+          const sesiones = statsRegistros.filter(r => r.tipo === 'sesion_inicio')
+          const productosAgregados = statsRegistros.filter(r => r.tipo === 'producto_agregado')
+
+          // Total vendido
+          const totalVendido = ventas.reduce((s,r) => s + parseFloat(r.total||0), 0)
+
+          // Productos más vendidos
+          const conteoProductos = {}
+          ventas.forEach(r => {
+            (r.items||[]).forEach(it => {
+              conteoProductos[it.nombre] = (conteoProductos[it.nombre]||0) + (it.cantidad||1)
+            })
+          })
+          const productosRanking = Object.entries(conteoProductos)
+            .sort((a,b) => b[1]-a[1]).slice(0,8)
+          const maxVentas = productosRanking[0]?.[1] || 1
+
+          // Ventas por hora (hoy)
+          const ventasPorHora = {}
+          ventas.forEach(r => {
+            const ts = r.timestamp?.toDate?.()
+            if (!ts) return
+            const hora = ts.getHours()
+            ventasPorHora[hora] = (ventasPorHora[hora]||0) + 1
+          })
+          const horasData = Array.from({length:24},(_,i)=>({h:i,v:ventasPorHora[i]||0}))
+            .filter(x => x.v > 0 || (x.h >= 8 && x.h <= 22))
+          const maxHora = Math.max(...horasData.map(x=>x.v), 1)
+
+          // Forma de pago
+          const pagoConteo = {}
+          ventas.forEach(r => {
+            const p = r.formaPago || 'Sin datos'
+            pagoConteo[p] = (pagoConteo[p]||0) + 1
+          })
+
+          // Origen ventas
+          const origenConteo = {}
+          ventas.forEach(r => {
+            const o = r.origen === 'admin_mesa' ? 'Mesa' : r.origen === 'admin_domicilio' ? 'Domicilio' : 'Otro'
+            origenConteo[o] = (origenConteo[o]||0) + 1
+          })
+
+          return (
+            <div style={{animation:'fadeIn 0.3s ease',paddingBottom:20}}>
+
+              {/* Header */}
+              <div style={{marginBottom:20,paddingBottom:14,borderBottom:'1px solid #f0f0f0',display:'flex',alignItems:'center',justifyContent:'space-between'}}>
+                <div>
+                  <h2 style={{fontFamily:'Poppins,sans-serif',fontSize:22,fontWeight:700,color:'#1a1a1a'}}>Estadísticas</h2>
+                  <p style={{fontSize:11,color:'#aaa',marginTop:2,fontFamily:'Poppins,sans-serif'}}>Análisis de ventas y actividad</p>
+                </div>
+              </div>
+
+              {/* Selector de período */}
+              <div style={{display:'flex',gap:6,marginBottom:20,flexWrap:'wrap'}}>
+                {[{k:'hoy',l:'Hoy'},{k:'semana',l:'Esta semana'},{k:'mes',l:'Este mes'}].map(p => (
+                  <button key={p.k} onClick={()=>{setStatsPeriodo(p.k);cargarStats(p.k)}} style={{
+                    padding:'7px 16px',borderRadius:100,fontFamily:'Poppins,sans-serif',fontSize:11,fontWeight:600,cursor:'pointer',transition:'0.15s',
+                    background:statsPeriodo===p.k?'#1a1a1a':'#fff',
+                    color:statsPeriodo===p.k?'#fff':'#666',
+                    border:`1.5px solid ${statsPeriodo===p.k?'#1a1a1a':'#e0e0e0'}`
+                  }}>{p.l}</button>
+                ))}
+                {statsRegistros.length === 0 && !loadingStats && (
+                  <button onClick={()=>cargarStats(statsPeriodo)} style={{padding:'7px 16px',borderRadius:100,fontFamily:'Poppins,sans-serif',fontSize:11,fontWeight:600,cursor:'pointer',background:'#f4f4f4',color:'#666',border:'1.5px solid #e0e0e0'}}>
+                    Cargar datos
+                  </button>
+                )}
+              </div>
+
+              {loadingStats ? (
+                <div style={{display:'flex',alignItems:'center',justifyContent:'center',padding:60,gap:12}}>
+                  <div style={{width:24,height:24,border:'2px solid #e0e0e0',borderTopColor:'#1a1a1a',borderRadius:'50%',animation:'spin 0.8s linear infinite'}}/>
+                  <span style={{color:'#bbb',fontSize:13,fontFamily:'Poppins,sans-serif'}}>Cargando...</span>
+                </div>
+              ) : (
+                <>
+                  {/* KPIs principales */}
+                  <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10,marginBottom:20}}>
+                    {[
+                      {label:'Total vendido', value:`$${totalVendido.toFixed(2)}`, sub:`${ventas.length} ventas completadas`, highlight:true},
+                      {label:'Pedidos cancelados', value:cancelados.length, sub:`${ventas.length + cancelados.length} pedidos totales`},
+                      {label:'Sesiones de clientes', value:sesiones.length, sub:'Visitas a la app'},
+                      {label:'Tasa de cancelación', value: ventas.length + cancelados.length > 0 ? `${Math.round(cancelados.length/(ventas.length+cancelados.length)*100)}%` : '0%', sub:'Del total de pedidos'},
+                    ].map((kpi,i) => (
+                      <div key={i} style={{
+                        background: kpi.highlight ? '#1a1a1a' : '#fff',
+                        border:`1px solid ${kpi.highlight ? '#1a1a1a' : '#ebebeb'}`,
+                        borderRadius:14,padding:'16px 14px'
+                      }}>
+                        <div style={{fontSize:10,fontWeight:700,letterSpacing:1,textTransform:'uppercase',color:kpi.highlight?'#888':'#bbb',fontFamily:'Poppins,sans-serif',marginBottom:8}}>{kpi.label}</div>
+                        <div style={{fontFamily:'Poppins,sans-serif',fontSize:22,fontWeight:700,color:kpi.highlight?'#fff':'#1a1a1a',marginBottom:4}}>{kpi.value}</div>
+                        <div style={{fontSize:11,color:kpi.highlight?'#666':'#bbb',fontFamily:'Poppins,sans-serif'}}>{kpi.sub}</div>
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Productos más vendidos */}
+                  {productosRanking.length > 0 && (
+                    <div style={{background:'#fff',border:'1px solid #ebebeb',borderRadius:14,padding:'18px 16px',marginBottom:16}}>
+                      <div style={{fontSize:10,fontWeight:700,letterSpacing:1.5,textTransform:'uppercase',color:'#bbb',marginBottom:16,fontFamily:'Poppins,sans-serif'}}>Productos más vendidos</div>
+                      <div style={{display:'flex',flexDirection:'column',gap:10}}>
+                        {productosRanking.map(([nombre, cant], i) => (
+                          <div key={nombre}>
+                            <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:5}}>
+                              <div style={{display:'flex',alignItems:'center',gap:8}}>
+                                <span style={{
+                                  fontFamily:'Poppins,sans-serif',fontSize:11,fontWeight:700,
+                                  color: i===0?'#1a1a1a':'#aaa',minWidth:16,textAlign:'center'
+                                }}>{i+1}</span>
+                                <span style={{fontFamily:'Poppins,sans-serif',fontSize:13,fontWeight:600,color:'#1a1a1a'}}>{nombre}</span>
+                              </div>
+                              <span style={{fontFamily:'Poppins,sans-serif',fontSize:13,fontWeight:700,color:'#1a1a1a'}}>{cant} <span style={{fontSize:11,color:'#bbb',fontWeight:400}}>uds</span></span>
+                            </div>
+                            <div style={{height:6,background:'#f5f5f5',borderRadius:3,overflow:'hidden'}}>
+                              <div style={{
+                                height:'100%',borderRadius:3,transition:'width 0.6s ease',
+                                width:`${Math.round(cant/maxVentas*100)}%`,
+                                background: i===0 ? '#1a1a1a' : i===1 ? '#555' : '#c0c0c0'
+                              }}/>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Ventas por hora */}
+                  {horasData.some(x=>x.v>0) && (
+                    <div style={{background:'#fff',border:'1px solid #ebebeb',borderRadius:14,padding:'18px 16px',marginBottom:16}}>
+                      <div style={{fontSize:10,fontWeight:700,letterSpacing:1.5,textTransform:'uppercase',color:'#bbb',marginBottom:16,fontFamily:'Poppins,sans-serif'}}>Actividad por hora</div>
+                      <div style={{display:'flex',alignItems:'flex-end',gap:4,height:80}}>
+                        {horasData.map(({h,v}) => (
+                          <div key={h} style={{flex:1,display:'flex',flexDirection:'column',alignItems:'center',gap:3}}>
+                            <div style={{
+                              width:'100%',borderRadius:'3px 3px 0 0',transition:'height 0.4s ease',
+                              height: v > 0 ? `${Math.max(8,Math.round(v/maxHora*64))}px` : '3px',
+                              background: v > 0 ? '#1a1a1a' : '#f0f0f0',
+                              minHeight:3
+                            }}/>
+                            <span style={{fontSize:8,color:'#bbb',fontFamily:'Poppins,sans-serif'}}>{h}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Forma de pago + Origen */}
+                  <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10,marginBottom:16}}>
+                    {/* Forma de pago */}
+                    <div style={{background:'#fff',border:'1px solid #ebebeb',borderRadius:14,padding:'16px 14px'}}>
+                      <div style={{fontSize:10,fontWeight:700,letterSpacing:1,textTransform:'uppercase',color:'#bbb',marginBottom:14,fontFamily:'Poppins,sans-serif'}}>Forma de pago</div>
+                      {Object.keys(pagoConteo).length === 0 ? (
+                        <div style={{fontSize:12,color:'#ddd',textAlign:'center',padding:'10px 0',fontFamily:'Poppins,sans-serif'}}>Sin datos</div>
+                      ) : Object.entries(pagoConteo).map(([p,c]) => (
+                        <div key={p} style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:8}}>
+                          <span style={{fontSize:12,color:'#555',fontFamily:'Poppins,sans-serif'}}>{p}</span>
+                          <span style={{fontFamily:'Poppins,sans-serif',fontSize:13,fontWeight:700,color:'#1a1a1a'}}>{c}</span>
+                        </div>
+                      ))}
+                    </div>
+                    {/* Origen */}
+                    <div style={{background:'#fff',border:'1px solid #ebebeb',borderRadius:14,padding:'16px 14px'}}>
+                      <div style={{fontSize:10,fontWeight:700,letterSpacing:1,textTransform:'uppercase',color:'#bbb',marginBottom:14,fontFamily:'Poppins,sans-serif'}}>Origen</div>
+                      {Object.keys(origenConteo).length === 0 ? (
+                        <div style={{fontSize:12,color:'#ddd',textAlign:'center',padding:'10px 0',fontFamily:'Poppins,sans-serif'}}>Sin datos</div>
+                      ) : Object.entries(origenConteo).map(([o,c]) => (
+                        <div key={o} style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:8}}>
+                          <span style={{fontSize:12,color:'#555',fontFamily:'Poppins,sans-serif'}}>{o}</span>
+                          <span style={{fontFamily:'Poppins,sans-serif',fontSize:13,fontWeight:700,color:'#1a1a1a'}}>{c}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Productos explorados (clicks en agregar) */}
+                  {productosAgregados.length > 0 && (() => {
+                    const explorados = {}
+                    productosAgregados.forEach(r => {
+                      explorados[r.nombre] = (explorados[r.nombre]||0) + 1
+                    })
+                    const ranking = Object.entries(explorados).sort((a,b)=>b[1]-a[1]).slice(0,5)
+                    return (
+                      <div style={{background:'#fff',border:'1px solid #ebebeb',borderRadius:14,padding:'18px 16px',marginBottom:16}}>
+                        <div style={{fontSize:10,fontWeight:700,letterSpacing:1.5,textTransform:'uppercase',color:'#bbb',marginBottom:4,fontFamily:'Poppins,sans-serif'}}>Interés del cliente</div>
+                        <div style={{fontSize:11,color:'#ccc',fontFamily:'Poppins,sans-serif',marginBottom:14}}>Productos que más agregan al carrito</div>
+                        {ranking.map(([n,c],i) => (
+                          <div key={n} style={{display:'flex',justifyContent:'space-between',padding:'7px 0',borderBottom:'1px solid #f8f8f8'}}>
+                            <span style={{fontSize:12,color:'#555',fontFamily:'Poppins,sans-serif'}}>{n}</span>
+                            <span style={{fontSize:12,fontWeight:700,color:'#1a1a1a',fontFamily:'Poppins,sans-serif'}}>{c}x</span>
+                          </div>
+                        ))}
+                      </div>
+                    )
+                  })()}
+
+                  {statsRegistros.length === 0 && (
+                    <div style={{textAlign:'center',padding:'40px 20px',color:'#ccc'}}>
+                      <div style={{fontSize:13,fontFamily:'Poppins,sans-serif',marginBottom:8}}>Sin datos en este período</div>
+                      <div style={{fontSize:11,fontFamily:'Poppins,sans-serif',color:'#ddd'}}>Los registros se generan automáticamente con el uso de la app</div>
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+          )
+        })()}
+
         {/* ===== HISTORIAL ===== */}
         {tab==='historial' && (
           <div style={{animation:'fadeIn 0.3s ease'}}>
@@ -1956,7 +2203,7 @@ function AdminApp() {
       {/* ===== NAV INFERIOR ===== */}
       <nav style={{position:'fixed',bottom:0,left:0,right:0,background:'#fff',borderTop:'1.5px solid #e0e0e0',display:'flex',zIndex:1000,boxShadow:'0 -4px 16px rgba(0,0,0,0.08)'}}>
         {navItems.map(n => (
-          <button key={n.key} onClick={()=>setTab(n.key)} style={{
+          <button key={n.key} onClick={()=>{setTab(n.key);if(n.key==='stats')cargarStats(statsPeriodo)}} style={{
             flex:1,padding:'18px 4px 14px',display:'flex',flexDirection:'column',alignItems:'center',gap:4,
             border:'none',background:'none',cursor:'pointer',transition:'0.2s',position:'relative',
             borderTop: tab===n.key?'3px solid #7C9263':'3px solid transparent'
