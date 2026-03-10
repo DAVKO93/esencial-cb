@@ -3520,6 +3520,154 @@ function ClienteApp({ onVolver }) {
         </div>
       )}
 
+      {/* MODAL PERFIL CLIENTE */}
+      {modalPerfilCliente && (
+        <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.55)',zIndex:2000,display:'flex',alignItems:'flex-end'}}
+          onClick={e=>{if(e.target===e.currentTarget){setModalPerfilCliente(false);setEditandoPerfil(false)}}}>
+          <div style={{background:'#fff',borderRadius:'20px 20px 0 0',width:'100%',maxWidth:480,margin:'0 auto',padding:'24px 20px 36px',maxHeight:'90vh',overflowY:'auto'}}>
+            <div style={{width:36,height:4,background:'#e0e0e0',borderRadius:2,margin:'0 auto 20px'}}/>
+
+            {cliente ? (
+              <>
+                <div style={{display:'flex',alignItems:'center',gap:14,marginBottom:20,paddingBottom:16,borderBottom:'1px solid #f0f0f0'}}>
+                  <div onClick={()=>fotoClienteRef.current?.click()} style={{
+                    width:56,height:56,borderRadius:'50%',background:'#1a1a1a',
+                    display:'flex',alignItems:'center',justifyContent:'center',
+                    flexShrink:0,cursor:'pointer',overflow:'hidden',position:'relative',
+                    border:'2px solid #7C9263'
+                  }}>
+                    {fotoPerfilCliente
+                      ? <img src={fotoPerfilCliente} alt='perfil' style={{width:'100%',height:'100%',objectFit:'cover'}}/>
+                      : <span style={{color:'#fff',fontSize:22,fontWeight:700}}>{cliente.nombre?.charAt(0)?.toUpperCase()}</span>
+                    }
+                    <div style={{position:'absolute',bottom:0,left:0,right:0,background:'rgba(0,0,0,0.45)',fontSize:8,color:'#fff',textAlign:'center',padding:'2px',fontFamily:'Poppins,sans-serif'}}>foto</div>
+                  </div>
+                  <input type='file' accept='image/*' style={{display:'none'}} ref={fotoClienteRef}
+                    onChange={e=>{
+                      const file=e.target.files?.[0]; if(!file) return
+                      const reader=new FileReader()
+                      reader.onload=ev=>{
+                        const img=new window.Image()
+                        img.onload=()=>{
+                          const MAX=200; const scale=Math.min(MAX/img.width,MAX/img.height,1)
+                          const canvas=document.createElement('canvas')
+                          canvas.width=Math.round(img.width*scale); canvas.height=Math.round(img.height*scale)
+                          canvas.getContext('2d').drawImage(img,0,0,canvas.width,canvas.height)
+                          const compressed=canvas.toDataURL('image/jpeg',0.72)
+                          setFotoPerfilCliente(compressed)
+                          try{localStorage.setItem('esencial_foto_cliente',compressed)}catch(err){}
+                        }
+                        img.src=ev.target.result
+                      }
+                      reader.readAsDataURL(file)
+                    }}
+                  />
+                  <div style={{flex:1}}>
+                    <div style={{fontFamily:'Poppins,sans-serif',fontWeight:700,fontSize:16,color:'#1a1a1a'}}>{cliente.nombre}</div>
+                    <div style={{fontSize:11,color:'#aaa',marginTop:2,fontFamily:'Poppins,sans-serif'}}>Cliente registrado</div>
+                  </div>
+                  <button onClick={()=>{
+                    setEditNombre(cliente.nombre||'')
+                    setEditTelefono(cliente.telefono||'')
+                    setEditDireccion(cliente.direccion||'')
+                    setEditCedula(cliente.cedula||'')
+                    setEditReferencia(cliente.referencia||'')
+                    setEditandoPerfil(!editandoPerfil)
+                  }} style={{
+                    background: editandoPerfil?'#f0f4ff':'#f4f4f4',
+                    border: editandoPerfil?'1.5px solid #7C9263':'1px solid #e0e0e0',
+                    borderRadius:8,padding:'6px 12px',
+                    fontFamily:'Poppins,sans-serif',fontSize:11,fontWeight:600,
+                    cursor:'pointer',color:editandoPerfil?'#7C9263':'#555'
+                  }}>{editandoPerfil ? 'Cancelar' : 'Editar'}</button>
+                </div>
+
+                {!editandoPerfil && (
+                  <div style={{display:'flex',flexDirection:'column',gap:8,marginBottom:20}}>
+                    {[
+                      {label:'Teléfono', val:cliente.telefono},
+                      {label:'Dirección', val:cliente.direccion},
+                      {label:'Referencia', val:cliente.referencia},
+                      {label:'Cédula', val:cliente.cedula},
+                    ].filter(x=>x.val).map(x=>(
+                      <div key={x.label} style={{background:'#f9f9f9',borderRadius:9,padding:'9px 12px'}}>
+                        <div style={{fontSize:10,color:'#bbb',fontFamily:'Poppins,sans-serif',letterSpacing:1,textTransform:'uppercase',marginBottom:2}}>{x.label}</div>
+                        <div style={{fontSize:13,color:'#1a1a1a',fontFamily:'Poppins,sans-serif'}}>{x.val}</div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {editandoPerfil && (
+                  <div style={{marginBottom:20}}>
+                    {[
+                      {label:'Nombre *', val:editNombre, set:setEditNombre, ph:'Tu nombre completo', type:'text'},
+                      {label:'Teléfono *', val:editTelefono, set:setEditTelefono, ph:'09XXXXXXXX', type:'tel'},
+                      {label:'Dirección *', val:editDireccion, set:setEditDireccion, ph:'Barrio, calle principal', type:'text'},
+                      {label:'Referencia', val:editReferencia, set:setEditReferencia, ph:'Casa azul, portón negro...', type:'text'},
+                      {label:'Cédula', val:editCedula, set:setEditCedula, ph:'0000000000', type:'text'},
+                    ].map(f=>(
+                      <div key={f.label} style={{marginBottom:12}}>
+                        <label style={{display:'block',fontSize:10,letterSpacing:1.5,textTransform:'uppercase',color:'#aaa',marginBottom:5,fontFamily:'Poppins,sans-serif',fontWeight:600}}>{f.label}</label>
+                        <input value={f.val} onChange={e=>f.set(e.target.value)} placeholder={f.ph} type={f.type}
+                          style={{width:'100%',border:'1.5px solid #e8e8e8',borderRadius:9,fontFamily:'Poppins,sans-serif',fontSize:13,padding:'11px 13px',outline:'none',color:'#1a1a1a',boxSizing:'border-box'}}/>
+                      </div>
+                    ))}
+                    <button disabled={guardandoPerfil} onClick={async ()=>{
+                      if(!editNombre||!editTelefono||!editDireccion){showToast('err','Nombre, teléfono y dirección son obligatorios');return}
+                      setGuardandoPerfil(true)
+                      const perfilActualizado = {...cliente,nombre:editNombre,telefono:editTelefono,direccion:editDireccion,cedula:editCedula,referencia:editReferencia}
+                      try {
+                        if (cliente._id) await updateDoc(doc(db,'clientes',cliente._id),{nombre:editNombre,telefono:editTelefono,direccion:editDireccion,cedula:editCedula,referencia:editReferencia})
+                      } catch(e){}
+                      localStorage.setItem('esencial_cliente', JSON.stringify(perfilActualizado))
+                      setCliente(perfilActualizado)
+                      setEditandoPerfil(false)
+                      showToast('ok','Perfil actualizado')
+                      setGuardandoPerfil(false)
+                    }} style={{
+                      width:'100%',padding:'13px',background:guardandoPerfil?'#ccc':'#1a1a1a',color:'#fff',border:'none',borderRadius:11,
+                      fontFamily:'Poppins,sans-serif',fontSize:12,fontWeight:700,letterSpacing:1.5,textTransform:'uppercase',cursor:guardandoPerfil?'not-allowed':'pointer'
+                    }}>{guardandoPerfil?'Guardando...':'Guardar cambios'}</button>
+                  </div>
+                )}
+              </>
+            ) : (
+              <div style={{textAlign:'center',padding:'16px 0 20px'}}>
+                <div style={{width:56,height:56,borderRadius:'50%',background:'#f4f4f4',display:'flex',alignItems:'center',justifyContent:'center',margin:'0 auto 12px'}}>
+                  <svg width='24' height='24' viewBox='0 0 24 24' fill='none' stroke='#ccc' strokeWidth='1.5'><path d='M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2'/><circle cx='12' cy='7' r='4'/></svg>
+                </div>
+                <div style={{fontFamily:'Poppins,sans-serif',fontWeight:600,fontSize:15,marginBottom:4,color:'#1a1a1a'}}>Sin perfil</div>
+                <div style={{fontSize:12,color:'#aaa',marginBottom:16,fontFamily:'Poppins,sans-serif'}}>Regístrate para guardar tus datos</div>
+                <button onClick={()=>{setModalPerfilCliente(false);setModalRegistro(true)}} style={{
+                  padding:'10px 24px',background:'#1a1a1a',color:'#fff',border:'none',
+                  borderRadius:10,fontFamily:'Poppins,sans-serif',fontSize:12,fontWeight:600,cursor:'pointer'
+                }}>Registrarme</button>
+              </div>
+            )}
+
+            {cliente && !editandoPerfil && (
+              <button onClick={()=>{cargarHistorial();setModalHistorial(true)}} style={{
+                width:'100%',padding:'12px',background:'#1a1a1a',color:'#fff',
+                border:'none',borderRadius:10,fontFamily:'Poppins,sans-serif',
+                fontSize:12,fontWeight:600,cursor:'pointer',marginBottom:8,
+                display:'flex',alignItems:'center',justifyContent:'center',gap:8
+              }}>
+                <svg width='15' height='15' viewBox='0 0 24 24' fill='none' stroke='currentColor' strokeWidth='2.5' strokeLinecap='round'><path d='M9 11l3 3L22 4'/><path d='M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11'/></svg>
+                Mis Pedidos
+              </button>
+            )}
+            {!editandoPerfil && (
+              <button onClick={()=>{setModalPerfilCliente(false);localStorage.removeItem('esencial_modo');window.location.reload()}} style={{
+                width:'100%',padding:'12px',background:'#f4f4f4',color:'#1a1a1a',
+                border:'1px solid #ebebeb',borderRadius:10,
+                fontFamily:'Poppins,sans-serif',fontSize:12,fontWeight:600,cursor:'pointer',marginTop:4
+              }}>Regresar a Inicio</button>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* MODAL CANCELAR PEDIDO */}
       {modalCancelar && (
         <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.6)',zIndex:3000,display:'flex',alignItems:'center',justifyContent:'center',padding:24}}>
