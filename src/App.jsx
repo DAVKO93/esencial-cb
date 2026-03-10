@@ -2601,7 +2601,7 @@ function ClienteApp({ onVolver }) {
   }
 
   const menuFiltrado = macroActiva === 'Todos' ? ordenarMenu(menuBaseFiltrado) : menuBaseFiltrado
-  const items = [...menuFiltrado]
+  const items = [...menuFiltrado, ...promociones]
 
   const prod = items[indice]
 
