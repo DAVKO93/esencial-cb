@@ -2961,9 +2961,12 @@ function ClienteApp({ onVolver }) {
   }
   const [macroActiva, setMacroActiva] = useState('Todos')
   const [busquedaMenu, setBusquedaMenu] = useState('')
-  const [vistaGrid, setVistaGrid] = useState('grid') // 'grid' | 'slide'
+  const [vistaGrid, setVistaGrid] = useState('slide') // 'slide' | 'grid'
   const desdeAdmin = localStorage.getItem('esencial_desde_admin') === '1'
   const [indiceSlide, setIndiceSlide] = useState(0)
+  const [buscadorAbierto, setBuscadorAbierto] = useState(false)
+  const [indicePromo, setIndicePromo] = useState(0)
+  const touchPromoX = useRef(null)
 
   // Productos filtrados por macro
   const menuBaseFiltrado = macroActiva === 'Todos'
@@ -2986,7 +2989,7 @@ function ClienteApp({ onVolver }) {
   const menuFiltrado = busquedaMenu.trim()
     ? menuFiltradoBase.filter(x => x.nombre?.toLowerCase().includes(busquedaMenu.toLowerCase()) || x.descripcion?.toLowerCase().includes(busquedaMenu.toLowerCase()))
     : menuFiltradoBase
-  const items = [...menuFiltrado, ...promociones]
+  const items = [...(busquedaMenu ? [] : promociones.map(p=>({...p,_esPromo:true}))), ...menuFiltrado]
 
   const prod = items[indice]
 
@@ -3212,77 +3215,50 @@ function ClienteApp({ onVolver }) {
       </div>
 
       {/* GRID / CARRUSEL DE PRODUCTOS */}
-      <div style={{flex:1,overflowY: vistaGrid==='grid' ? 'auto' : 'hidden',paddingBottom: vistaGrid==='grid' ? 120 : 0}}>
+      <div style={{flex:1, overflow: vistaGrid==='slide' ? 'hidden' : 'auto', paddingBottom: vistaGrid==='grid' ? 140 : 0}}>
 
-        {/* MODO GRID — 2 columnas */}
+        {/* ── MODO GRID — 2 columnas ── */}
         {vistaGrid === 'grid' && (
           <div style={{padding:'14px 12px 0'}}>
-            {menuFiltrado.length === 0 ? (
-              <div style={{textAlign:'center',padding:'60px 20px',color:'#ccc'}}>
-                <div style={{fontSize:13,fontFamily:'Poppins,sans-serif'}}>Sin productos{busquedaMenu ? ` para "${busquedaMenu}"` : ' en esta categoría'}</div>
-              </div>
-            ) : (
-              <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10}}>
-                {menuFiltrado.map(prod => {
-                  const imgSrc = imgError[prod.id]
-                    ? (IMGS_CATEGORIA[prod.categoria]||IMGS_CATEGORIA['default'])
-                    : getImgProducto(prod)
-                  const cant = cantidades[prod.id] || 0
-                  return (
-                    <div key={prod.id} style={{
-                      background:'#fff',border:'1px solid #ebebeb',borderRadius:14,
-                      overflow:'hidden',display:'flex',flexDirection:'column',
-                      animation:'fadeUp 0.25s ease',boxShadow:'0 1px 4px rgba(0,0,0,0.04)'
-                    }}>
-                      <div style={{aspectRatio:'4/3',background:'#f5f5f5',overflow:'hidden',position:'relative'}}>
-                        <img src={imgSrc} alt={prod.nombre}
-                          onError={()=>setImgError(p=>({...p,[prod.id]:true}))}
-                          style={{width:'100%',height:'100%',objectFit:'cover',display:'block'}}/>
-                        <div style={{
-                          position:'absolute',top:8,left:8,background:'rgba(255,255,255,0.92)',
-                          borderRadius:6,padding:'2px 7px',fontSize:9,fontWeight:700,
-                          color:'#555',letterSpacing:0.8,textTransform:'uppercase',
-                          fontFamily:'Poppins,sans-serif',backdropFilter:'blur(4px)'
-                        }}>{prod.categoria}</div>
-                      </div>
-                      <div style={{padding:'10px 10px 12px',flex:1,display:'flex',flexDirection:'column',justifyContent:'space-between'}}>
-                        <div>
-                          <div style={{fontFamily:'Poppins,sans-serif',fontSize:13,fontWeight:700,color:'#1a1a1a',marginBottom:2,lineHeight:1.3}}>{prod.nombre}</div>
-                          {prod.descripcion && <div style={{fontSize:11,color:'#aaa',lineHeight:1.4,marginBottom:6,display:'-webkit-box',WebkitLineClamp:2,WebkitBoxOrient:'vertical',overflow:'hidden'}}>{prod.descripcion}</div>}
-                        </div>
-                        <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginTop:8}}>
-                          <span style={{fontFamily:'Poppins,sans-serif',fontSize:15,fontWeight:700,color:'#1a1a1a'}}>${parseFloat(prod.precio).toFixed(2)}</span>
-                          {cant === 0 ? (
-                            <button onClick={()=>addCant(prod.id,1)} style={{width:30,height:30,borderRadius:'50%',border:'none',background:'#1a1a1a',color:'#fff',fontSize:18,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center'}}>+</button>
-                          ) : (
-                            <div style={{display:'flex',alignItems:'center',gap:6}}>
-                              <button onClick={()=>addCant(prod.id,-1)} style={{width:26,height:26,borderRadius:'50%',border:'1.5px solid #d0d0d0',background:'#fff',fontSize:16,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',color:'#555'}}>-</button>
-                              <span style={{fontFamily:'Poppins,sans-serif',fontSize:13,fontWeight:700,minWidth:16,textAlign:'center'}}>{cant}</span>
-                              <button onClick={()=>addCant(prod.id,1)} style={{width:26,height:26,borderRadius:'50%',border:'none',background:'#1a1a1a',fontSize:16,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',color:'#fff'}}>+</button>
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  )
-                })}
-              </div>
-            )}
-
-            {/* Promociones al final del grid */}
-            {promociones.length > 0 && !busquedaMenu && (
-              <div style={{marginTop:20,marginBottom:8}}>
-                <div style={{fontSize:10,fontWeight:700,letterSpacing:1.5,textTransform:'uppercase',color:'#7C9263',marginBottom:10,fontFamily:'Poppins,sans-serif',paddingLeft:2}}>Promociones del día</div>
+            {(() => {
+              const promosGrid = busquedaMenu ? [] : promociones.map(p=>({...p,_esPromo:true}))
+              const todosGrid  = [...promosGrid, ...menuFiltrado]
+              if (!todosGrid.length) return (
+                <div style={{textAlign:'center',padding:'60px 20px',color:'#ccc',fontSize:13,fontFamily:'Poppins,sans-serif'}}>
+                  Sin productos{busquedaMenu ? ` para "${busquedaMenu}"` : ''}
+                </div>
+              )
+              return (
                 <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10}}>
-                  {promociones.map(prod => {
+                  {todosGrid.map(prod => {
+                    const esPromo = !!prod._esPromo
+                    const imgSrc  = imgError[prod.id]
+                      ? (IMGS_CATEGORIA[prod.categoria]||IMGS_CATEGORIA['default'])
+                      : getImgProducto(prod)
                     const cant = cantidades[prod.id] || 0
                     return (
-                      <div key={prod.id} style={{background:'#fff',border:'1.5px solid #7C9263',borderRadius:14,overflow:'hidden',display:'flex',flexDirection:'column'}}>
-                        {prod.imagen && <div style={{aspectRatio:'4/3',overflow:'hidden'}}><img src={prod.imagen} alt={prod.nombre} style={{width:'100%',height:'100%',objectFit:'cover'}}/></div>}
+                      <div key={prod.id} style={{
+                        background:'#fff',
+                        border: esPromo ? '1.5px solid #7C9263' : '1px solid #ebebeb',
+                        borderRadius:14,overflow:'hidden',display:'flex',flexDirection:'column',
+                        boxShadow:'0 1px 4px rgba(0,0,0,0.04)'
+                      }}>
+                        <div style={{aspectRatio:'4/3',background:'#f5f5f5',overflow:'hidden',position:'relative'}}>
+                          <img src={imgSrc} alt={prod.nombre}
+                            onError={()=>setImgError(p=>({...p,[prod.id]:true}))}
+                            style={{width:'100%',height:'100%',objectFit:'cover',display:'block'}}/>
+                          <div style={{
+                            position:'absolute',top:8,left:8,
+                            background: esPromo ? '#7C9263' : 'rgba(255,255,255,0.92)',
+                            borderRadius:6,padding:'2px 7px',fontSize:9,fontWeight:700,
+                            color: esPromo ? '#fff' : '#555',
+                            letterSpacing:0.8,textTransform:'uppercase',fontFamily:'Poppins,sans-serif'
+                          }}>{esPromo ? 'Promo' : prod.categoria}</div>
+                        </div>
                         <div style={{padding:'10px 10px 12px',flex:1,display:'flex',flexDirection:'column',justifyContent:'space-between'}}>
                           <div>
-                            <div style={{background:'#7C9263',color:'#fff',fontSize:9,fontWeight:700,letterSpacing:1,textTransform:'uppercase',borderRadius:4,padding:'2px 7px',display:'inline-block',marginBottom:5,fontFamily:'Poppins,sans-serif'}}>Promo hoy</div>
-                            <div style={{fontFamily:'Poppins,sans-serif',fontSize:13,fontWeight:700,color:'#1a1a1a',lineHeight:1.3}}>{prod.nombre}</div>
+                            <div style={{fontFamily:'Poppins,sans-serif',fontSize:13,fontWeight:700,color:'#1a1a1a',marginBottom:2,lineHeight:1.3}}>{prod.nombre}</div>
+                            {prod.descripcion && <div style={{fontSize:11,color:'#aaa',lineHeight:1.4,marginBottom:6,display:'-webkit-box',WebkitLineClamp:2,WebkitBoxOrient:'vertical',overflow:'hidden'}}>{prod.descripcion}</div>}
                           </div>
                           <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginTop:8}}>
                             <span style={{fontFamily:'Poppins,sans-serif',fontSize:15,fontWeight:700,color:'#1a1a1a'}}>${parseFloat(prod.precio).toFixed(2)}</span>
@@ -3301,88 +3277,80 @@ function ClienteApp({ onVolver }) {
                     )
                   })}
                 </div>
-              </div>
-            )}
+              )
+            })()}
           </div>
         )}
 
-        {/* MODO CARRUSEL — imagen ocupa casi toda la pantalla */}
+        {/* ── MODO GALERÍA — fullscreen deslizable ── */}
         {vistaGrid === 'slide' && (() => {
-          const todosItems = [...menuFiltrado, ...promociones]
+          const promosSlide = busquedaMenu ? [] : promociones.map(p=>({...p,_esPromo:true}))
+          const todosItems  = [...promosSlide, ...menuFiltrado]
           if (!todosItems.length) return (
             <div style={{display:'flex',alignItems:'center',justifyContent:'center',height:'60vh',color:'#ccc',fontSize:13,fontFamily:'Poppins,sans-serif'}}>Sin productos</div>
           )
-          const prod = todosItems[indiceSlide] || todosItems[0]
+          const idxS = Math.min(indiceSlide, todosItems.length-1)
+          const prod = todosItems[idxS]
           const imgSrc = imgError[prod.id]
             ? (IMGS_CATEGORIA[prod.categoria]||IMGS_CATEGORIA['default'])
             : getImgProducto(prod)
           const cant = cantidades[prod.id] || 0
+          const esPromo = !!prod._esPromo
+
           return (
             <div
-              style={{position:'relative',width:'100%',height:'calc(100vh - 56px - 108px)',userSelect:'none',overflow:'hidden',background:'#111'}}
-              onTouchStart={e=>{touchStartX.current=e.touches[0].clientX;touchStartY.current=e.touches[0].clientY}}
+              style={{position:'relative', width:'100%', height:'calc(100vh - 56px - 130px)', userSelect:'none', overflow:'hidden', background:'#111'}}
+              onTouchStart={e=>{touchStartX.current=e.touches[0].clientX; touchStartY.current=e.touches[0].clientY}}
               onTouchEnd={e=>{
                 if(touchStartX.current===null) return
-                const dx=e.changedTouches[0].clientX-touchStartX.current
-                const dy=Math.abs(e.changedTouches[0].clientY-touchStartY.current)
-                if(Math.abs(dx)<35||dy>90) return
-                const next = dx<0 ? Math.min(indiceSlide+1,todosItems.length-1) : Math.max(indiceSlide-1,0)
+                const dx=e.changedTouches[0].clientX - touchStartX.current
+                const dy=Math.abs(e.changedTouches[0].clientY - touchStartY.current)
+                if(Math.abs(dx)<35 || dy>90) return
+                const next = dx<0 ? Math.min(idxS+1, todosItems.length-1) : Math.max(idxS-1, 0)
                 setIndiceSlide(next)
                 touchStartX.current=null
               }}>
 
-              {/* Imagen de fondo full */}
+              {/* Imagen full — objectFit cover para llenar sin espacio negro */}
               <img key={prod.id} src={imgSrc} alt={prod.nombre}
                 onError={()=>setImgError(p=>({...p,[prod.id]:true}))}
-                style={{position:'absolute',inset:0,width:'100%',height:'100%',objectFit:'contain',objectPosition:'center bottom',display:'block',background:'#111'}}/>
+                style={{position:'absolute',inset:0,width:'100%',height:'100%',objectFit:'cover',objectPosition:'center center',display:'block'}}/>
 
-              {/* Degradado inferior para texto legible */}
-              <div style={{position:'absolute',bottom:0,left:0,right:0,height:'55%',background:'linear-gradient(to top, rgba(0,0,0,0.88) 0%, rgba(0,0,0,0.3) 60%, transparent 100%)'}}/>
+              {/* Degradado inferior */}
+              <div style={{position:'absolute',bottom:0,left:0,right:0,height:'60%',background:'linear-gradient(to top,rgba(0,0,0,0.92) 0%,rgba(0,0,0,0.4) 55%,transparent 100%)'}}/>
 
-              {/* Badge promo */}
-              {prod._esPromo && (
-                <div style={{position:'absolute',top:14,left:14,background:'#7C9263',color:'#fff',padding:'4px 12px',borderRadius:100,fontSize:10,fontWeight:700,letterSpacing:1,textTransform:'uppercase',fontFamily:'Poppins,sans-serif'}}>Promo</div>
+              {/* Badge */}
+              {esPromo && (
+                <div style={{position:'absolute',top:12,left:12,background:'#7C9263',color:'#fff',padding:'4px 12px',borderRadius:100,fontSize:10,fontWeight:700,letterSpacing:1,textTransform:'uppercase',fontFamily:'Poppins,sans-serif',zIndex:2}}>Promo</div>
               )}
 
-              {/* Flechas navegación */}
-              {indiceSlide > 0 && (
-                <button onClick={()=>setIndiceSlide(i=>i-1)} style={{
-                  position:'absolute',left:12,top:'50%',transform:'translateY(-50%)',
-                  background:'rgba(0,0,0,0.35)',backdropFilter:'blur(4px)',
-                  border:'none',color:'#fff',width:40,height:40,borderRadius:'50%',
-                  fontSize:22,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',zIndex:2
-                }}>‹</button>
+              {/* Flechas */}
+              {idxS > 0 && (
+                <button onClick={()=>setIndiceSlide(i=>Math.max(i-1,0))} style={{position:'absolute',left:10,top:'40%',transform:'translateY(-50%)',background:'rgba(0,0,0,0.35)',backdropFilter:'blur(4px)',border:'none',color:'#fff',width:40,height:40,borderRadius:'50%',fontSize:22,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',zIndex:2}}>‹</button>
               )}
-              {indiceSlide < todosItems.length-1 && (
-                <button onClick={()=>setIndiceSlide(i=>i+1)} style={{
-                  position:'absolute',right:12,top:'50%',transform:'translateY(-50%)',
-                  background:'rgba(0,0,0,0.35)',backdropFilter:'blur(4px)',
-                  border:'none',color:'#fff',width:40,height:40,borderRadius:'50%',
-                  fontSize:22,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',zIndex:2
-                }}>›</button>
+              {idxS < todosItems.length-1 && (
+                <button onClick={()=>setIndiceSlide(i=>Math.min(i+1,todosItems.length-1))} style={{position:'absolute',right:10,top:'40%',transform:'translateY(-50%)',background:'rgba(0,0,0,0.35)',backdropFilter:'blur(4px)',border:'none',color:'#fff',width:40,height:40,borderRadius:'50%',fontSize:22,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',zIndex:2}}>›</button>
               )}
 
-              {/* Info + controles superpuestos sobre la imagen */}
-              <div style={{position:'absolute',bottom:0,left:0,right:0,padding:'0 16px 12px',zIndex:2}}>
-                <div style={{fontSize:10,fontWeight:700,letterSpacing:2,textTransform:'uppercase',color:'rgba(255,255,255,0.55)',fontFamily:'Poppins,sans-serif',marginBottom:4}}>
-                  {prod._esPromo ? 'Promoción del día' : prod.categoria}
+              {/* Info + cantidad superpuestos */}
+              <div style={{position:'absolute',bottom:0,left:0,right:0,padding:'0 16px 14px',zIndex:2}}>
+                <div style={{fontSize:10,fontWeight:700,letterSpacing:2,textTransform:'uppercase',color:'rgba(255,255,255,0.5)',fontFamily:'Poppins,sans-serif',marginBottom:3}}>
+                  {esPromo ? 'Promoción del día' : prod.categoria}
                 </div>
-                <div style={{display:'flex',alignItems:'flex-end',justifyContent:'space-between',gap:12,marginBottom:14}}>
+                <div style={{display:'flex',alignItems:'flex-end',justifyContent:'space-between',gap:8,marginBottom:10}}>
                   <div style={{flex:1}}>
-                    <h2 style={{fontFamily:'Poppins,sans-serif',fontSize:24,fontWeight:700,color:'#fff',lineHeight:1.15,margin:0}}>{prod.nombre}</h2>
+                    <div style={{fontFamily:'Poppins,sans-serif',fontSize:22,fontWeight:700,color:'#fff',lineHeight:1.15}}>{prod.nombre}</div>
                     {prod.descripcion && (
-                      <p style={{fontSize:12,color:'rgba(255,255,255,0.65)',lineHeight:1.5,fontFamily:'Poppins,sans-serif',margin:'5px 0 0',display:'-webkit-box',WebkitLineClamp:2,WebkitBoxOrient:'vertical',overflow:'hidden'}}>
-                        {prod.descripcion}
-                      </p>
+                      <div style={{fontSize:12,color:'rgba(255,255,255,0.6)',lineHeight:1.5,fontFamily:'Poppins,sans-serif',marginTop:4,display:'-webkit-box',WebkitLineClamp:2,WebkitBoxOrient:'vertical',overflow:'hidden'}}>{prod.descripcion}</div>
                     )}
                   </div>
-                  <span style={{fontFamily:'Poppins,sans-serif',fontSize:26,fontWeight:700,color:'#fff',flexShrink:0}}>${parseFloat(prod.precio).toFixed(2)}</span>
+                  <span style={{fontFamily:'Poppins,sans-serif',fontSize:24,fontWeight:700,color:'#fff',flexShrink:0}}>${parseFloat(prod.precio).toFixed(2)}</span>
                 </div>
 
                 {/* Controles cantidad */}
-                <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',background:'rgba(255,255,255,0.12)',backdropFilter:'blur(8px)',borderRadius:14,padding:'10px 16px',border:'1px solid rgba(255,255,255,0.15)'}}>
+                <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',background:'rgba(255,255,255,0.13)',backdropFilter:'blur(8px)',borderRadius:14,padding:'10px 16px',border:'1px solid rgba(255,255,255,0.18)'}}>
                   <span style={{fontSize:12,color:'rgba(255,255,255,0.7)',fontFamily:'Poppins,sans-serif',fontWeight:500}}>Cantidad</span>
-                  <div style={{display:'flex',alignItems:'center',gap:16}}>
+                  <div style={{display:'flex',alignItems:'center',gap:14}}>
                     <button onClick={()=>addCant(prod.id,-1)} style={{width:34,height:34,borderRadius:'50%',border:'1.5px solid rgba(255,255,255,0.4)',background:'rgba(0,0,0,0.3)',color:'#fff',fontSize:18,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center'}}>-</button>
                     <span style={{fontFamily:'Poppins,sans-serif',fontSize:20,fontWeight:700,minWidth:26,textAlign:'center',color:'#fff'}}>{cant}</span>
                     <button onClick={()=>addCant(prod.id,1)} style={{width:34,height:34,borderRadius:'50%',border:'none',background:'#fff',color:'#1a1a1a',fontSize:18,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',fontWeight:700}}>+</button>
@@ -3390,12 +3358,12 @@ function ClienteApp({ onVolver }) {
                 </div>
               </div>
 
-              {/* Indicadores de punto */}
-              <div style={{position:'absolute',top:14,right:14,display:'flex',flexDirection:'column',gap:4,zIndex:2}}>
+              {/* Indicadores verticales */}
+              <div style={{position:'absolute',top:12,right:12,display:'flex',flexDirection:'column',gap:4,zIndex:2}}>
                 {todosItems.map((_,i)=>(
                   <div key={i} onClick={()=>setIndiceSlide(i)} style={{
-                    width:4,height:i===indiceSlide?20:4,borderRadius:2,cursor:'pointer',
-                    transition:'0.3s',background:i===indiceSlide?'#fff':'rgba(255,255,255,0.35)'
+                    width:4,height:i===idxS?18:4,borderRadius:2,cursor:'pointer',
+                    transition:'0.3s',background:i===idxS?'#fff':'rgba(255,255,255,0.35)'
                   }}/>
                 ))}
               </div>
@@ -3404,12 +3372,12 @@ function ClienteApp({ onVolver }) {
         })()}
       </div>
 
-      {/* BARRA INFERIOR FIJA — buscador + nav íconos */}
+      {/* BARRA INFERIOR FIJA */}
       <div style={{position:'fixed',bottom:0,left:'50%',transform:'translateX(-50%)',width:'100%',maxWidth:480,zIndex:200,background:'#fff',borderTop:'1px solid #f0f0f0',boxShadow:'0 -2px 12px rgba(0,0,0,0.06)',paddingBottom:'env(safe-area-inset-bottom)'}}>
 
-        {/* Botón carrito flotante ENCIMA de la barra */}
-        {totalItems > 0 && vistaCliente === 'menu' && (
-          <div style={{position:'absolute',top:-72,left:'50%',transform:'translateX(-50%)',width:'calc(100% - 32px)',maxWidth:320}}>
+        {/* Botón carrito — solo en modo lista, no en galería (evita tapar controles) */}
+        {totalItems > 0 && vistaCliente === 'menu' && vistaGrid === 'grid' && (
+          <div style={{position:'absolute',top:-58,left:'50%',transform:'translateX(-50%)',width:'calc(100% - 32px)',maxWidth:320}}>
             <button onClick={()=>setVistaCliente('pedido')} style={{
               width:'100%',display:'flex',alignItems:'center',gap:12,justifyContent:'center',
               background:'#1a1a1a',color:'#fff',border:'none',borderRadius:100,
@@ -3422,55 +3390,48 @@ function ClienteApp({ onVolver }) {
             </button>
           </div>
         )}
+        {/* En modo galería: carrito como badge pequeño en el ícono Pedido (no flotante) */}
 
-        {/* Buscador arriba */}
-        <div style={{padding:'10px 12px 6px',borderBottom:'1px solid #f5f5f5'}}>
-          <div style={{position:'relative'}}>
-            <svg style={{position:'absolute',left:10,top:'50%',transform:'translateY(-50%)',pointerEvents:'none'}} width='13' height='13' viewBox='0 0 24 24' fill='none' stroke='#bbb' strokeWidth='2' strokeLinecap='round'><circle cx='11' cy='11' r='8'/><line x1='21' y1='21' x2='16.65' y2='16.65'/></svg>
-            <input value={busquedaMenu} onChange={e=>setBusquedaMenu(e.target.value)}
-              placeholder='Buscar producto...'
-              style={{width:'100%',padding:'9px 30px 9px 30px',border:'1.5px solid #ebebeb',borderRadius:10,fontFamily:'Poppins,sans-serif',fontSize:13,color:'#1a1a1a',outline:'none',boxSizing:'border-box',background:'#f9f9f9'}}/>
-            {busquedaMenu && (
-              <button onClick={()=>setBusquedaMenu('')} style={{position:'absolute',right:10,top:'50%',transform:'translateY(-50%)',background:'none',border:'none',cursor:'pointer',color:'#bbb',fontSize:18,lineHeight:1}}>×</button>
-            )}
-          </div>
-        </div>
-
-        {/* Nav con íconos */}
+        {/* Nav íconos */}
         <div style={{display:'flex',alignItems:'stretch'}}>
           {[
             {
-              key:'todo', label:'Menú',
-              activo: macroActiva==='Todos' && !busquedaMenu,
-              onClick: ()=>{ setMacroActiva('Todos'); setBusquedaMenu('') },
-              icon: <svg width='20' height='20' viewBox='0 0 24 24' fill='none' stroke='currentColor' strokeWidth='2' strokeLinecap='round'><line x1='3' y1='6' x2='21' y2='6'/><line x1='3' y1='12' x2='21' y2='12'/><line x1='3' y1='18' x2='21' y2='18'/></svg>,
+              key:'vista',
+              label: vistaGrid==='slide' ? 'Galería' : 'Lista',
+              activo: true,
+              onClick: ()=>{ setVistaGrid(v=>v==='slide'?'grid':'slide'); setIndiceSlide(0) },
+              icon: vistaGrid==='slide'
+                ? <svg width='20' height='20' viewBox='0 0 24 24' fill='none' stroke='currentColor' strokeWidth='2' strokeLinecap='round'><rect x='2' y='3' width='20' height='18' rx='2'/><line x1='8' y1='10' x2='16' y2='10'/><line x1='8' y1='14' x2='16' y2='14'/></svg>
+                : <svg width='20' height='20' viewBox='0 0 24 24' fill='none' stroke='currentColor' strokeWidth='2' strokeLinecap='round'><rect x='2' y='3' width='9' height='9' rx='1'/><rect x='13' y='3' width='9' height='9' rx='1'/><rect x='2' y='14' width='9' height='9' rx='1'/><rect x='13' y='14' width='9' height='9' rx='1'/></svg>,
               badge: null
             },
             {
-              key:'vista', label: vistaGrid==='grid' ? 'Galería' : 'Lista',
-              activo: vistaGrid==='slide',
-              onClick: ()=>setVistaGrid(v=>v==='grid'?'slide':'grid'),
-              icon: vistaGrid==='grid'
-                ? <svg width='20' height='20' viewBox='0 0 24 24' fill='none' stroke='currentColor' strokeWidth='2' strokeLinecap='round'><rect x='2' y='3' width='9' height='9' rx='1'/><rect x='13' y='3' width='9' height='9' rx='1'/><rect x='2' y='14' width='9' height='9' rx='1'/><rect x='13' y='14' width='9' height='9' rx='1'/></svg>
-                : <svg width='20' height='20' viewBox='0 0 24 24' fill='none' stroke='currentColor' strokeWidth='2' strokeLinecap='round'><rect x='2' y='3' width='20' height='18' rx='2'/><line x1='8' y1='10' x2='16' y2='10'/><line x1='8' y1='14' x2='16' y2='14'/></svg>,
-              badge: null
+              key:'buscar',
+              label:'Buscar',
+              activo: buscadorAbierto,
+              onClick: ()=>setBuscadorAbierto(true),
+              icon: <svg width='20' height='20' viewBox='0 0 24 24' fill='none' stroke='currentColor' strokeWidth='2' strokeLinecap='round'><circle cx='11' cy='11' r='8'/><line x1='21' y1='21' x2='16.65' y2='16.65'/></svg>,
+              badge: busquedaMenu ? 1 : null
             },
             {
-              key:'promos', label:'Promos',
+              key:'promos',
+              label:'Promos',
               activo: false,
               onClick: ()=>{ if(promociones.length>0) setModalPromos(true) },
               icon: <svg width='20' height='20' viewBox='0 0 24 24' fill='none' stroke='currentColor' strokeWidth='2' strokeLinecap='round'><path d='M20.59 13.41l-7.17 7.17a2 2 0 01-2.83 0L2 12V2h10l8.59 8.59a2 2 0 010 2.82z'/><line x1='7' y1='7' x2='7.01' y2='7'/></svg>,
               badge: promociones.length > 0 ? promociones.length : null
             },
             {
-              key:'carrito', label:'Pedido',
+              key:'carrito',
+              label:'Pedido',
               activo: vistaCliente === 'pedido',
               onClick: ()=>setVistaCliente('pedido'),
               icon: <svg width='20' height='20' viewBox='0 0 24 24' fill='none' stroke='currentColor' strokeWidth='2' strokeLinecap='round'><path d='M6 2L3 6v14a2 2 0 002 2h14a2 2 0 002-2V6l-3-4z'/><line x1='3' y1='6' x2='21' y2='6'/><path d='M16 10a4 4 0 01-8 0'/></svg>,
               badge: totalItems > 0 ? totalItems : null
             },
             {
-              key:'perfil', label:'Perfil',
+              key:'perfil',
+              label:'Perfil',
               activo: modalPerfilCliente,
               onClick: ()=>setModalPerfilCliente(true),
               icon: <svg width='20' height='20' viewBox='0 0 24 24' fill='none' stroke='currentColor' strokeWidth='2' strokeLinecap='round'><path d='M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2'/><circle cx='12' cy='7' r='4'/></svg>,
@@ -3482,7 +3443,7 @@ function ClienteApp({ onVolver }) {
               alignItems:'center',gap:3,border:'none',background:'none',cursor:'pointer',position:'relative'
             }}>
               {t.badge > 0 && (
-                <span style={{position:'absolute',top:5,right:'12%',background:'#c62828',color:'#fff',borderRadius:100,minWidth:15,height:15,fontSize:8,fontWeight:700,display:'flex',alignItems:'center',justifyContent:'center',padding:'0 3px',zIndex:1}}>{t.badge}</span>
+                <span style={{position:'absolute',top:5,right:'12%',background:t.key==='buscar'?'#7C9263':'#c62828',color:'#fff',borderRadius:100,minWidth:15,height:15,fontSize:8,fontWeight:700,display:'flex',alignItems:'center',justifyContent:'center',padding:'0 3px',zIndex:1}}>{t.badge}</span>
               )}
               <div style={{
                 width:36,height:36,borderRadius:10,display:'flex',alignItems:'center',justifyContent:'center',
@@ -3663,32 +3624,49 @@ function ClienteApp({ onVolver }) {
         </div>
       )}
 
-      {/* MODAL PROMOCIONES CLIENTE */}
-      {modalPromos && promociones.length > 0 && (
-        <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.55)',zIndex:2500,display:'flex',alignItems:'flex-end'}}
-          onClick={e=>{if(e.target===e.currentTarget) setModalPromos(false)}}>
-          <div style={{background:'#fff',borderRadius:'20px 20px 0 0',width:'100%',maxWidth:480,margin:'0 auto',padding:'20px 16px 36px',maxHeight:'80vh',overflowY:'auto'}}>
-            <div style={{width:36,height:4,background:'#e0e0e0',borderRadius:2,margin:'0 auto 16px'}}/>
-            <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:16}}>
-              <h3 style={{fontFamily:'Poppins,sans-serif',fontSize:16,fontWeight:700,color:'#1a1a1a',margin:0}}>Promociones del día</h3>
-              <button onClick={()=>setModalPromos(false)} style={{background:'none',border:'none',fontSize:22,cursor:'pointer',color:'#bbb',lineHeight:1}}>×</button>
+      {/* MODAL BUSCADOR */}
+      {buscadorAbierto && (
+        <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.6)',zIndex:3000,display:'flex',flexDirection:'column'}}
+          onClick={e=>{if(e.target===e.currentTarget){setBuscadorAbierto(false)}}}>
+          <div style={{background:'#fff',padding:'16px 16px 0'}}>
+            <div style={{display:'flex',alignItems:'center',gap:10,marginBottom:12}}>
+              <div style={{position:'relative',flex:1}}>
+                <svg style={{position:'absolute',left:11,top:'50%',transform:'translateY(-50%)',pointerEvents:'none'}} width='15' height='15' viewBox='0 0 24 24' fill='none' stroke='#bbb' strokeWidth='2' strokeLinecap='round'><circle cx='11' cy='11' r='8'/><line x1='21' y1='21' x2='16.65' y2='16.65'/></svg>
+                <input autoFocus value={busquedaMenu} onChange={e=>setBusquedaMenu(e.target.value)}
+                  placeholder='Buscar producto...'
+                  style={{width:'100%',padding:'11px 36px 11px 36px',border:'1.5px solid #ebebeb',borderRadius:12,fontFamily:'Poppins,sans-serif',fontSize:14,color:'#1a1a1a',outline:'none',boxSizing:'border-box',background:'#f9f9f9'}}/>
+                {busquedaMenu && (
+                  <button onClick={()=>setBusquedaMenu('')} style={{position:'absolute',right:11,top:'50%',transform:'translateY(-50%)',background:'none',border:'none',cursor:'pointer',color:'#bbb',fontSize:20,lineHeight:1}}>×</button>
+                )}
+              </div>
+              <button onClick={()=>{setBuscadorAbierto(false);setBusquedaMenu('')}} style={{background:'none',border:'none',cursor:'pointer',color:'#555',fontFamily:'Poppins,sans-serif',fontSize:12,fontWeight:600,padding:'8px 4px',flexShrink:0}}>Cancelar</button>
             </div>
-            <div style={{display:'flex',flexDirection:'column',gap:12}}>
-              {promociones.map(prod => {
+          </div>
+          {/* Resultados */}
+          <div style={{flex:1,overflowY:'auto',background:'#fff',padding:'8px 16px 32px'}}>
+            {busquedaMenu.trim() ? (() => {
+              const resultados = menu.filter(x => x.visibleClientes!==false && (
+                x.nombre?.toLowerCase().includes(busquedaMenu.toLowerCase()) ||
+                x.descripcion?.toLowerCase().includes(busquedaMenu.toLowerCase())
+              ))
+              if (!resultados.length) return (
+                <div style={{textAlign:'center',padding:'40px 0',color:'#ccc',fontFamily:'Poppins,sans-serif',fontSize:13}}>Sin resultados para "{busquedaMenu}"</div>
+              )
+              return resultados.map(prod => {
                 const cant = cantidades[prod.id] || 0
+                const imgSrc = imgError[prod.id] ? (IMGS_CATEGORIA[prod.categoria]||IMGS_CATEGORIA['default']) : getImgProducto(prod)
                 return (
-                  <div key={prod.id} style={{display:'flex',gap:12,padding:'12px',background:'#f9f9f9',borderRadius:12,border:'1.5px solid #7C9263',alignItems:'center'}}>
-                    {prod.imagen && (
-                      <img src={prod.imagen} alt={prod.nombre} style={{width:64,height:64,objectFit:'cover',borderRadius:8,flexShrink:0}}/>
-                    )}
+                  <div key={prod.id} style={{display:'flex',gap:12,padding:'12px 0',borderBottom:'1px solid #f5f5f5',alignItems:'center'}}>
+                    <img src={imgSrc} alt={prod.nombre} onError={()=>setImgError(p=>({...p,[prod.id]:true}))}
+                      style={{width:56,height:56,objectFit:'cover',borderRadius:10,flexShrink:0,background:'#f5f5f5'}}/>
                     <div style={{flex:1,minWidth:0}}>
-                      <div style={{background:'#7C9263',color:'#fff',fontSize:9,fontWeight:700,letterSpacing:1,textTransform:'uppercase',borderRadius:4,padding:'2px 7px',display:'inline-block',marginBottom:4,fontFamily:'Poppins,sans-serif'}}>Promo hoy</div>
-                      <div style={{fontFamily:'Poppins,sans-serif',fontSize:14,fontWeight:700,color:'#1a1a1a',lineHeight:1.2}}>{prod.nombre}</div>
-                      <div style={{fontFamily:'Poppins,sans-serif',fontSize:14,fontWeight:700,color:'#1a1a1a',marginTop:2}}>${parseFloat(prod.precio).toFixed(2)}</div>
+                      <div style={{fontFamily:'Poppins,sans-serif',fontSize:13,fontWeight:700,color:'#1a1a1a',marginBottom:2}}>{prod.nombre}</div>
+                      {prod.descripcion && <div style={{fontSize:11,color:'#aaa',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{prod.descripcion}</div>}
+                      <div style={{fontFamily:'Poppins,sans-serif',fontSize:13,fontWeight:700,color:'#1a1a1a',marginTop:3}}>${parseFloat(prod.precio).toFixed(2)}</div>
                     </div>
                     <div style={{flexShrink:0}}>
-                      {cant === 0 ? (
-                        <button onClick={()=>addCant(prod.id,1)} style={{width:34,height:34,borderRadius:'50%',border:'none',background:'#1a1a1a',color:'#fff',fontSize:20,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center'}}>+</button>
+                      {cant===0 ? (
+                        <button onClick={()=>addCant(prod.id,1)} style={{width:32,height:32,borderRadius:'50%',border:'none',background:'#1a1a1a',color:'#fff',fontSize:20,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center'}}>+</button>
                       ) : (
                         <div style={{display:'flex',alignItems:'center',gap:8}}>
                           <button onClick={()=>addCant(prod.id,-1)} style={{width:28,height:28,borderRadius:'50%',border:'1.5px solid #d0d0d0',background:'#fff',fontSize:16,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',color:'#555'}}>-</button>
@@ -3699,11 +3677,68 @@ function ClienteApp({ onVolver }) {
                     </div>
                   </div>
                 )
-              })}
-            </div>
+              })
+            })() : (
+              <div style={{textAlign:'center',padding:'40px 0',color:'#ccc',fontFamily:'Poppins,sans-serif',fontSize:13}}>Escribe para buscar...</div>
+            )}
           </div>
         </div>
       )}
+
+      {/* MODAL PROMOCIONES CLIENTE — estilo galería */}
+      {modalPromos && promociones.length > 0 && (()=>{
+        const idxP = Math.min(indicePromo||0, promociones.length-1)
+        const prod  = promociones[idxP]
+        const cant  = cantidades[prod?.id] || 0
+        const imgSrc = prod ? (imgError[prod.id]?(IMGS_CATEGORIA[prod.categoria]||IMGS_CATEGORIA['default']):getImgProducto(prod)) : null
+        return (
+          <div style={{position:'fixed',inset:0,zIndex:2500,background:'#000',display:'flex',flexDirection:'column'}}
+            onTouchStart={e=>{touchPromoX.current=e.touches[0].clientX}}
+            onTouchEnd={e=>{
+              if(touchPromoX.current===null) return
+              const dx=e.changedTouches[0].clientX-touchPromoX.current
+              if(Math.abs(dx)<35) return
+              const next=dx<0?Math.min(idxP+1,promociones.length-1):Math.max(idxP-1,0)
+              setIndicePromo(next); touchPromoX.current=null
+            }}>
+            {/* Imagen fullscreen */}
+            <div style={{flex:1,position:'relative',overflow:'hidden'}}>
+              {imgSrc && <img key={prod.id} src={imgSrc} alt={prod.nombre}
+                onError={()=>setImgError(p=>({...p,[prod.id]:true}))}
+                style={{position:'absolute',inset:0,width:'100%',height:'100%',objectFit:'cover',display:'block'}}/>}
+              <div style={{position:'absolute',inset:0,background:'linear-gradient(to top,rgba(0,0,0,0.88) 0%,rgba(0,0,0,0.2) 50%,transparent 100%)'}}/>
+              {/* Cerrar */}
+              <button onClick={()=>setModalPromos(false)} style={{position:'absolute',top:16,right:16,background:'rgba(0,0,0,0.4)',backdropFilter:'blur(4px)',border:'none',color:'#fff',width:36,height:36,borderRadius:'50%',fontSize:20,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',zIndex:3}}>×</button>
+              {/* Badge promo */}
+              <div style={{position:'absolute',top:16,left:16,background:'#7C9263',color:'#fff',padding:'4px 12px',borderRadius:100,fontSize:10,fontWeight:700,letterSpacing:1,textTransform:'uppercase',fontFamily:'Poppins,sans-serif',zIndex:3}}>Promo del día</div>
+              {/* Flechas */}
+              {idxP > 0 && <button onClick={()=>setIndicePromo(i=>i-1)} style={{position:'absolute',left:12,top:'45%',transform:'translateY(-50%)',background:'rgba(0,0,0,0.4)',backdropFilter:'blur(4px)',border:'none',color:'#fff',width:40,height:40,borderRadius:'50%',fontSize:22,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',zIndex:3}}>‹</button>}
+              {idxP < promociones.length-1 && <button onClick={()=>setIndicePromo(i=>i+1)} style={{position:'absolute',right:12,top:'45%',transform:'translateY(-50%)',background:'rgba(0,0,0,0.4)',backdropFilter:'blur(4px)',border:'none',color:'#fff',width:40,height:40,borderRadius:'50%',fontSize:22,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',zIndex:3}}>›</button>}
+              {/* Info */}
+              <div style={{position:'absolute',bottom:0,left:0,right:0,padding:'0 20px 20px',zIndex:2}}>
+                <div style={{fontFamily:'Poppins,sans-serif',fontSize:24,fontWeight:700,color:'#fff',lineHeight:1.15,marginBottom:4}}>{prod.nombre}</div>
+                {prod.descripcion && <div style={{fontSize:13,color:'rgba(255,255,255,0.65)',lineHeight:1.5,fontFamily:'Poppins,sans-serif',marginBottom:12}}>{prod.descripcion}</div>}
+                <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',background:'rgba(255,255,255,0.13)',backdropFilter:'blur(8px)',borderRadius:14,padding:'10px 16px',border:'1px solid rgba(255,255,255,0.18)'}}>
+                  <span style={{fontFamily:'Poppins,sans-serif',fontSize:22,fontWeight:700,color:'#fff'}}>${parseFloat(prod.precio).toFixed(2)}</span>
+                  <div style={{display:'flex',alignItems:'center',gap:14}}>
+                    <button onClick={()=>addCant(prod.id,-1)} style={{width:34,height:34,borderRadius:'50%',border:'1.5px solid rgba(255,255,255,0.4)',background:'rgba(0,0,0,0.3)',color:'#fff',fontSize:18,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center'}}>-</button>
+                    <span style={{fontFamily:'Poppins,sans-serif',fontSize:20,fontWeight:700,minWidth:26,textAlign:'center',color:'#fff'}}>{cant}</span>
+                    <button onClick={()=>addCant(prod.id,1)} style={{width:34,height:34,borderRadius:'50%',border:'none',background:'#fff',color:'#1a1a1a',fontSize:18,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',fontWeight:700}}>+</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+            {/* Indicadores */}
+            {promociones.length > 1 && (
+              <div style={{background:'#000',padding:'10px 0',display:'flex',justifyContent:'center',gap:6}}>
+                {promociones.map((_,i)=>(
+                  <div key={i} onClick={()=>setIndicePromo(i)} style={{width:i===idxP?20:6,height:6,borderRadius:3,background:i===idxP?'#7C9263':'rgba(255,255,255,0.25)',transition:'0.3s',cursor:'pointer'}}/>
+                ))}
+              </div>
+            )}
+          </div>
+        )
+      })()}
 
       {/* PANTALLA ÉXITO POST-PEDIDO */}
       {pedidoEnviado && (
@@ -3876,6 +3911,13 @@ function ClienteApp({ onVolver }) {
                 <svg width='15' height='15' viewBox='0 0 24 24' fill='none' stroke='currentColor' strokeWidth='2.5' strokeLinecap='round'><path d='M9 11l3 3L22 4'/><path d='M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11'/></svg>
                 Mis Pedidos
               </button>
+            )}
+            {!editandoPerfil && (
+              <button onClick={()=>{setModalPerfilCliente(false);onVolver()}} style={{
+                width:'100%',padding:'12px',background:'#f4f4f4',color:'#1a1a1a',
+                border:'1px solid #ebebeb',borderRadius:10,
+                fontFamily:'Poppins,sans-serif',fontSize:12,fontWeight:600,cursor:'pointer'
+              }}>← Regresar a Inicio</button>
             )}
 
           </div>
