@@ -950,7 +950,7 @@ function AdminApp() {
 
   async function eliminarDomicilio(id) {
     try {
-      const pedidoElim = pedidosDom.find(x => x.id === id)
+      const pedidoElim = pedidosDomicilioHoy.find(x => x.id === id)
       if (pedidoElim) registrarEvento('pedido_cancelado', {
         origen: 'admin_domicilio',
         cliente: pedidoElim.cliente || '',
