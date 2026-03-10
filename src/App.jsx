@@ -2943,6 +2943,8 @@ function ClienteApp({ onVolver }) {
   }
   const [macroActiva, setMacroActiva] = useState('Todos')
   const [busquedaMenu, setBusquedaMenu] = useState('')
+  const [vistaGrid, setVistaGrid] = useState('grid') // 'grid' | 'slide'
+  const [indiceSlide, setIndiceSlide] = useState(0)
 
   // Productos filtrados por macro
   const menuBaseFiltrado = macroActiva === 'Todos'
@@ -3190,179 +3192,241 @@ function ClienteApp({ onVolver }) {
         </button>
       </div>
 
-      {/* BUSCADOR */}
-      <div style={{padding:'8px 16px',background:'#fff',borderBottom:'1px solid #f0f0f0'}}>
-        <div style={{position:'relative'}}>
-          <svg style={{position:'absolute',left:11,top:'50%',transform:'translateY(-50%)',pointerEvents:'none'}} width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='#bbb' strokeWidth='2' strokeLinecap='round'><circle cx='11' cy='11' r='8'/><line x1='21' y1='21' x2='16.65' y2='16.65'/></svg>
-          <input
-            value={busquedaMenu}
-            onChange={e=>{setBusquedaMenu(e.target.value)}}
-            placeholder='Buscar producto...'
-            style={{width:'100%',padding:'9px 32px 9px 32px',border:'1.5px solid #ebebeb',borderRadius:10,fontFamily:'Poppins,sans-serif',fontSize:13,color:'#1a1a1a',outline:'none',boxSizing:'border-box',background:'#f9f9f9'}}
-          />
-          {busquedaMenu && (
-            <button onClick={()=>setBusquedaMenu('')} style={{position:'absolute',right:10,top:'50%',transform:'translateY(-50%)',background:'none',border:'none',cursor:'pointer',color:'#bbb',fontSize:16,lineHeight:1}}>×</button>
-          )}
-        </div>
-      </div>
+      {/* GRID / CARRUSEL DE PRODUCTOS */}
+      <div style={{flex:1,overflowY: vistaGrid==='grid' ? 'auto' : 'hidden',paddingBottom: vistaGrid==='grid' ? 120 : 0}}>
 
-      {/* CATEGORÍAS */}
-      <div style={{background:'#fff',borderBottom:'1px solid #f0f0f0',padding:'0 16px',display:'flex',gap:4,overflowX:'auto',scrollbarWidth:'none'}}>
-        {[
-          {key:'Todos', label:'Todo'},
-          {key:'Frio',  label:'Frío'},
-          {key:'Caliente', label:'Caliente'},
-        ].map(({key, label}) => {
-          const activo = macroActiva === key
-          return (
-            <button key={key} onClick={()=>{setMacroActiva(key);setIndice(0)}} style={{
-              flexShrink:0,padding:'10px 16px',border:'none',background:'none',
-              borderBottom: activo ? '2px solid #1a1a1a' : '2px solid transparent',
-              fontFamily:'Poppins,sans-serif',fontSize:12,fontWeight: activo ? 700 : 500,
-              color: activo ? '#1a1a1a' : '#aaa',cursor:'pointer',transition:'0.15s',whiteSpace:'nowrap'
-            }}>{label}</button>
-          )
-        })}
-        {promociones.length > 0 && (
-          <button onClick={()=>setModalPromos(true)} style={{
-            flexShrink:0,padding:'10px 16px',border:'none',background:'none',
-            borderBottom:'2px solid transparent',
-            fontFamily:'Poppins,sans-serif',fontSize:12,fontWeight:500,
-            color:'#7C9263',cursor:'pointer',whiteSpace:'nowrap',
-            display:'flex',alignItems:'center',gap:6
-          }}>
-            Promociones
-            <span style={{background:'#7C9263',color:'#fff',borderRadius:100,minWidth:16,height:16,fontSize:9,fontWeight:700,display:'inline-flex',alignItems:'center',justifyContent:'center',padding:'0 4px'}}>{promociones.length}</span>
-          </button>
-        )}
-      </div>
-
-      {/* GRID DE PRODUCTOS */}
-      <div style={{flex:1,overflowY:'auto',padding:'16px 12px',paddingBottom:100}}>
-        {menuFiltrado.length === 0 ? (
-          <div style={{textAlign:'center',padding:'60px 20px',color:'#ccc'}}>
-            <div style={{fontSize:13,fontFamily:'Poppins,sans-serif'}}>Sin productos en esta categoría</div>
-          </div>
-        ) : (
-          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10}}>
-            {menuFiltrado.map(prod => {
-              const imgSrc = imgError[prod.id]
-                ? (IMGS_CATEGORIA[prod.categoria]||IMGS_CATEGORIA['default'])
-                : getImgProducto(prod)
-              const cant = cantidades[prod.id] || 0
-              return (
-                <div key={prod.id} style={{
-                  background:'#fff',border:'1px solid #ebebeb',borderRadius:14,
-                  overflow:'hidden',display:'flex',flexDirection:'column',
-                  animation:'fadeUp 0.25s ease',boxShadow:'0 1px 4px rgba(0,0,0,0.04)'
-                }}>
-                  {/* Imagen */}
-                  <div style={{aspectRatio:'4/3',background:'#f5f5f5',overflow:'hidden',position:'relative'}}>
-                    <img
-                      src={imgSrc}
-                      alt={prod.nombre}
-                      onError={()=>setImgError(p=>({...p,[prod.id]:true}))}
-                      style={{width:'100%',height:'100%',objectFit:'cover',display:'block'}}
-                    />
-                    <div style={{
-                      position:'absolute',top:8,left:8,background:'rgba(255,255,255,0.92)',
-                      borderRadius:6,padding:'2px 7px',
-                      fontSize:9,fontWeight:700,color:'#555',letterSpacing:0.8,
-                      textTransform:'uppercase',fontFamily:'Poppins,sans-serif',
-                      backdropFilter:'blur(4px)'
-                    }}>{prod.categoria}</div>
-                  </div>
-                  {/* Info */}
-                  <div style={{padding:'10px 10px 12px',flex:1,display:'flex',flexDirection:'column',justifyContent:'space-between'}}>
-                    <div>
-                      <div style={{fontFamily:'Poppins,sans-serif',fontSize:13,fontWeight:700,color:'#1a1a1a',marginBottom:2,lineHeight:1.3}}>{prod.nombre}</div>
-                      {prod.descripcion && <div style={{fontSize:11,color:'#aaa',lineHeight:1.4,marginBottom:6,display:'-webkit-box',WebkitLineClamp:2,WebkitBoxOrient:'vertical',overflow:'hidden'}}>{prod.descripcion}</div>}
-                    </div>
-                    <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginTop:8}}>
-                      <span style={{fontFamily:'Poppins,sans-serif',fontSize:15,fontWeight:700,color:'#1a1a1a'}}>${parseFloat(prod.precio).toFixed(2)}</span>
-                      {cant === 0 ? (
-                        <button onClick={()=>addCant(prod.id,1)} style={{
-                          width:30,height:30,borderRadius:'50%',border:'none',
-                          background:'#1a1a1a',color:'#fff',fontSize:18,
-                          cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',
-                          lineHeight:1
-                        }}>+</button>
-                      ) : (
-                        <div style={{display:'flex',alignItems:'center',gap:6}}>
-                          <button onClick={()=>addCant(prod.id,-1)} style={{width:26,height:26,borderRadius:'50%',border:'1.5px solid #d0d0d0',background:'#fff',fontSize:16,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',color:'#555'}}>-</button>
-                          <span style={{fontFamily:'Poppins,sans-serif',fontSize:13,fontWeight:700,minWidth:16,textAlign:'center'}}>{cant}</span>
-                          <button onClick={()=>addCant(prod.id,1)} style={{width:26,height:26,borderRadius:'50%',border:'none',background:'#1a1a1a',fontSize:16,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',color:'#fff'}}>+</button>
+        {/* MODO GRID — 2 columnas */}
+        {vistaGrid === 'grid' && (
+          <div style={{padding:'14px 12px 0'}}>
+            {menuFiltrado.length === 0 ? (
+              <div style={{textAlign:'center',padding:'60px 20px',color:'#ccc'}}>
+                <div style={{fontSize:13,fontFamily:'Poppins,sans-serif'}}>Sin productos{busquedaMenu ? ` para "${busquedaMenu}"` : ' en esta categoría'}</div>
+              </div>
+            ) : (
+              <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10}}>
+                {menuFiltrado.map(prod => {
+                  const imgSrc = imgError[prod.id]
+                    ? (IMGS_CATEGORIA[prod.categoria]||IMGS_CATEGORIA['default'])
+                    : getImgProducto(prod)
+                  const cant = cantidades[prod.id] || 0
+                  return (
+                    <div key={prod.id} style={{
+                      background:'#fff',border:'1px solid #ebebeb',borderRadius:14,
+                      overflow:'hidden',display:'flex',flexDirection:'column',
+                      animation:'fadeUp 0.25s ease',boxShadow:'0 1px 4px rgba(0,0,0,0.04)'
+                    }}>
+                      <div style={{aspectRatio:'4/3',background:'#f5f5f5',overflow:'hidden',position:'relative'}}>
+                        <img src={imgSrc} alt={prod.nombre}
+                          onError={()=>setImgError(p=>({...p,[prod.id]:true}))}
+                          style={{width:'100%',height:'100%',objectFit:'cover',display:'block'}}/>
+                        <div style={{
+                          position:'absolute',top:8,left:8,background:'rgba(255,255,255,0.92)',
+                          borderRadius:6,padding:'2px 7px',fontSize:9,fontWeight:700,
+                          color:'#555',letterSpacing:0.8,textTransform:'uppercase',
+                          fontFamily:'Poppins,sans-serif',backdropFilter:'blur(4px)'
+                        }}>{prod.categoria}</div>
+                      </div>
+                      <div style={{padding:'10px 10px 12px',flex:1,display:'flex',flexDirection:'column',justifyContent:'space-between'}}>
+                        <div>
+                          <div style={{fontFamily:'Poppins,sans-serif',fontSize:13,fontWeight:700,color:'#1a1a1a',marginBottom:2,lineHeight:1.3}}>{prod.nombre}</div>
+                          {prod.descripcion && <div style={{fontSize:11,color:'#aaa',lineHeight:1.4,marginBottom:6,display:'-webkit-box',WebkitLineClamp:2,WebkitBoxOrient:'vertical',overflow:'hidden'}}>{prod.descripcion}</div>}
                         </div>
-                      )}
+                        <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginTop:8}}>
+                          <span style={{fontFamily:'Poppins,sans-serif',fontSize:15,fontWeight:700,color:'#1a1a1a'}}>${parseFloat(prod.precio).toFixed(2)}</span>
+                          {cant === 0 ? (
+                            <button onClick={()=>addCant(prod.id,1)} style={{width:30,height:30,borderRadius:'50%',border:'none',background:'#1a1a1a',color:'#fff',fontSize:18,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center'}}>+</button>
+                          ) : (
+                            <div style={{display:'flex',alignItems:'center',gap:6}}>
+                              <button onClick={()=>addCant(prod.id,-1)} style={{width:26,height:26,borderRadius:'50%',border:'1.5px solid #d0d0d0',background:'#fff',fontSize:16,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',color:'#555'}}>-</button>
+                              <span style={{fontFamily:'Poppins,sans-serif',fontSize:13,fontWeight:700,minWidth:16,textAlign:'center'}}>{cant}</span>
+                              <button onClick={()=>addCant(prod.id,1)} style={{width:26,height:26,borderRadius:'50%',border:'none',background:'#1a1a1a',fontSize:16,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',color:'#fff'}}>+</button>
+                            </div>
+                          )}
+                        </div>
+                      </div>
                     </div>
+                  )
+                })}
+              </div>
+            )}
+
+            {/* Promociones al final del grid */}
+            {promociones.length > 0 && !busquedaMenu && (
+              <div style={{marginTop:20,marginBottom:8}}>
+                <div style={{fontSize:10,fontWeight:700,letterSpacing:1.5,textTransform:'uppercase',color:'#7C9263',marginBottom:10,fontFamily:'Poppins,sans-serif',paddingLeft:2}}>Promociones del día</div>
+                <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10}}>
+                  {promociones.map(prod => {
+                    const cant = cantidades[prod.id] || 0
+                    return (
+                      <div key={prod.id} style={{background:'#fff',border:'1.5px solid #7C9263',borderRadius:14,overflow:'hidden',display:'flex',flexDirection:'column'}}>
+                        {prod.imagen && <div style={{aspectRatio:'4/3',overflow:'hidden'}}><img src={prod.imagen} alt={prod.nombre} style={{width:'100%',height:'100%',objectFit:'cover'}}/></div>}
+                        <div style={{padding:'10px 10px 12px',flex:1,display:'flex',flexDirection:'column',justifyContent:'space-between'}}>
+                          <div>
+                            <div style={{background:'#7C9263',color:'#fff',fontSize:9,fontWeight:700,letterSpacing:1,textTransform:'uppercase',borderRadius:4,padding:'2px 7px',display:'inline-block',marginBottom:5,fontFamily:'Poppins,sans-serif'}}>Promo hoy</div>
+                            <div style={{fontFamily:'Poppins,sans-serif',fontSize:13,fontWeight:700,color:'#1a1a1a',lineHeight:1.3}}>{prod.nombre}</div>
+                          </div>
+                          <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginTop:8}}>
+                            <span style={{fontFamily:'Poppins,sans-serif',fontSize:15,fontWeight:700,color:'#1a1a1a'}}>${parseFloat(prod.precio).toFixed(2)}</span>
+                            {cant === 0 ? (
+                              <button onClick={()=>addCant(prod.id,1)} style={{width:30,height:30,borderRadius:'50%',border:'none',background:'#1a1a1a',color:'#fff',fontSize:18,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center'}}>+</button>
+                            ) : (
+                              <div style={{display:'flex',alignItems:'center',gap:6}}>
+                                <button onClick={()=>addCant(prod.id,-1)} style={{width:26,height:26,borderRadius:'50%',border:'1.5px solid #d0d0d0',background:'#fff',fontSize:16,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',color:'#555'}}>-</button>
+                                <span style={{fontFamily:'Poppins,sans-serif',fontSize:13,fontWeight:700,minWidth:16,textAlign:'center'}}>{cant}</span>
+                                <button onClick={()=>addCant(prod.id,1)} style={{width:26,height:26,borderRadius:'50%',border:'none',background:'#1a1a1a',fontSize:16,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',color:'#fff'}}>+</button>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* MODO CARRUSEL — pantalla completa deslizable */}
+        {vistaGrid === 'slide' && (() => {
+          const todosItems = [...menuFiltrado, ...promociones]
+          const prod = todosItems[indiceSlide] || todosItems[0]
+          if (!todosItems.length) return (
+            <div style={{display:'flex',alignItems:'center',justifyContent:'center',height:'100%',color:'#ccc',fontSize:13,fontFamily:'Poppins,sans-serif'}}>Sin productos</div>
+          )
+          const imgSrc = prod ? (imgError[prod.id]
+            ? (IMGS_CATEGORIA[prod.categoria]||IMGS_CATEGORIA['default'])
+            : getImgProducto(prod)) : null
+          const cant = cantidades[prod?.id] || 0
+          return (
+            <div style={{height:'100%',display:'flex',flexDirection:'column',userSelect:'none',paddingBottom:120}}
+              onTouchStart={e=>{touchStartX.current=e.touches[0].clientX;touchStartY.current=e.touches[0].clientY}}
+              onTouchEnd={e=>{
+                if(touchStartX.current===null) return
+                const dx=e.changedTouches[0].clientX-touchStartX.current
+                const dy=Math.abs(e.changedTouches[0].clientY-touchStartY.current)
+                if(Math.abs(dx)<40||dy>80) return
+                const next = dx<0 ? Math.min(indiceSlide+1,todosItems.length-1) : Math.max(indiceSlide-1,0)
+                setIndiceSlide(next)
+                touchStartX.current=null
+              }}>
+
+              {/* Imagen grande */}
+              <div style={{flex:'0 0 55vw',maxHeight:'55vh',background:'#111',overflow:'hidden',position:'relative'}}>
+                {imgSrc && <img key={prod.id} src={imgSrc} alt={prod.nombre}
+                  onError={()=>setImgError(p=>({...p,[prod.id]:true}))}
+                  style={{width:'100%',height:'100%',objectFit:'cover',display:'block',animation:'fadeUp 0.25s ease'}}/>}
+                {prod._esPromo && (
+                  <div style={{position:'absolute',top:12,left:12,background:'#7C9263',color:'#fff',padding:'4px 12px',borderRadius:100,fontSize:10,fontWeight:700,letterSpacing:1,textTransform:'uppercase',fontFamily:'Poppins,sans-serif'}}>Promo</div>
+                )}
+                {/* Indicadores */}
+                <div style={{position:'absolute',bottom:12,left:0,right:0,display:'flex',justifyContent:'center',gap:5}}>
+                  {todosItems.map((_,i)=>(
+                    <div key={i} onClick={()=>setIndiceSlide(i)} style={{
+                      width:i===indiceSlide?20:6,height:6,borderRadius:3,cursor:'pointer',transition:'0.3s',
+                      background:i===indiceSlide?'#fff':'rgba(255,255,255,0.35)'
+                    }}/>
+                  ))}
+                </div>
+                {/* Flechas */}
+                {indiceSlide > 0 && <button onClick={()=>setIndiceSlide(i=>i-1)} style={{position:'absolute',left:10,top:'50%',transform:'translateY(-50%)',background:'rgba(0,0,0,0.4)',border:'none',color:'#fff',width:36,height:36,borderRadius:'50%',fontSize:20,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center'}}>‹</button>}
+                {indiceSlide < todosItems.length-1 && <button onClick={()=>setIndiceSlide(i=>i+1)} style={{position:'absolute',right:10,top:'50%',transform:'translateY(-50%)',background:'rgba(0,0,0,0.4)',border:'none',color:'#fff',width:36,height:36,borderRadius:'50%',fontSize:20,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center'}}>›</button>}
+              </div>
+
+              {/* Info producto */}
+              <div style={{flex:1,padding:'20px 20px 0',background:'#fff'}}>
+                <div style={{display:'flex',alignItems:'flex-start',justifyContent:'space-between',marginBottom:6}}>
+                  <div style={{flex:1}}>
+                    <div style={{fontSize:10,fontWeight:700,letterSpacing:1.5,textTransform:'uppercase',color:'#bbb',fontFamily:'Poppins,sans-serif',marginBottom:6}}>{prod._esPromo ? 'Promoción del día' : prod.categoria}</div>
+                    <h2 style={{fontFamily:'Poppins,sans-serif',fontSize:22,fontWeight:700,color:'#1a1a1a',lineHeight:1.2,marginBottom:8}}>{prod.nombre}</h2>
+                    {prod.descripcion && <p style={{fontSize:13,color:'#888',lineHeight:1.6,fontFamily:'Poppins,sans-serif'}}>{prod.descripcion}</p>}
+                  </div>
+                  <span style={{fontFamily:'Poppins,sans-serif',fontSize:24,fontWeight:700,color:'#1a1a1a',marginLeft:16}}>${parseFloat(prod.precio).toFixed(2)}</span>
+                </div>
+
+                {/* Controles cantidad */}
+                <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginTop:20,paddingTop:16,borderTop:'1px solid #f0f0f0'}}>
+                  <span style={{fontSize:12,color:'#aaa',fontFamily:'Poppins,sans-serif',letterSpacing:0.5}}>Cantidad</span>
+                  <div style={{display:'flex',alignItems:'center',gap:14}}>
+                    <button onClick={()=>addCant(prod.id,-1)} style={{width:36,height:36,borderRadius:'50%',border:'1.5px solid #e0e0e0',background:'#fff',fontSize:18,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',color:'#555'}}>-</button>
+                    <span style={{fontFamily:'Poppins,sans-serif',fontSize:18,fontWeight:700,minWidth:24,textAlign:'center'}}>{cant}</span>
+                    <button onClick={()=>addCant(prod.id,1)} style={{width:36,height:36,borderRadius:'50%',border:'none',background:'#1a1a1a',fontSize:18,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',color:'#fff'}}>+</button>
                   </div>
                 </div>
-              )
-            })}
-          </div>
-        )}
-
-        {/* PROMOCIONES en grid también */}
-        {promociones.length > 0 && macroActiva === 'Todos' && (
-          <div style={{marginTop:20}}>
-            <div style={{fontSize:10,fontWeight:700,letterSpacing:1.5,textTransform:'uppercase',color:'#7C9263',marginBottom:10,fontFamily:'Poppins,sans-serif',paddingLeft:2}}>Promociones del día</div>
-            <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10}}>
-              {promociones.map(prod => {
-                const cant = cantidades[prod.id] || 0
-                return (
-                  <div key={prod.id} style={{
-                    background:'#fff',border:'1.5px solid #7C9263',borderRadius:14,
-                    overflow:'hidden',display:'flex',flexDirection:'column',
-                    boxShadow:'0 1px 4px rgba(124,146,99,0.10)'
-                  }}>
-                    {prod.imagen && (
-                      <div style={{aspectRatio:'4/3',background:'#f5f5f5',overflow:'hidden'}}>
-                        <img src={prod.imagen} alt={prod.nombre} style={{width:'100%',height:'100%',objectFit:'cover'}}/>
-                      </div>
-                    )}
-                    <div style={{padding:'10px 10px 12px',flex:1,display:'flex',flexDirection:'column',justifyContent:'space-between'}}>
-                      <div>
-                        <div style={{background:'#7C9263',color:'#fff',fontSize:9,fontWeight:700,letterSpacing:1,textTransform:'uppercase',borderRadius:4,padding:'2px 7px',display:'inline-block',marginBottom:5,fontFamily:'Poppins,sans-serif'}}>Promo hoy</div>
-                        <div style={{fontFamily:'Poppins,sans-serif',fontSize:13,fontWeight:700,color:'#1a1a1a',marginBottom:2,lineHeight:1.3}}>{prod.nombre}</div>
-                        {prod.descripcion && <div style={{fontSize:11,color:'#aaa',lineHeight:1.4,marginBottom:6}}>{prod.descripcion}</div>}
-                      </div>
-                      <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginTop:8}}>
-                        <span style={{fontFamily:'Poppins,sans-serif',fontSize:15,fontWeight:700,color:'#1a1a1a'}}>${parseFloat(prod.precio).toFixed(2)}</span>
-                        {cant === 0 ? (
-                          <button onClick={()=>addCant(prod.id,1)} style={{width:30,height:30,borderRadius:'50%',border:'none',background:'#1a1a1a',color:'#fff',fontSize:18,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center'}}>+</button>
-                        ) : (
-                          <div style={{display:'flex',alignItems:'center',gap:6}}>
-                            <button onClick={()=>addCant(prod.id,-1)} style={{width:26,height:26,borderRadius:'50%',border:'1.5px solid #d0d0d0',background:'#fff',fontSize:16,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',color:'#555'}}>-</button>
-                            <span style={{fontFamily:'Poppins,sans-serif',fontSize:13,fontWeight:700,minWidth:16,textAlign:'center'}}>{cant}</span>
-                            <button onClick={()=>addCant(prod.id,1)} style={{width:26,height:26,borderRadius:'50%',border:'none',background:'#1a1a1a',fontSize:16,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',color:'#fff'}}>+</button>
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                )
-              })}
+              </div>
             </div>
-          </div>
-        )}
+          )
+        })()}
       </div>
 
-      {/* BOTÓN FLOTANTE CARRITO */}
-      {totalItems > 0 && vistaCliente === 'menu' && (
-        <div style={{position:'fixed',bottom:24,left:'50%',transform:'translateX(-50%)',zIndex:300,animation:'fadeUp 0.2s ease'}}>
-          <button onClick={()=>setVistaCliente('pedido')} style={{
-            display:'flex',alignItems:'center',gap:12,
-            background:'#1a1a1a',color:'#fff',border:'none',
-            borderRadius:100,padding:'13px 22px',
-            boxShadow:'0 6px 24px rgba(0,0,0,0.22)',cursor:'pointer',
-            fontFamily:'Poppins,sans-serif'
-          }}>
-            <span style={{background:'#7C9263',color:'#fff',borderRadius:'50%',width:22,height:22,fontSize:11,fontWeight:700,display:'inline-flex',alignItems:'center',justifyContent:'center'}}>{totalItems}</span>
-            <span style={{fontSize:13,fontWeight:700,letterSpacing:0.5}}>Ver pedido</span>
-            <span style={{fontSize:14,fontWeight:700}}>${total.toFixed(2)}</span>
-          </button>
+      {/* BARRA INFERIOR FIJA — buscador + tabs */}
+      <div style={{position:'fixed',bottom:0,left:'50%',transform:'translateX(-50%)',width:'100%',maxWidth:480,zIndex:200,background:'#fff',borderTop:'1px solid #f0f0f0',boxShadow:'0 -2px 12px rgba(0,0,0,0.06)'}}>
+        {/* Botón carrito flotante ENCIMA de la barra */}
+        {totalItems > 0 && vistaCliente === 'menu' && (
+          <div style={{position:'absolute',top:-60,left:'50%',transform:'translateX(-50%)',width:'calc(100% - 32px)',maxWidth:320}}>
+            <button onClick={()=>setVistaCliente('pedido')} style={{
+              width:'100%',display:'flex',alignItems:'center',gap:12,justifyContent:'center',
+              background:'#1a1a1a',color:'#fff',border:'none',borderRadius:100,
+              padding:'13px 22px',boxShadow:'0 6px 20px rgba(0,0,0,0.20)',
+              cursor:'pointer',fontFamily:'Poppins,sans-serif'
+            }}>
+              <span style={{background:'#7C9263',color:'#fff',borderRadius:'50%',width:22,height:22,fontSize:11,fontWeight:700,display:'inline-flex',alignItems:'center',justifyContent:'center'}}>{totalItems}</span>
+              <span style={{fontSize:13,fontWeight:700,letterSpacing:0.5}}>Ver pedido</span>
+              <span style={{fontSize:14,fontWeight:700}}>${total.toFixed(2)}</span>
+            </button>
+          </div>
+        )}
+
+        {/* Fila: toggle vista + tabs + buscador */}
+        <div style={{padding:'8px 12px 10px',display:'flex',flexDirection:'column',gap:8}}>
+          {/* Tabs + toggle */}
+          <div style={{display:'flex',alignItems:'center',gap:6}}>
+            {/* Tab Todo */}
+            <button onClick={()=>setMacroActiva('Todos')} style={{
+              flex:1,padding:'9px 0',border:'none',background:'none',
+              borderBottom: macroActiva==='Todos' ? '2px solid #1a1a1a' : '2px solid transparent',
+              fontFamily:'Poppins,sans-serif',fontSize:12,fontWeight:macroActiva==='Todos'?700:500,
+              color:macroActiva==='Todos'?'#1a1a1a':'#bbb',cursor:'pointer'
+            }}>Todo</button>
+
+            {/* Tab Promociones */}
+            {promociones.length > 0 && (
+              <button onClick={()=>setModalPromos(true)} style={{
+                flex:1,padding:'9px 0',border:'none',background:'none',
+                borderBottom:'2px solid transparent',
+                fontFamily:'Poppins,sans-serif',fontSize:12,fontWeight:500,
+                color:'#7C9263',cursor:'pointer',
+                display:'flex',alignItems:'center',justifyContent:'center',gap:5
+              }}>
+                Promociones
+                <span style={{background:'#7C9263',color:'#fff',borderRadius:100,minWidth:16,height:16,fontSize:9,fontWeight:700,display:'inline-flex',alignItems:'center',justifyContent:'center',padding:'0 4px'}}>{promociones.length}</span>
+              </button>
+            )}
+
+            {/* Toggle grid / slide */}
+            <button onClick={()=>setVistaGrid(v=>v==='grid'?'slide':'grid')} style={{
+              flexShrink:0,width:34,height:34,borderRadius:8,border:'1px solid #ebebeb',
+              background:'#f9f9f9',cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',color:'#555'
+            }}>
+              {vistaGrid==='grid'
+                ? <svg width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='currentColor' strokeWidth='2' strokeLinecap='round'><rect x='3' y='3' width='7' height='7'/><rect x='14' y='3' width='7' height='7'/><rect x='3' y='14' width='7' height='7'/><rect x='14' y='14' width='7' height='7'/></svg>
+                : <svg width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='currentColor' strokeWidth='2' strokeLinecap='round'><rect x='2' y='3' width='20' height='18' rx='2'/><line x1='8' y1='10' x2='16' y2='10'/><line x1='8' y1='14' x2='16' y2='14'/></svg>
+              }
+            </button>
+          </div>
+
+          {/* Buscador */}
+          <div style={{position:'relative'}}>
+            <svg style={{position:'absolute',left:10,top:'50%',transform:'translateY(-50%)',pointerEvents:'none'}} width='13' height='13' viewBox='0 0 24 24' fill='none' stroke='#bbb' strokeWidth='2' strokeLinecap='round'><circle cx='11' cy='11' r='8'/><line x1='21' y1='21' x2='16.65' y2='16.65'/></svg>
+            <input value={busquedaMenu} onChange={e=>setBusquedaMenu(e.target.value)}
+              placeholder='Buscar producto...'
+              style={{width:'100%',padding:'9px 30px 9px 30px',border:'1.5px solid #ebebeb',borderRadius:10,fontFamily:'Poppins,sans-serif',fontSize:13,color:'#1a1a1a',outline:'none',boxSizing:'border-box',background:'#f9f9f9'}}/>
+            {busquedaMenu && (
+              <button onClick={()=>setBusquedaMenu('')} style={{position:'absolute',right:10,top:'50%',transform:'translateY(-50%)',background:'none',border:'none',cursor:'pointer',color:'#bbb',fontSize:18,lineHeight:1}}>×</button>
+            )}
+          </div>
         </div>
-      )}
+      </div>
 
       {/* MODAL PROMOCIONES */}
       {modalPromos && (
