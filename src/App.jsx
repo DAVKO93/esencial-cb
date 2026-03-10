@@ -2327,9 +2327,9 @@ function AdminApp() {
               borderRadius:7,padding:'8px 20px',fontFamily:'Poppins,sans-serif',fontSize:11,fontWeight:600,cursor:'pointer',width:'100%'
             }}>← Regresar a Inicio</button>
             <button onClick={async ()=>{
-              await signOut(auth)
               localStorage.removeItem('esencial_modo')
               localStorage.setItem('esencial_modo','cliente')
+              localStorage.setItem('esencial_desde_admin','1')
               window.location.reload()
             }} style={{
               background:'#7C9263',border:'none',color:'#fff',
@@ -2962,6 +2962,7 @@ function ClienteApp({ onVolver }) {
   const [macroActiva, setMacroActiva] = useState('Todos')
   const [busquedaMenu, setBusquedaMenu] = useState('')
   const [vistaGrid, setVistaGrid] = useState('grid') // 'grid' | 'slide'
+  const desdeAdmin = localStorage.getItem('esencial_desde_admin') === '1'
   const [indiceSlide, setIndiceSlide] = useState(0)
 
   // Productos filtrados por macro
@@ -3333,7 +3334,7 @@ function ClienteApp({ onVolver }) {
               {/* Imagen de fondo full */}
               <img key={prod.id} src={imgSrc} alt={prod.nombre}
                 onError={()=>setImgError(p=>({...p,[prod.id]:true}))}
-                style={{position:'absolute',inset:0,width:'100%',height:'100%',objectFit:'contain',display:'block',background:'#111'}}/>
+                style={{position:'absolute',inset:0,width:'100%',height:'100%',objectFit:'contain',objectPosition:'center bottom',display:'block',background:'#111'}}/>
 
               {/* Degradado inferior para texto legible */}
               <div style={{position:'absolute',bottom:0,left:0,right:0,height:'55%',background:'linear-gradient(to top, rgba(0,0,0,0.88) 0%, rgba(0,0,0,0.3) 60%, transparent 100%)'}}/>
@@ -3362,7 +3363,7 @@ function ClienteApp({ onVolver }) {
               )}
 
               {/* Info + controles superpuestos sobre la imagen */}
-              <div style={{position:'absolute',bottom:0,left:0,right:0,padding:'0 20px 16px',zIndex:2}}>
+              <div style={{position:'absolute',bottom:0,left:0,right:0,padding:'0 16px 12px',zIndex:2}}>
                 <div style={{fontSize:10,fontWeight:700,letterSpacing:2,textTransform:'uppercase',color:'rgba(255,255,255,0.55)',fontFamily:'Poppins,sans-serif',marginBottom:4}}>
                   {prod._esPromo ? 'Promoción del día' : prod.categoria}
                 </div>
@@ -3408,7 +3409,7 @@ function ClienteApp({ onVolver }) {
 
         {/* Botón carrito flotante ENCIMA de la barra */}
         {totalItems > 0 && vistaCliente === 'menu' && (
-          <div style={{position:'absolute',top:-62,left:'50%',transform:'translateX(-50%)',width:'calc(100% - 32px)',maxWidth:320}}>
+          <div style={{position:'absolute',top:-72,left:'50%',transform:'translateX(-50%)',width:'calc(100% - 32px)',maxWidth:320}}>
             <button onClick={()=>setVistaCliente('pedido')} style={{
               width:'100%',display:'flex',alignItems:'center',gap:12,justifyContent:'center',
               background:'#1a1a1a',color:'#fff',border:'none',borderRadius:100,
@@ -3446,20 +3447,20 @@ function ClienteApp({ onVolver }) {
               badge: null
             },
             {
-              key:'promos', label:'Promos',
-              activo: false,
-              onClick: ()=>{ if(promociones.length>0) setModalPromos(true) },
-              icon: <svg width='20' height='20' viewBox='0 0 24 24' fill='none' stroke='currentColor' strokeWidth='2' strokeLinecap='round'><path d='M20.59 13.41l-7.17 7.17a2 2 0 01-2.83 0L2 12V2h10l8.59 8.59a2 2 0 010 2.82z'/><line x1='7' y1='7' x2='7.01' y2='7'/></svg>,
-              badge: promociones.length > 0 ? promociones.length : null
-            },
-            {
               key:'vista', label: vistaGrid==='grid' ? 'Galería' : 'Lista',
-              activo: false,
+              activo: vistaGrid==='slide',
               onClick: ()=>setVistaGrid(v=>v==='grid'?'slide':'grid'),
               icon: vistaGrid==='grid'
                 ? <svg width='20' height='20' viewBox='0 0 24 24' fill='none' stroke='currentColor' strokeWidth='2' strokeLinecap='round'><rect x='2' y='3' width='9' height='9' rx='1'/><rect x='13' y='3' width='9' height='9' rx='1'/><rect x='2' y='14' width='9' height='9' rx='1'/><rect x='13' y='14' width='9' height='9' rx='1'/></svg>
                 : <svg width='20' height='20' viewBox='0 0 24 24' fill='none' stroke='currentColor' strokeWidth='2' strokeLinecap='round'><rect x='2' y='3' width='20' height='18' rx='2'/><line x1='8' y1='10' x2='16' y2='10'/><line x1='8' y1='14' x2='16' y2='14'/></svg>,
               badge: null
+            },
+            {
+              key:'promos', label:'Promos',
+              activo: false,
+              onClick: ()=>{ if(promociones.length>0) setModalPromos(true) },
+              icon: <svg width='20' height='20' viewBox='0 0 24 24' fill='none' stroke='currentColor' strokeWidth='2' strokeLinecap='round'><path d='M20.59 13.41l-7.17 7.17a2 2 0 01-2.83 0L2 12V2h10l8.59 8.59a2 2 0 010 2.82z'/><line x1='7' y1='7' x2='7.01' y2='7'/></svg>,
+              badge: promociones.length > 0 ? promociones.length : null
             },
             {
               key:'carrito', label:'Pedido',
@@ -3659,6 +3660,48 @@ function ClienteApp({ onVolver }) {
               </button>
             </div>
           )}
+        </div>
+      )}
+
+      {/* MODAL PROMOCIONES CLIENTE */}
+      {modalPromos && promociones.length > 0 && (
+        <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.55)',zIndex:2500,display:'flex',alignItems:'flex-end'}}
+          onClick={e=>{if(e.target===e.currentTarget) setModalPromos(false)}}>
+          <div style={{background:'#fff',borderRadius:'20px 20px 0 0',width:'100%',maxWidth:480,margin:'0 auto',padding:'20px 16px 36px',maxHeight:'80vh',overflowY:'auto'}}>
+            <div style={{width:36,height:4,background:'#e0e0e0',borderRadius:2,margin:'0 auto 16px'}}/>
+            <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:16}}>
+              <h3 style={{fontFamily:'Poppins,sans-serif',fontSize:16,fontWeight:700,color:'#1a1a1a',margin:0}}>Promociones del día</h3>
+              <button onClick={()=>setModalPromos(false)} style={{background:'none',border:'none',fontSize:22,cursor:'pointer',color:'#bbb',lineHeight:1}}>×</button>
+            </div>
+            <div style={{display:'flex',flexDirection:'column',gap:12}}>
+              {promociones.map(prod => {
+                const cant = cantidades[prod.id] || 0
+                return (
+                  <div key={prod.id} style={{display:'flex',gap:12,padding:'12px',background:'#f9f9f9',borderRadius:12,border:'1.5px solid #7C9263',alignItems:'center'}}>
+                    {prod.imagen && (
+                      <img src={prod.imagen} alt={prod.nombre} style={{width:64,height:64,objectFit:'cover',borderRadius:8,flexShrink:0}}/>
+                    )}
+                    <div style={{flex:1,minWidth:0}}>
+                      <div style={{background:'#7C9263',color:'#fff',fontSize:9,fontWeight:700,letterSpacing:1,textTransform:'uppercase',borderRadius:4,padding:'2px 7px',display:'inline-block',marginBottom:4,fontFamily:'Poppins,sans-serif'}}>Promo hoy</div>
+                      <div style={{fontFamily:'Poppins,sans-serif',fontSize:14,fontWeight:700,color:'#1a1a1a',lineHeight:1.2}}>{prod.nombre}</div>
+                      <div style={{fontFamily:'Poppins,sans-serif',fontSize:14,fontWeight:700,color:'#1a1a1a',marginTop:2}}>${parseFloat(prod.precio).toFixed(2)}</div>
+                    </div>
+                    <div style={{flexShrink:0}}>
+                      {cant === 0 ? (
+                        <button onClick={()=>addCant(prod.id,1)} style={{width:34,height:34,borderRadius:'50%',border:'none',background:'#1a1a1a',color:'#fff',fontSize:20,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center'}}>+</button>
+                      ) : (
+                        <div style={{display:'flex',alignItems:'center',gap:8}}>
+                          <button onClick={()=>addCant(prod.id,-1)} style={{width:28,height:28,borderRadius:'50%',border:'1.5px solid #d0d0d0',background:'#fff',fontSize:16,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',color:'#555'}}>-</button>
+                          <span style={{fontFamily:'Poppins,sans-serif',fontSize:13,fontWeight:700,minWidth:18,textAlign:'center'}}>{cant}</span>
+                          <button onClick={()=>addCant(prod.id,1)} style={{width:28,height:28,borderRadius:'50%',border:'none',background:'#1a1a1a',color:'#fff',fontSize:16,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center'}}>+</button>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          </div>
         </div>
       )}
 
@@ -3882,6 +3925,28 @@ function ClienteApp({ onVolver }) {
       )}
 
       <Toast/>
+
+      {/* BOTÓN REGRESO AL ADMIN */}
+      {desdeAdmin && (
+        <div style={{position:'fixed',top:66,right:0,left:0,maxWidth:480,margin:'0 auto',zIndex:3000,pointerEvents:'none'}}>
+          <div style={{display:'flex',justifyContent:'flex-end',paddingRight:12}}>
+            <button onClick={()=>{
+              localStorage.removeItem('esencial_desde_admin')
+              localStorage.setItem('esencial_modo','admin')
+              window.location.reload()
+            }} style={{
+              pointerEvents:'all',
+              background:'#1a1a1a',color:'#fff',border:'none',borderRadius:100,
+              padding:'8px 14px',display:'flex',alignItems:'center',gap:6,
+              fontFamily:'Poppins,sans-serif',fontSize:11,fontWeight:700,
+              boxShadow:'0 4px 14px rgba(0,0,0,0.35)',cursor:'pointer',letterSpacing:0.5
+            }}>
+              <svg width='13' height='13' viewBox='0 0 24 24' fill='none' stroke='currentColor' strokeWidth='2.5' strokeLinecap='round'><polyline points='15 18 9 12 15 6'/></svg>
+              Volver a Admin
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
