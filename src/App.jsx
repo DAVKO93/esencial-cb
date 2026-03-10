@@ -153,6 +153,17 @@ const Sound = {
         o2.start(now + i*0.1); o2.stop(now + i*0.1 + 0.2)
       })
       return
+    } else if (type === 'newOrder') {
+      // Pedido domicilio nuevo — doble beep urgente
+      [0, 0.22].forEach(delay => {
+        const o2 = ctx.createOscillator(); const g2 = ctx.createGain()
+        o2.connect(g2); g2.connect(ctx.destination)
+        o2.type = 'sine'; o2.frequency.setValueAtTime(880, now + delay)
+        g2.gain.setValueAtTime(0.1, now + delay)
+        g2.gain.exponentialRampToValueAtTime(0.001, now + delay + 0.18)
+        o2.start(now + delay); o2.stop(now + delay + 0.18)
+      })
+      return
     } else if (type === 'notify') {
       // Nuevo pedido en admin
       const o2 = ctx.createOscillator()
@@ -698,6 +709,10 @@ function AdminApp() {
           const fStr = `${f.getFullYear()}-${String(f.getMonth()+1).padStart(2,'0')}-${String(f.getDate()).padStart(2,'0')}`
           return fStr === hoyStr
         })
+        // Sonido cuando llega nuevo pedido a domicilio
+        if (hoy.length > (pedidosDomicilioHoy?.length || 0)) {
+          try { Sound.play('newOrder') } catch(e) {}
+        }
         setPedidosDomicilio(todos)
         setPedidosDomicilioHoy(hoy)
       }
@@ -2201,23 +2216,42 @@ function AdminApp() {
       </main>
 
       {/* ===== NAV INFERIOR ===== */}
-      <nav style={{position:'fixed',bottom:0,left:0,right:0,background:'#fff',borderTop:'1.5px solid #e0e0e0',display:'flex',zIndex:1000,boxShadow:'0 -4px 16px rgba(0,0,0,0.08)'}}>
-        {navItems.map(n => (
-          <button key={n.key} onClick={()=>{setTab(n.key);if(n.key==='stats')cargarStats(statsPeriodo)}} style={{
-            flex:1,padding:'18px 4px 14px',display:'flex',flexDirection:'column',alignItems:'center',gap:4,
-            border:'none',background:'none',cursor:'pointer',transition:'0.2s',position:'relative',
-            borderTop: tab===n.key?'3px solid #7C9263':'3px solid transparent'
-          }}>
-            {n.badge > 0 && (
-              <span style={{position:'absolute',top:6,right:'15%',background:'#c62828',color:'#fff',borderRadius:100,minWidth:17,height:17,fontSize:9,fontWeight:700,display:'flex',alignItems:'center',justifyContent:'center',padding:'0 4px'}}>
-                {n.badge}
+      <nav style={{position:'fixed',bottom:0,left:0,right:0,background:'#fff',borderTop:'1px solid #f0f0f0',display:'flex',zIndex:1000,boxShadow:'0 -2px 12px rgba(0,0,0,0.06)',paddingBottom:'env(safe-area-inset-bottom)'}}>
+        {navItems.map(n => {
+          const activo = tab === n.key
+          const ICONOS = {
+            menu: <svg width='20' height='20' viewBox='0 0 24 24' fill='none' stroke='currentColor' strokeWidth='2' strokeLinecap='round'><line x1='3' y1='6' x2='21' y2='6'/><line x1='3' y1='12' x2='21' y2='12'/><line x1='3' y1='18' x2='21' y2='18'/></svg>,
+            pedido: <svg width='20' height='20' viewBox='0 0 24 24' fill='none' stroke='currentColor' strokeWidth='2' strokeLinecap='round'><path d='M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z'/><polyline points='14 2 14 8 20 8'/><line x1='16' y1='13' x2='8' y2='13'/><line x1='16' y1='17' x2='8' y2='17'/><polyline points='10 9 9 9 8 9'/></svg>,
+            proceso: <svg width='20' height='20' viewBox='0 0 24 24' fill='none' stroke='currentColor' strokeWidth='2' strokeLinecap='round'><circle cx='12' cy='12' r='10'/><polyline points='12 6 12 12 16 14'/></svg>,
+            domicilio: <svg width='20' height='20' viewBox='0 0 24 24' fill='none' stroke='currentColor' strokeWidth='2' strokeLinecap='round'><path d='M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z'/><polyline points='9 22 9 12 15 12 15 22'/></svg>,
+            historial: <svg width='20' height='20' viewBox='0 0 24 24' fill='none' stroke='currentColor' strokeWidth='2' strokeLinecap='round'><polyline points='12 8 12 12 14 14'/><path d='M3.05 11a9 9 0 1 0 .5-4.5'/><polyline points='1 4 3 6 5 4'/></svg>,
+            stats: <svg width='20' height='20' viewBox='0 0 24 24' fill='none' stroke='currentColor' strokeWidth='2' strokeLinecap='round'><line x1='18' y1='20' x2='18' y2='10'/><line x1='12' y1='20' x2='12' y2='4'/><line x1='6' y1='20' x2='6' y2='14'/></svg>,
+          }
+          const LABELS = { menu:'Menú', pedido:'Pedido', proceso:'Proceso', domicilio:'Domicilio', historial:'Historial', stats:'Stats' }
+          return (
+            <button key={n.key} onClick={()=>{setTab(n.key);if(n.key==='stats')cargarStats(statsPeriodo)}} style={{
+              flex:1,padding:'10px 2px 8px',display:'flex',flexDirection:'column',alignItems:'center',gap:4,
+              border:'none',background:'none',cursor:'pointer',position:'relative'
+            }}>
+              {n.badge > 0 && (
+                <span style={{position:'absolute',top:6,right:'18%',background:'#c62828',color:'#fff',borderRadius:100,minWidth:16,height:16,fontSize:8,fontWeight:700,display:'flex',alignItems:'center',justifyContent:'center',padding:'0 3px',zIndex:1}}>
+                  {n.badge}
+                </span>
+              )}
+              <div style={{
+                width:36,height:36,borderRadius:10,display:'flex',alignItems:'center',justifyContent:'center',
+                background: activo ? '#1a1a1a' : 'transparent',
+                color: activo ? '#fff' : '#bbb',
+                transition:'0.15s'
+              }}>
+                {ICONOS[n.key]}
+              </div>
+              <span style={{fontSize:9,fontWeight:600,letterSpacing:0.5,color:activo?'#1a1a1a':'#bbb',fontFamily:'Poppins,sans-serif'}}>
+                {LABELS[n.key]}
               </span>
-            )}
-            <span style={{fontSize:10,fontWeight:700,letterSpacing:1,textTransform:'uppercase',color:tab===n.key?'#7C9263':'#999'}}>
-              {n.label}
-            </span>
-          </button>
-        ))}
+            </button>
+          )
+        })}
       </nav>
 
       {/* MODAL PERFIL */}
@@ -2826,6 +2860,7 @@ function ClienteApp({ onVolver }) {
   const [subiendoComprobante, setSubiendoComprobante] = useState(false)
   const comprobanteRef = useRef(null)
   const [modalCancelar, setModalCancelar] = useState(false)
+  const [pedidoEnviado, setPedidoEnviado] = useState(false)
   const [modalRegistro, setModalRegistro] = useState(() => {
     const ir = localStorage.getItem('esencial_ir_registro')
     if (ir) { localStorage.removeItem('esencial_ir_registro'); return true }
@@ -2907,6 +2942,7 @@ function ClienteApp({ onVolver }) {
     'Caliente': ['Mixtos','Dulce'],
   }
   const [macroActiva, setMacroActiva] = useState('Todos')
+  const [busquedaMenu, setBusquedaMenu] = useState('')
 
   // Productos filtrados por macro
   const menuBaseFiltrado = macroActiva === 'Todos'
@@ -2925,7 +2961,10 @@ function ClienteApp({ onVolver }) {
     return [...ordenados, ...restantes]
   }
 
-  const menuFiltrado = macroActiva === 'Todos' ? ordenarMenu(menuBaseFiltrado) : menuBaseFiltrado
+  const menuFiltradoBase = macroActiva === 'Todos' ? ordenarMenu(menuBaseFiltrado) : menuBaseFiltrado
+  const menuFiltrado = busquedaMenu.trim()
+    ? menuFiltradoBase.filter(x => x.nombre?.toLowerCase().includes(busquedaMenu.toLowerCase()) || x.descripcion?.toLowerCase().includes(busquedaMenu.toLowerCase()))
+    : menuFiltradoBase
   const items = [...menuFiltrado, ...promociones]
 
   const prod = items[indice]
@@ -3115,7 +3154,7 @@ function ClienteApp({ onVolver }) {
     setComprobanteCliente(null)
     setUrlComprobante(null)
     setVistaCliente('menu')
-    showToast('ok','Pedido enviado por WhatsApp')
+    setPedidoEnviado(true)
   }
 
   if (loadingMenu) return (
@@ -3149,6 +3188,22 @@ function ClienteApp({ onVolver }) {
             {cliente ? cliente.nombre?.split(' ')[0] : 'Entrar'}
           </span>
         </button>
+      </div>
+
+      {/* BUSCADOR */}
+      <div style={{padding:'8px 16px',background:'#fff',borderBottom:'1px solid #f0f0f0'}}>
+        <div style={{position:'relative'}}>
+          <svg style={{position:'absolute',left:11,top:'50%',transform:'translateY(-50%)',pointerEvents:'none'}} width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='#bbb' strokeWidth='2' strokeLinecap='round'><circle cx='11' cy='11' r='8'/><line x1='21' y1='21' x2='16.65' y2='16.65'/></svg>
+          <input
+            value={busquedaMenu}
+            onChange={e=>{setBusquedaMenu(e.target.value)}}
+            placeholder='Buscar producto...'
+            style={{width:'100%',padding:'9px 32px 9px 32px',border:'1.5px solid #ebebeb',borderRadius:10,fontFamily:'Poppins,sans-serif',fontSize:13,color:'#1a1a1a',outline:'none',boxSizing:'border-box',background:'#f9f9f9'}}
+          />
+          {busquedaMenu && (
+            <button onClick={()=>setBusquedaMenu('')} style={{position:'absolute',right:10,top:'50%',transform:'translateY(-50%)',background:'none',border:'none',cursor:'pointer',color:'#bbb',fontSize:16,lineHeight:1}}>×</button>
+          )}
+        </div>
       </div>
 
       {/* CATEGORÍAS */}
@@ -3517,6 +3572,41 @@ function ClienteApp({ onVolver }) {
               </button>
             </div>
           )}
+        </div>
+      )}
+
+      {/* PANTALLA ÉXITO POST-PEDIDO */}
+      {pedidoEnviado && (
+        <div style={{position:'fixed',inset:0,background:'#fff',zIndex:3000,display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',padding:32,maxWidth:480,margin:'0 auto',left:'50%',transform:'translateX(-50%)',width:'100%'}}>
+          <style>{`@keyframes scaleIn{from{opacity:0;transform:scale(0.7)}to{opacity:1;transform:scale(1)}}`}</style>
+          <div style={{animation:'scaleIn 0.4s cubic-bezier(0.34,1.56,0.64,1)',marginBottom:28}}>
+            <div style={{width:80,height:80,borderRadius:'50%',background:'#1a1a1a',display:'flex',alignItems:'center',justifyContent:'center',margin:'0 auto'}}>
+              <svg width='36' height='36' viewBox='0 0 24 24' fill='none' stroke='#fff' strokeWidth='2.5' strokeLinecap='round' strokeLinejoin='round'><polyline points='20 6 9 17 4 12'/></svg>
+            </div>
+          </div>
+          <h2 style={{fontFamily:'Poppins,sans-serif',fontSize:24,fontWeight:700,color:'#1a1a1a',marginBottom:10,textAlign:'center'}}>Pedido enviado</h2>
+          <p style={{fontSize:13,color:'#aaa',textAlign:'center',lineHeight:1.7,fontFamily:'Poppins,sans-serif',marginBottom:8,maxWidth:280}}>
+            Tu pedido fue enviado por WhatsApp. Pronto nos pondremos en contacto contigo.
+          </p>
+          <div style={{width:40,height:1,background:'#ebebeb',margin:'20px auto'}}/>
+          <div style={{background:'#f9f9f9',borderRadius:12,padding:'14px 20px',width:'100%',maxWidth:300,marginBottom:32}}>
+            <div style={{fontSize:10,fontWeight:700,letterSpacing:1.5,textTransform:'uppercase',color:'#bbb',fontFamily:'Poppins,sans-serif',marginBottom:8}}>Qué sigue</div>
+            {[
+              'Recibirás confirmación por WhatsApp',
+              'Preparamos tu pedido',
+              'Entrega a tu dirección',
+            ].map((paso,i) => (
+              <div key={i} style={{display:'flex',alignItems:'center',gap:10,marginBottom:i<2?10:0}}>
+                <div style={{width:20,height:20,borderRadius:'50%',background:'#1a1a1a',color:'#fff',fontSize:10,fontWeight:700,display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0,fontFamily:'Poppins,sans-serif'}}>{i+1}</div>
+                <span style={{fontSize:12,color:'#555',fontFamily:'Poppins,sans-serif'}}>{paso}</span>
+              </div>
+            ))}
+          </div>
+          <button onClick={()=>setPedidoEnviado(false)} style={{
+            width:'100%',maxWidth:300,padding:'14px',background:'#1a1a1a',color:'#fff',
+            border:'none',borderRadius:12,fontFamily:'Poppins,sans-serif',
+            fontSize:13,fontWeight:700,cursor:'pointer'
+          }}>Volver al menú</button>
         </div>
       )}
 
