@@ -2464,7 +2464,7 @@ function AppSelector({ onSelect }) {
 // REGISTRO CLIENTE
 // ==========================================
 function ClienteRegistro({ onRegistrado, onSinRegistro, onVolver }) {
-  const [modo, setModo] = useState(null) // null | 'registro'
+  const [modo, setModo] = useState('registro')
   const [nombre, setNombre] = useState('')
   const [cedula, setCedula] = useState('')
   const [direccion, setDireccion] = useState('')
