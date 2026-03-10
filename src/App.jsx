@@ -2318,10 +2318,27 @@ function AdminApp() {
         )}
         <div style={{marginTop:12,paddingTop:12,borderTop:'1px solid #e0e0e0',textAlign:'center'}}>
           <div style={{display:'flex',flexDirection:'column',gap:8}}>
-            <button onClick={()=>{localStorage.removeItem('esencial_modo');window.location.reload()}} style={{
+            <button onClick={async ()=>{
+              await signOut(auth)
+              localStorage.removeItem('esencial_modo')
+              window.location.reload()
+            }} style={{
               background:'#f4f4f4',border:'1px solid #e0e0e0',color:'#1a1a1a',
               borderRadius:7,padding:'8px 20px',fontFamily:'Poppins,sans-serif',fontSize:11,fontWeight:600,cursor:'pointer',width:'100%'
             }}>← Regresar a Inicio</button>
+            <button onClick={async ()=>{
+              await signOut(auth)
+              localStorage.removeItem('esencial_modo')
+              localStorage.setItem('esencial_modo','cliente')
+              window.location.reload()
+            }} style={{
+              background:'#7C9263',border:'none',color:'#fff',
+              borderRadius:7,padding:'8px 20px',fontFamily:'Poppins,sans-serif',fontSize:11,fontWeight:600,cursor:'pointer',width:'100%',
+              display:'flex',alignItems:'center',justifyContent:'center',gap:6
+            }}>
+              <svg width='13' height='13' viewBox='0 0 24 24' fill='none' stroke='currentColor' strokeWidth='2.5' strokeLinecap='round'><path d='M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z'/><circle cx='12' cy='12' r='3'/></svg>
+              Ver como Cliente
+            </button>
             <button onClick={()=>signOut(auth)} style={{background:'none',border:'1px solid #ffcdd2',color:'#c62828',borderRadius:7,padding:'8px 20px',fontFamily:'Poppins,sans-serif',fontSize:11,fontWeight:600,cursor:'pointer'}}>
               Cerrar Sesion
             </button>
@@ -3316,7 +3333,7 @@ function ClienteApp({ onVolver }) {
               {/* Imagen de fondo full */}
               <img key={prod.id} src={imgSrc} alt={prod.nombre}
                 onError={()=>setImgError(p=>({...p,[prod.id]:true}))}
-                style={{position:'absolute',inset:0,width:'100%',height:'100%',objectFit:'cover',display:'block'}}/>
+                style={{position:'absolute',inset:0,width:'100%',height:'100%',objectFit:'contain',display:'block',background:'#111'}}/>
 
               {/* Degradado inferior para texto legible */}
               <div style={{position:'absolute',bottom:0,left:0,right:0,height:'55%',background:'linear-gradient(to top, rgba(0,0,0,0.88) 0%, rgba(0,0,0,0.3) 60%, transparent 100%)'}}/>
@@ -3386,15 +3403,16 @@ function ClienteApp({ onVolver }) {
         })()}
       </div>
 
-      {/* BARRA INFERIOR FIJA — buscador + tabs */}
-      <div style={{position:'fixed',bottom:0,left:'50%',transform:'translateX(-50%)',width:'100%',maxWidth:480,zIndex:200,background:'#fff',borderTop:'1px solid #f0f0f0',boxShadow:'0 -2px 12px rgba(0,0,0,0.06)'}}>
+      {/* BARRA INFERIOR FIJA — buscador + nav íconos */}
+      <div style={{position:'fixed',bottom:0,left:'50%',transform:'translateX(-50%)',width:'100%',maxWidth:480,zIndex:200,background:'#fff',borderTop:'1px solid #f0f0f0',boxShadow:'0 -2px 12px rgba(0,0,0,0.06)',paddingBottom:'env(safe-area-inset-bottom)'}}>
+
         {/* Botón carrito flotante ENCIMA de la barra */}
         {totalItems > 0 && vistaCliente === 'menu' && (
-          <div style={{position:'absolute',top:-60,left:'50%',transform:'translateX(-50%)',width:'calc(100% - 32px)',maxWidth:320}}>
+          <div style={{position:'absolute',top:-62,left:'50%',transform:'translateX(-50%)',width:'calc(100% - 32px)',maxWidth:320}}>
             <button onClick={()=>setVistaCliente('pedido')} style={{
               width:'100%',display:'flex',alignItems:'center',gap:12,justifyContent:'center',
               background:'#1a1a1a',color:'#fff',border:'none',borderRadius:100,
-              padding:'13px 22px',boxShadow:'0 6px 20px rgba(0,0,0,0.20)',
+              padding:'13px 22px',boxShadow:'0 6px 20px rgba(0,0,0,0.22)',
               cursor:'pointer',fontFamily:'Poppins,sans-serif'
             }}>
               <span style={{background:'#7C9263',color:'#fff',borderRadius:'50%',width:22,height:22,fontSize:11,fontWeight:700,display:'inline-flex',alignItems:'center',justifyContent:'center'}}>{totalItems}</span>
@@ -3404,45 +3422,8 @@ function ClienteApp({ onVolver }) {
           </div>
         )}
 
-        {/* Fila: toggle vista + tabs + buscador */}
-        <div style={{padding:'8px 12px 10px',display:'flex',flexDirection:'column',gap:8}}>
-          {/* Tabs + toggle */}
-          <div style={{display:'flex',alignItems:'center',gap:6}}>
-            {/* Tab Todo */}
-            <button onClick={()=>setMacroActiva('Todos')} style={{
-              flex:1,padding:'9px 0',border:'none',background:'none',
-              borderBottom: macroActiva==='Todos' ? '2px solid #1a1a1a' : '2px solid transparent',
-              fontFamily:'Poppins,sans-serif',fontSize:12,fontWeight:macroActiva==='Todos'?700:500,
-              color:macroActiva==='Todos'?'#1a1a1a':'#bbb',cursor:'pointer'
-            }}>Todo</button>
-
-            {/* Tab Promociones */}
-            {promociones.length > 0 && (
-              <button onClick={()=>setModalPromos(true)} style={{
-                flex:1,padding:'9px 0',border:'none',background:'none',
-                borderBottom:'2px solid transparent',
-                fontFamily:'Poppins,sans-serif',fontSize:12,fontWeight:500,
-                color:'#7C9263',cursor:'pointer',
-                display:'flex',alignItems:'center',justifyContent:'center',gap:5
-              }}>
-                Promociones
-                <span style={{background:'#7C9263',color:'#fff',borderRadius:100,minWidth:16,height:16,fontSize:9,fontWeight:700,display:'inline-flex',alignItems:'center',justifyContent:'center',padding:'0 4px'}}>{promociones.length}</span>
-              </button>
-            )}
-
-            {/* Toggle grid / slide */}
-            <button onClick={()=>setVistaGrid(v=>v==='grid'?'slide':'grid')} style={{
-              flexShrink:0,width:34,height:34,borderRadius:8,border:'1px solid #ebebeb',
-              background:'#f9f9f9',cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',color:'#555'
-            }}>
-              {vistaGrid==='grid'
-                ? <svg width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='currentColor' strokeWidth='2' strokeLinecap='round'><rect x='3' y='3' width='7' height='7'/><rect x='14' y='3' width='7' height='7'/><rect x='3' y='14' width='7' height='7'/><rect x='14' y='14' width='7' height='7'/></svg>
-                : <svg width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='currentColor' strokeWidth='2' strokeLinecap='round'><rect x='2' y='3' width='20' height='18' rx='2'/><line x1='8' y1='10' x2='16' y2='10'/><line x1='8' y1='14' x2='16' y2='14'/></svg>
-              }
-            </button>
-          </div>
-
-          {/* Buscador */}
+        {/* Buscador arriba */}
+        <div style={{padding:'10px 12px 6px',borderBottom:'1px solid #f5f5f5'}}>
           <div style={{position:'relative'}}>
             <svg style={{position:'absolute',left:10,top:'50%',transform:'translateY(-50%)',pointerEvents:'none'}} width='13' height='13' viewBox='0 0 24 24' fill='none' stroke='#bbb' strokeWidth='2' strokeLinecap='round'><circle cx='11' cy='11' r='8'/><line x1='21' y1='21' x2='16.65' y2='16.65'/></svg>
             <input value={busquedaMenu} onChange={e=>setBusquedaMenu(e.target.value)}
@@ -3453,53 +3434,68 @@ function ClienteApp({ onVolver }) {
             )}
           </div>
         </div>
-      </div>
 
-      {/* MODAL PROMOCIONES */}
-      {modalPromos && (
-        <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.45)',zIndex:1000,display:'flex',alignItems:'flex-end'}}
-          onClick={e=>{if(e.target===e.currentTarget)setModalPromos(false)}}>
-          <div style={{background:'#fff',borderRadius:'20px 20px 0 0',width:'100%',maxWidth:480,margin:'0 auto',maxHeight:'88vh',overflowY:'auto',padding:'20px 16px 36px'}}>
-            <div style={{width:36,height:4,background:'#e0e0e0',borderRadius:2,margin:'0 auto 20px'}}/>
-            <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:20}}>
-              <div>
-                <h3 style={{fontFamily:'Poppins,sans-serif',fontSize:18,fontWeight:700,color:'#1a1a1a'}}>Promociones</h3>
-                <p style={{fontSize:11,color:'#aaa',marginTop:2,fontFamily:'Poppins,sans-serif'}}>Solo por hoy</p>
+        {/* Nav con íconos */}
+        <div style={{display:'flex',alignItems:'stretch'}}>
+          {[
+            {
+              key:'todo', label:'Menú',
+              activo: macroActiva==='Todos' && !busquedaMenu,
+              onClick: ()=>{ setMacroActiva('Todos'); setBusquedaMenu('') },
+              icon: <svg width='20' height='20' viewBox='0 0 24 24' fill='none' stroke='currentColor' strokeWidth='2' strokeLinecap='round'><line x1='3' y1='6' x2='21' y2='6'/><line x1='3' y1='12' x2='21' y2='12'/><line x1='3' y1='18' x2='21' y2='18'/></svg>,
+              badge: null
+            },
+            {
+              key:'promos', label:'Promos',
+              activo: false,
+              onClick: ()=>{ if(promociones.length>0) setModalPromos(true) },
+              icon: <svg width='20' height='20' viewBox='0 0 24 24' fill='none' stroke='currentColor' strokeWidth='2' strokeLinecap='round'><path d='M20.59 13.41l-7.17 7.17a2 2 0 01-2.83 0L2 12V2h10l8.59 8.59a2 2 0 010 2.82z'/><line x1='7' y1='7' x2='7.01' y2='7'/></svg>,
+              badge: promociones.length > 0 ? promociones.length : null
+            },
+            {
+              key:'vista', label: vistaGrid==='grid' ? 'Galería' : 'Lista',
+              activo: false,
+              onClick: ()=>setVistaGrid(v=>v==='grid'?'slide':'grid'),
+              icon: vistaGrid==='grid'
+                ? <svg width='20' height='20' viewBox='0 0 24 24' fill='none' stroke='currentColor' strokeWidth='2' strokeLinecap='round'><rect x='2' y='3' width='9' height='9' rx='1'/><rect x='13' y='3' width='9' height='9' rx='1'/><rect x='2' y='14' width='9' height='9' rx='1'/><rect x='13' y='14' width='9' height='9' rx='1'/></svg>
+                : <svg width='20' height='20' viewBox='0 0 24 24' fill='none' stroke='currentColor' strokeWidth='2' strokeLinecap='round'><rect x='2' y='3' width='20' height='18' rx='2'/><line x1='8' y1='10' x2='16' y2='10'/><line x1='8' y1='14' x2='16' y2='14'/></svg>,
+              badge: null
+            },
+            {
+              key:'carrito', label:'Pedido',
+              activo: vistaCliente === 'pedido',
+              onClick: ()=>setVistaCliente('pedido'),
+              icon: <svg width='20' height='20' viewBox='0 0 24 24' fill='none' stroke='currentColor' strokeWidth='2' strokeLinecap='round'><path d='M6 2L3 6v14a2 2 0 002 2h14a2 2 0 002-2V6l-3-4z'/><line x1='3' y1='6' x2='21' y2='6'/><path d='M16 10a4 4 0 01-8 0'/></svg>,
+              badge: totalItems > 0 ? totalItems : null
+            },
+            {
+              key:'perfil', label:'Perfil',
+              activo: modalPerfilCliente,
+              onClick: ()=>setModalPerfilCliente(true),
+              icon: <svg width='20' height='20' viewBox='0 0 24 24' fill='none' stroke='currentColor' strokeWidth='2' strokeLinecap='round'><path d='M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2'/><circle cx='12' cy='7' r='4'/></svg>,
+              badge: null
+            },
+          ].map(t => (
+            <button key={t.key} onClick={t.onClick} style={{
+              flex:1,padding:'8px 2px 8px',display:'flex',flexDirection:'column',
+              alignItems:'center',gap:3,border:'none',background:'none',cursor:'pointer',position:'relative'
+            }}>
+              {t.badge > 0 && (
+                <span style={{position:'absolute',top:5,right:'12%',background:'#c62828',color:'#fff',borderRadius:100,minWidth:15,height:15,fontSize:8,fontWeight:700,display:'flex',alignItems:'center',justifyContent:'center',padding:'0 3px',zIndex:1}}>{t.badge}</span>
+              )}
+              <div style={{
+                width:36,height:36,borderRadius:10,display:'flex',alignItems:'center',justifyContent:'center',
+                background: t.activo ? '#1a1a1a' : 'transparent',
+                color: t.activo ? '#fff' : '#bbb',
+                transition:'0.15s'
+              }}>
+                {t.icon}
               </div>
-              <button onClick={()=>setModalPromos(false)} style={{background:'#f4f4f4',border:'none',width:32,height:32,borderRadius:'50%',cursor:'pointer',fontSize:16,color:'#888',display:'flex',alignItems:'center',justifyContent:'center'}}>×</button>
-            </div>
-            {promociones.length === 0 ? (
-              <div style={{textAlign:'center',padding:'30px 0',color:'#bbb',fontSize:13,fontFamily:'Poppins,sans-serif'}}>Sin promociones activas hoy</div>
-            ) : promociones.map(p => (
-              <div key={p.id} style={{border:'1px solid #ebebeb',borderRadius:14,overflow:'hidden',marginBottom:12}}>
-                {p.imagen && <img src={p.imagen} alt={p.nombre} style={{width:'100%',height:150,objectFit:'cover',display:'block'}}/>}
-                <div style={{padding:'14px 16px'}}>
-                  <div style={{display:'flex',alignItems:'flex-start',justifyContent:'space-between',marginBottom:4}}>
-                    <div style={{flex:1}}>
-                      <div style={{fontWeight:700,fontSize:15,color:'#1a1a1a',fontFamily:'Poppins,sans-serif'}}>{p.nombre}</div>
-                      {p.descripcion && <div style={{fontSize:12,color:'#aaa',marginTop:3,lineHeight:1.5}}>{p.descripcion}</div>}
-                    </div>
-                    <span style={{fontFamily:'Poppins,sans-serif',fontSize:18,fontWeight:700,color:'#1a1a1a',marginLeft:12}}>${parseFloat(p.precio).toFixed(2)}</span>
-                  </div>
-                  <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginTop:12,paddingTop:12,borderTop:'1px solid #f0f0f0'}}>
-                    <span style={{fontSize:11,color:'#aaa',fontFamily:'Poppins,sans-serif',letterSpacing:0.5}}>Cantidad</span>
-                    <div style={{display:'flex',alignItems:'center',gap:10}}>
-                      <button onClick={()=>addCant(p.id,-1)} style={{width:30,height:30,borderRadius:'50%',border:'1.5px solid #d0d0d0',background:'#fff',fontSize:17,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',color:'#555'}}>-</button>
-                      <span style={{fontSize:16,fontWeight:700,minWidth:20,textAlign:'center',fontFamily:'Poppins,sans-serif'}}>{cantidades[p.id]||0}</span>
-                      <button onClick={()=>addCant(p.id,1)} style={{width:30,height:30,borderRadius:'50%',border:'none',background:'#1a1a1a',fontSize:17,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',color:'#fff'}}>+</button>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            ))}
-            <button onClick={()=>setModalPromos(false)} style={{
-              width:'100%',padding:'13px',background:'#1a1a1a',color:'#fff',border:'none',borderRadius:11,
-              fontFamily:'Poppins,sans-serif',fontSize:12,fontWeight:700,letterSpacing:1.5,
-              textTransform:'uppercase',cursor:'pointer',marginTop:4
-            }}>Ver menú completo</button>
-          </div>
+              <span style={{fontSize:9,fontWeight:600,letterSpacing:0.5,color:t.activo?'#1a1a1a':'#bbb',fontFamily:'Poppins,sans-serif'}}>{t.label}</span>
+            </button>
+          ))}
         </div>
-      )}
+      </div>
 
       {/* VISTA PEDIDO */}
       {vistaCliente==='pedido' && (
@@ -3838,13 +3834,7 @@ function ClienteApp({ onVolver }) {
                 Mis Pedidos
               </button>
             )}
-            {!editandoPerfil && (
-              <button onClick={()=>{setModalPerfilCliente(false);localStorage.removeItem('esencial_modo');window.location.reload()}} style={{
-                width:'100%',padding:'12px',background:'#f4f4f4',color:'#1a1a1a',
-                border:'1px solid #ebebeb',borderRadius:10,
-                fontFamily:'Poppins,sans-serif',fontSize:12,fontWeight:600,cursor:'pointer',marginTop:4
-              }}>Regresar a Inicio</button>
-            )}
+
           </div>
         </div>
       )}
@@ -3901,19 +3891,6 @@ function ClienteApp({ onVolver }) {
 // ==========================================
 export default function App() {
   const [modo, setModo] = useState(() => localStorage.getItem('esencial_modo') || null)
-
-  // Auto-detectar sesión admin activa para no pedir login de nuevo
-  useEffect(() => {
-    if (localStorage.getItem('esencial_modo')) return // ya hay modo seleccionado
-    const unsub = onAuthStateChanged(auth, (u) => {
-      if (u && u.email && !u.isAnonymous) {
-        // Hay sesión de email activa → ir directo al admin sin pedir credenciales
-        localStorage.setItem('esencial_modo', 'admin')
-        setModo('admin')
-      }
-    })
-    return unsub
-  }, [])
 
   function seleccionar(m) {
     if (m === 'cliente-registro') {
