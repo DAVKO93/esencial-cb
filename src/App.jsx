@@ -9,7 +9,7 @@ import {
 } from 'firebase/firestore'
 import {
   signInWithEmailAndPassword, createUserWithEmailAndPassword,
-  signOut, onAuthStateChanged
+  signOut, onAuthStateChanged, signInAnonymously
 } from 'firebase/auth'
 
 const G = `
@@ -811,6 +811,17 @@ function AdminApp() {
     setDatosCliente(p => { const n={...p}; delete n[id]; return n })
     try {
       await updateDoc(doc(db,'pedidos',id), updateData)
+      // Registrar venta completada con productos
+      const pedidoCompletado = pedidosActivos.find(x => x.id === id)
+      if (pedidoCompletado) {
+        registrarEvento('venta_completada', {
+          origen: 'admin_mesa',
+          mesa: pedidoCompletado.mesa || '',
+          items: (pedidoCompletado.items||[]).map(x=>({nombre:x.nombre, cantidad:x.cantidad, precio:x.precio})),
+          total: pedidoCompletado.total || 0,
+          formaPago
+        })
+      }
       try{Sound.play('success')}catch(e){}
       showToast('ok','Pedido marcado como listo')
     } catch(e) {
@@ -834,6 +845,13 @@ function AdminApp() {
     setPedidosActivos(p => p.filter(x => x.id !== idEliminar))
     setHistorial(p => p.filter(x => x.id !== idEliminar))
     try {
+      const pedidoElim = pedidosActivos.find(x => x.id === idEliminar)
+      registrarEvento('pedido_cancelado', {
+        origen: 'admin_mesa',
+        mesa: pedidoElim?.mesa || '',
+        items: (pedidoElim?.items||[]).map(x=>({nombre:x.nombre, cantidad:x.cantidad})),
+        total: pedidoElim?.total || 0
+      })
       await deleteDoc(doc(db,'pedidos', idEliminar))
       showToast('ok','Pedido eliminado')
     } catch(e) {
@@ -915,6 +933,15 @@ function AdminApp() {
         creadoEn: p.creadoEn || serverTimestamp(),
         ...(p.urlComprobante ? { urlComprobante: p.urlComprobante } : {})
       })
+      // Registrar domicilio entregado
+      registrarEvento('venta_completada', {
+        origen: 'admin_domicilio',
+        cliente: p.cliente || '',
+        telefono: p.telefono || '',
+        items: (p.items||[]).map(x=>({nombre:x.nombre, cantidad:x.cantidad, precio:x.precio})),
+        total: p.total || 0,
+        formaPago: 'Transferencia'
+      })
       // Eliminar de domicilio
       await deleteDoc(doc(db,'domicilio', p.id))
       showToast('ok','Pedido marcado como entregado')
@@ -923,6 +950,14 @@ function AdminApp() {
 
   async function eliminarDomicilio(id) {
     try {
+      const pedidoElim = pedidosDom.find(x => x.id === id)
+      if (pedidoElim) registrarEvento('pedido_cancelado', {
+        origen: 'admin_domicilio',
+        cliente: pedidoElim.cliente || '',
+        telefono: pedidoElim.telefono || '',
+        items: (pedidoElim.items||[]).map(x=>({nombre:x.nombre, cantidad:x.cantidad})),
+        total: pedidoElim.total || 0
+      })
       await deleteDoc(doc(db,'domicilio', id))
       showToast('ok','Pedido eliminado')
     } catch(e) { showToast('err','Error al eliminar') }
@@ -2272,6 +2307,20 @@ function FormPromocion({ initial, promocionesHoy, onClose }) {
 // ==========================================
 // IMAGENES PROFESIONALES POR CATEGORIA
 // ==========================================
+// ==========================================
+// ANALYTICS — registrar eventos en Firestore
+// ==========================================
+async function registrarEvento(tipo, datos = {}) {
+  try {
+    await addDoc(collection(db, 'registros'), {
+      tipo,
+      ...datos,
+      fecha: new Date().toISOString().slice(0,10), // YYYY-MM-DD
+      timestamp: serverTimestamp()
+    })
+  } catch(e) { /* silencioso — no interrumpir flujo */ }
+}
+
 const IMGS_CATEGORIA = {
   'Congelados': 'https://images.unsplash.com/photo-1497034825429-c343d7c6a68f?w=800&q=80',
   'Dulce':      'https://images.unsplash.com/photo-1551024506-0bccd828d307?w=800&q=80',
@@ -2426,18 +2475,24 @@ function ClienteRegistro({ onRegistrado, onSinRegistro, onVolver }) {
 
   async function registrar() {
     if (!nombre) { setMsg('El nombre es obligatorio'); return }
-    if (!direccion) { setMsg('La dirección es obligatoria'); return }
-    if (!telefono) { setMsg('El teléfono es obligatorio'); return }
+    if (!direccion) { setMsg('La direccion es obligatoria'); return }
+    if (!telefono) { setMsg('El telefono es obligatorio'); return }
     setLoading(true); setMsg(null)
     const perfil = { nombre, cedula, direccion, referencia, telefono, creadoEn: new Date().toISOString() }
     try {
+      // Asegurar autenticacion anonima antes de escribir en Firestore
+      if (!auth.currentUser) await signInAnonymously(auth)
       await addDoc(collection(db,'clientes'), perfil)
       localStorage.setItem('esencial_cliente', JSON.stringify(perfil))
       onRegistrado(perfil)
     } catch(e) {
-      // Guardar local si falla Firestore
-      localStorage.setItem('esencial_cliente', JSON.stringify(perfil))
-      onRegistrado(perfil)
+      // Solo guardar local si es problema de red real
+      if (e.code === 'unavailable' || (e.message && e.message.includes('network'))) {
+        localStorage.setItem('esencial_cliente', JSON.stringify(perfil))
+        onRegistrado(perfil)
+      } else {
+        setMsg('Error al guardar perfil, intenta de nuevo')
+      }
     }
     setLoading(false)
   }
@@ -2552,6 +2607,21 @@ function ClienteApp({ onVolver }) {
   const touchStartX = useRef(null)
   const touchStartY = useRef(null)
 
+  // Autenticacion anonima para que el cliente pueda escribir en Firestore
+  useEffect(() => {
+    const iniciar = async () => {
+      if (!auth.currentUser) {
+        await signInAnonymously(auth).catch(() => {})
+      }
+      // Registrar sesión de entrada
+      registrarEvento('sesion_inicio', {
+        origen: 'cliente_app',
+        clienteRegistrado: !!localStorage.getItem('esencial_cliente')
+      })
+    }
+    iniciar()
+  }, [])
+
   // Cargar menu + promociones en tiempo real
   useEffect(() => {
     const unsub = onSnapshot(
@@ -2615,6 +2685,17 @@ function ClienteApp({ onVolver }) {
 
   function addCant(id, delta) {
     try{Sound.play(delta > 0 ? 'add' : 'remove')}catch(e){}
+    // Registrar primera vez que agrega producto
+    if (delta > 0 && !cantidades[id]) {
+      const prod = items.find(x => x.id === id)
+      if (prod) registrarEvento('producto_agregado', {
+        origen: 'cliente_app',
+        productoId: id,
+        nombre: prod.nombre,
+        categoria: prod.categoria || '',
+        precio: prod.precio
+      })
+    }
     setCantidades(p => {
       const v = Math.max(0, (p[id]||0) + delta)
       if (v === 0) { const n = {...p}; delete n[id]; return n }
@@ -2675,21 +2756,20 @@ function ClienteApp({ onVolver }) {
     if (!cliente) return
     setLoadingHistorial(true)
     try {
-      const q = query(
-        collection(db,'domicilio'),
-        where('telefono','==', cliente.telefono),
-        orderBy('creadoEn','desc')
-      )
-      const snap = await getDocs(q)
-      setHistorialPedidos(snap.docs.map(d => ({id:d.id, ...d.data()})))
+      // Buscar en domicilio (activos) y pedidos (entregados)
+      const [snapDom, snapPed] = await Promise.all([
+        getDocs(query(collection(db,'domicilio'), where('telefono','==', cliente.telefono))),
+        getDocs(query(collection(db,'pedidos'), where('telefono','==', cliente.telefono), where('tipoCliente','==','Domicilio')))
+      ])
+      const activos = snapDom.docs.map(d => ({id:d.id, ...d.data(), _coleccion:'domicilio'}))
+      const entregados = snapPed.docs.map(d => ({id:d.id, ...d.data(), _coleccion:'pedidos'}))
+      const todos = [...activos, ...entregados]
+      todos.sort((a,b) => (b.creadoEn?.seconds||0) - (a.creadoEn?.seconds||0))
+      setHistorialPedidos(todos)
     } catch(e) {
-      // Si falla el orderBy (índice), intentar sin ordenar
       try {
-        const q2 = query(collection(db,'domicilio'), where('telefono','==', cliente.telefono))
-        const snap2 = await getDocs(q2)
-        const lista = snap2.docs.map(d => ({id:d.id, ...d.data()}))
-        lista.sort((a,b) => (b.creadoEn?.seconds||0) - (a.creadoEn?.seconds||0))
-        setHistorialPedidos(lista)
+        const snap = await getDocs(query(collection(db,'domicilio'), where('telefono','==', cliente.telefono)))
+        setHistorialPedidos(snap.docs.map(d => ({id:d.id, ...d.data()})))
       } catch(e2) { setHistorialPedidos([]) }
     }
     setLoadingHistorial(false)
@@ -2697,18 +2777,17 @@ function ClienteApp({ onVolver }) {
 
   function agregarDelHistorial(pedido) {
     if (!pedido.items?.length) return
+    const nuevasCantidades = {...cantidades}
     pedido.items.forEach(it => {
       // Buscar el producto en el menú actual para tener precio actualizado
       const prod = menu.find(m => m.nombre === it.nombre)
       if (!prod) return
-      setCarrito(prev => {
-        const existe = prev.find(c => c.id === prod.id)
-        if (existe) return prev.map(c => c.id===prod.id ? {...c, cantidad: c.cantidad + it.cantidad} : c)
-        return [...prev, {...prod, cantidad: it.cantidad}]
-      })
+      nuevasCantidades[prod.id] = (nuevasCantidades[prod.id] || 0) + it.cantidad
     })
+    setCantidades(nuevasCantidades)
     setModalHistorial(false)
     setModalPerfilCliente(false)
+    setVistaCliente('pedido')
     showToast('ok', `${pedido.items.length} productos agregados al carrito`)
   }
 
@@ -2765,6 +2844,15 @@ function ClienteApp({ onVolver }) {
     ].filter(Boolean).join('%0A')
 
     try{Sound.play('success')}catch(e){}
+    // Registrar pedido enviado
+    registrarEvento('pedido_enviado_whatsapp', {
+      origen: 'cliente_app',
+      cliente: n,
+      telefono: tel,
+      items: itemsData.map(x=>({nombre:x.nombre, cantidad:x.cantidad})),
+      subtotal,
+      total
+    })
     window.open(`https://wa.me/${WA_NUM}?text=${msg}`, '_blank')
     setModalImportante(false)
     setModalPedido(false)
@@ -3414,7 +3502,12 @@ function ClienteApp({ onVolver }) {
                 border:'1.5px solid #d0d0d0',borderRadius:9,
                 fontFamily:'Poppins,sans-serif',fontSize:12,fontWeight:700,cursor:'pointer'
               }}>Volver</button>
-              <button onClick={()=>{setCantidades({});setComprobanteCliente(null);setUrlComprobante(null);setModalCancelar(false);setVistaCliente('menu')}} style={{
+              <button onClick={()=>{setCantidades({});setComprobanteCliente(null);setUrlComprobante(null);setModalCancelar(false);setVistaCliente('menu');
+              registrarEvento('pedido_cancelado', {
+                origen: 'cliente_app',
+                nombre: cliente?.nombre || tmpNombre || 'Sin nombre',
+                telefono: cliente?.telefono || tmpTel || ''
+              })}} style={{
                 flex:1,padding:'12px',background:'#1a1a1a',color:'#fff',
                 border:'none',borderRadius:9,
                 fontFamily:'Poppins,sans-serif',fontSize:12,fontWeight:700,cursor:'pointer'
