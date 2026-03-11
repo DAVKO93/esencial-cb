@@ -2949,31 +2949,6 @@ function ClienteApp({ onVolver, esPreview }) {
     }
   }, [])
 
-  // ── HISTORY API — gestos de retroceso ──────────────────────────────────────
-  useEffect(() => {
-    // Estado inicial para que el primer "atrás" no salga de la app
-    window.history.pushState({ nivel: 'menu' }, '')
-  }, [])
-
-  useEffect(() => {
-    const handleBack = () => {
-      // Cerrar en orden: modales primero, luego vistas
-      if (modalImportante)       { setModalImportante(false);   window.history.pushState({ nivel: 'pedido' }, ''); return }
-      if (modalCancelar)         { setModalCancelar(false);     window.history.pushState({ nivel: 'pedido' }, ''); return }
-      if (modalPerfilCliente)    { setModalPerfilCliente(false);window.history.pushState({ nivel: 'menu' }, '');  return }
-      if (buscadorAbierto)       { setBuscadorAbierto(false);   window.history.pushState({ nivel: 'menu' }, '');  return }
-      if (modalPromos)           { setModalPromos(false);       window.history.pushState({ nivel: 'menu' }, '');  return }
-      if (vistaCliente === 'pedido') {
-        setVistaCliente('menu')
-        window.history.pushState({ nivel: 'menu' }, '')
-        return
-      }
-      // En menú principal: dejar que el navegador salga normalmente
-    }
-    window.addEventListener('popstate', handleBack)
-    return () => window.removeEventListener('popstate', handleBack)
-  }, [modalImportante, modalCancelar, modalPerfilCliente, buscadorAbierto, modalPromos, vistaCliente])
-
   // Cargar menu + promociones en tiempo real
   useEffect(() => {
     const unsub = onSnapshot(
@@ -3011,6 +2986,28 @@ function ClienteApp({ onVolver, esPreview }) {
   const [buscadorAbierto, setBuscadorAbierto] = useState(false)
   const [indicePromo, setIndicePromo] = useState(0)
   const touchPromoX = useRef(null)
+
+  // ── HISTORY API — gestos de retroceso ─────────────────────────────────────
+  useEffect(() => {
+    window.history.pushState({ nivel: 'menu' }, '')
+  }, [])
+
+  useEffect(() => {
+    const handleBack = () => {
+      if (modalImportante)       { setModalImportante(false);   window.history.pushState({ nivel: 'pedido' }, ''); return }
+      if (modalCancelar)         { setModalCancelar(false);     window.history.pushState({ nivel: 'pedido' }, ''); return }
+      if (modalPerfilCliente)    { setModalPerfilCliente(false);window.history.pushState({ nivel: 'menu' }, '');  return }
+      if (buscadorAbierto)       { setBuscadorAbierto(false);   window.history.pushState({ nivel: 'menu' }, '');  return }
+      if (modalPromos)           { setModalPromos(false);       window.history.pushState({ nivel: 'menu' }, '');  return }
+      if (vistaCliente === 'pedido') {
+        setVistaCliente('menu')
+        window.history.pushState({ nivel: 'menu' }, '')
+        return
+      }
+    }
+    window.addEventListener('popstate', handleBack)
+    return () => window.removeEventListener('popstate', handleBack)
+  }, [modalImportante, modalCancelar, modalPerfilCliente, buscadorAbierto, modalPromos, vistaCliente])
 
   // Productos filtrados por macro
   const menuBaseFiltrado = macroActiva === 'Todos'
