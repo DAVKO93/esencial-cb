@@ -524,6 +524,7 @@ function AdminApp({ onVerComoCliente }) {
   const [menuItems, setMenuItems] = useState([])
   const [cart, setCart] = useState([])
   const [catActiva, setCatActiva] = useState('Todos')
+  const [catDropdown, setCatDropdown] = useState(false)
   const [tipoCliente, setTipoCliente] = useState('cliente')
   const [pedidosActivos, setPedidosActivos] = useState([])
   const [pagoSel, setPagoSel] = useState({})
@@ -1409,53 +1410,14 @@ function AdminApp({ onVerComoCliente }) {
       </header>
 
       {/* MAIN */}
-      <main style={{maxWidth:900,margin:'0 auto',padding:'16px 12px calc(90px + env(safe-area-inset-bottom))'}}>
+      <main style={{maxWidth:900,margin:'0 auto',padding:'16px 12px calc(130px + env(safe-area-inset-bottom))'}} onClick={()=>catDropdown && setCatDropdown(false)}>
 
         {/* ===== MENU ===== */}
         {tab==='menu' && (
           <div style={{animation:'fadeIn 0.3s ease'}}>
-            <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:14,paddingBottom:12,borderBottom:'2px solid #e0e0e0'}}>
-              <div>
-                <h2 style={{fontFamily:'Poppins,sans-serif',fontSize:22,fontWeight:600}}>Menu</h2>
-                <p style={{fontSize:11,color:'#999',marginTop:2}}>{menuItems.length} productos</p>
-              </div>
-              <div style={{display:'flex',gap:8}}>
-                {(() => {
-                  const hoy = (() => { const d=new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}` })()
-                  const promoHoy = promociones.filter(p => p.fecha === hoy).length
-                  return (
-                    <button onClick={()=>setModalVerPromociones(true)} style={{
-                      background:'#fff',color:'#1a1a1a',border:'2px solid #1a1a1a',borderRadius:9,padding:'10px 14px',
-                      fontFamily:'Poppins,sans-serif',fontSize:11,fontWeight:600,cursor:'pointer',
-                      display:'flex',alignItems:'center',gap:6,position:'relative'
-                    }}>
-                      Promociones
-                      {promoHoy > 0 && (
-                        <span style={{position:'absolute',top:-6,right:-6,background:'#c62828',color:'#fff',borderRadius:'50%',width:16,height:16,fontSize:9,fontWeight:700,display:'flex',alignItems:'center',justifyContent:'center'}}>
-                          {promoHoy}
-                        </span>
-                      )}
-                    </button>
-                  )
-                })()}
-                <button onClick={()=>setModalProducto('nuevo')} style={{
-                  background:'#1a1a1a',color:'#fff',border:'none',borderRadius:9,padding:'10px 16px',
-                  fontFamily:'Poppins,sans-serif',fontSize:11,fontWeight:600,cursor:'pointer',
-                  display:'flex',alignItems:'center',gap:6
-                }}>
-                  <span style={{fontSize:18,fontWeight:300}}>+</span> Agregar
-                </button>
-              </div>
-            </div>
-
-            {/* Categorias */}
-            <div style={{display:'flex',gap:7,flexWrap:'wrap',marginBottom:14}}>
-              {cats.map(c => (
-                <button key={c} onClick={()=>setCatActiva(c)} style={{
-                  padding:'6px 14px',borderRadius:100,border:'2px solid',fontFamily:'Poppins,sans-serif',fontSize:11,fontWeight:500,cursor:'pointer',transition:'0.2s',
-                  background:catActiva===c?'#1a1a1a':'#fff', color:catActiva===c?'#fff':'#666', borderColor:catActiva===c?'#1a1a1a':'#d0d0d0'
-                }}>{c}</button>
-              ))}
+            <div style={{marginBottom:14,paddingBottom:12,borderBottom:'2px solid #e0e0e0'}}>
+              <h2 style={{fontFamily:'Poppins,sans-serif',fontSize:22,fontWeight:600}}>Menu</h2>
+              <p style={{fontSize:11,color:'#999',marginTop:2}}>{menuItems.length} productos {catActiva!=='Todos' && <span style={{color:'#7C9263',fontWeight:600}}>· {catActiva}</span>}</p>
             </div>
 
             {/* LISTA DE PRODUCTOS */}
@@ -2224,6 +2186,78 @@ function AdminApp({ onVerComoCliente }) {
           </div>
         )}
       </main>
+
+      {/* ===== BARRA ACCIÓN RÁPIDA ADMIN — solo en tab menú ===== */}
+      {tab === 'menu' && (
+        <div style={{position:'fixed',bottom:'calc(82px + env(safe-area-inset-bottom))',left:'50%',transform:'translateX(-50%)',width:'calc(100% - 32px)',maxWidth:440,zIndex:999,display:'flex',alignItems:'center',justifyContent:'space-between',gap:10}}>
+
+          {/* + Agregar producto */}
+          <button onClick={()=>setModalProducto('nuevo')} style={{
+            width:46,height:46,borderRadius:'50%',background:'#1a1a1a',color:'#fff',
+            border:'none',fontSize:26,fontWeight:300,cursor:'pointer',
+            display:'flex',alignItems:'center',justifyContent:'center',
+            boxShadow:'0 4px 14px rgba(0,0,0,0.35)',flexShrink:0
+          }}>+</button>
+
+          {/* Promociones */}
+          {(() => {
+            const hoy = (() => { const d=new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}` })()
+            const promoHoy = promociones.filter(p => p.fecha === hoy).length
+            return (
+              <button onClick={()=>setModalVerPromociones(true)} style={{
+                flex:1,position:'relative',background:'#1a1a1a',color:'#fff',border:'none',
+                borderRadius:100,padding:'12px 18px',
+                fontFamily:'Poppins,sans-serif',fontSize:12,fontWeight:700,letterSpacing:0.5,
+                cursor:'pointer',boxShadow:'0 4px 14px rgba(0,0,0,0.3)'
+              }}>
+                Promociones
+                {promoHoy > 0 && (
+                  <span style={{
+                    position:'absolute',top:-7,right:-4,
+                    background:'#c62828',color:'#fff',borderRadius:'50%',
+                    width:18,height:18,fontSize:9,fontWeight:700,
+                    display:'flex',alignItems:'center',justifyContent:'center',
+                    border:'2px solid #1a1a1a'
+                  }}>{promoHoy}</span>
+                )}
+              </button>
+            )
+          })()}
+
+          {/* Categoría — dropdown */}
+          <div style={{position:'relative',flexShrink:0}}>
+            {catDropdown && (
+              <div style={{
+                position:'absolute',bottom:'calc(100% + 10px)',right:0,
+                background:'#1a1a1a',borderRadius:16,padding:'10px 10px',
+                display:'flex',flexDirection:'column',gap:6,
+                boxShadow:'0 8px 24px rgba(0,0,0,0.4)',minWidth:140,zIndex:10
+              }}>
+                {cats.map(c => (
+                  <button key={c} onClick={()=>{ setCatActiva(c); setCatDropdown(false) }} style={{
+                    padding:'9px 16px',borderRadius:100,border:'none',cursor:'pointer',
+                    fontFamily:'Poppins,sans-serif',fontSize:12,fontWeight:700,letterSpacing:0.3,
+                    background: catActiva===c ? '#7C9263' : 'rgba(255,255,255,0.1)',
+                    color:'#fff',textAlign:'left'
+                  }}>{c}</button>
+                ))}
+              </div>
+            )}
+            <button onClick={()=>setCatDropdown(v=>!v)} style={{
+              background:'#1a1a1a',color:'#fff',border:'none',
+              borderRadius:100,padding:'12px 18px',
+              fontFamily:'Poppins,sans-serif',fontSize:12,fontWeight:700,letterSpacing:0.5,
+              cursor:'pointer',boxShadow:'0 4px 14px rgba(0,0,0,0.3)',
+              display:'flex',alignItems:'center',gap:6,position:'relative'
+            }}>
+              {catActiva==='Todos' ? 'Categoría' : catActiva}
+              <svg width='11' height='11' viewBox='0 0 24 24' fill='none' stroke='currentColor' strokeWidth='2.5' strokeLinecap='round'>
+                <polyline points={catDropdown ? '18 15 12 9 6 15' : '6 9 12 15 18 9'}/>
+              </svg>
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* ===== NAV INFERIOR PÍLDORA ADMIN ===== */}
       <div style={{position:'fixed',bottom:'calc(12px + env(safe-area-inset-bottom))',left:'50%',transform:'translateX(-50%)',width:'calc(100% - 32px)',maxWidth:440,zIndex:1000}}>
