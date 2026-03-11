@@ -2986,6 +2986,22 @@ function ClienteApp({ onVolver, esPreview }) {
   const [buscadorAbierto, setBuscadorAbierto] = useState(false)
   const [indicePromo, setIndicePromo] = useState(0)
   const touchPromoX = useRef(null)
+  const [favoritos, setFavoritos] = useState(() => {
+    try { return JSON.parse(localStorage.getItem('esencial_favoritos') || '[]') } catch { return [] }
+  })
+  const [modalFavoritos, setModalFavoritos] = useState(false)
+
+  // ── FAVORITOS ────────────────────────────────────────────────────────────
+  function toggleFavorito(prod) {
+    setFavoritos(prev => {
+      const existe = prev.find(f => f.id === prod.id)
+      const nuevo = existe
+        ? prev.filter(f => f.id !== prod.id)
+        : [...prev, { id: prod.id, nombre: prod.nombre, precio: prod.precio, imagen: prod.imagen || null, categoria: prod.categoria }]
+      try { localStorage.setItem('esencial_favoritos', JSON.stringify(nuevo)) } catch {}
+      return nuevo
+    })
+  }
 
   // ── HISTORY API — gestos de retroceso ─────────────────────────────────────
   useEffect(() => {
@@ -2997,6 +3013,7 @@ function ClienteApp({ onVolver, esPreview }) {
       if (modalImportante)       { setModalImportante(false);   window.history.pushState({ nivel: 'pedido' }, ''); return }
       if (modalCancelar)         { setModalCancelar(false);     window.history.pushState({ nivel: 'pedido' }, ''); return }
       if (modalPerfilCliente)    { setModalPerfilCliente(false);window.history.pushState({ nivel: 'menu' }, '');  return }
+      if (modalFavoritos)        { setModalFavoritos(false);    window.history.pushState({ nivel: 'menu' }, '');  return }
       if (buscadorAbierto)       { setBuscadorAbierto(false);   window.history.pushState({ nivel: 'menu' }, '');  return }
       if (modalPromos)           { setModalPromos(false);       window.history.pushState({ nivel: 'menu' }, '');  return }
       if (vistaCliente === 'pedido') {
@@ -3007,7 +3024,7 @@ function ClienteApp({ onVolver, esPreview }) {
     }
     window.addEventListener('popstate', handleBack)
     return () => window.removeEventListener('popstate', handleBack)
-  }, [modalImportante, modalCancelar, modalPerfilCliente, buscadorAbierto, modalPromos, vistaCliente])
+  }, [modalImportante, modalCancelar, modalPerfilCliente, modalFavoritos, buscadorAbierto, modalPromos, vistaCliente])
 
   // Productos filtrados por macro
   const menuBaseFiltrado = macroActiva === 'Todos'
@@ -3390,8 +3407,19 @@ function ClienteApp({ onVolver, esPreview }) {
               <div style={{flex:1,background:'#000',padding:'14px 18px 10px',display:'flex',flexDirection:'column',justifyContent:'space-between',minHeight:0}}>
                 {/* Categoría + nombre + precio */}
                 <div>
-                  <div style={{fontSize:10,fontWeight:700,letterSpacing:2.5,textTransform:'uppercase',color:esPromo?'#7C9263':'rgba(255,255,255,0.35)',fontFamily:'Poppins,sans-serif',marginBottom:4}}>
-                    {esPromo ? '🏷 Promoción del día' : prod.categoria}
+                  <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:4}}>
+                    <div style={{fontSize:10,fontWeight:700,letterSpacing:2.5,textTransform:'uppercase',color:esPromo?'#7C9263':'rgba(255,255,255,0.35)',fontFamily:'Poppins,sans-serif'}}>
+                      {esPromo ? 'Promoción del día' : prod.categoria}
+                    </div>
+                    {/* Botón favorito — solo en galería */}
+                    <button onClick={()=>toggleFavorito(prod)} style={{
+                      background:'none',border:'none',cursor:'pointer',padding:4,
+                      display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0
+                    }}>
+                      <svg width='20' height='20' viewBox='0 0 24 24' fill={favoritos.find(f=>f.id===prod.id)?'#c62828':'none'} stroke={favoritos.find(f=>f.id===prod.id)?'#c62828':'rgba(255,255,255,0.5)'} strokeWidth='2' strokeLinecap='round' strokeLinejoin='round'>
+                        <path d='M20.84 4.61a5.5 5.5 0 00-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 00-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 000-7.78z'/>
+                      </svg>
+                    </button>
                   </div>
                   <div style={{display:'flex',alignItems:'flex-start',justifyContent:'space-between',gap:10,marginBottom:6}}>
                     <div style={{fontFamily:'Poppins,sans-serif',fontSize:20,fontWeight:700,color:'#fff',lineHeight:1.2,flex:1}}>{prod.nombre}</div>
@@ -3412,12 +3440,62 @@ function ClienteApp({ onVolver, esPreview }) {
                   </div>
                 </div>
               </div>
+
+              {/* ── MINI RESUMEN CARRITO — espacio negro inferior ── */}
+              {carrito.length > 0 && (
+                <div style={{background:'#000',padding:'10px 18px 14px',flexShrink:0,borderTop:'1px solid rgba(255,255,255,0.07)'}}>
+                  <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:8}}>
+                    <span style={{fontFamily:'Poppins,sans-serif',fontSize:10,fontWeight:700,letterSpacing:2,textTransform:'uppercase',color:'rgba(255,255,255,0.35)'}}>Tu pedido</span>
+                    <span style={{fontFamily:'Poppins,sans-serif',fontSize:12,fontWeight:700,color:'#fff'}}>${total.toFixed(2)}</span>
+                  </div>
+                  <div style={{display:'flex',flexDirection:'column',gap:4,maxHeight:84,overflow:'hidden'}}>
+                    {carrito.slice(0,3).map(item => (
+                      <div key={item.id} style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:8}}>
+                        <div style={{display:'flex',alignItems:'center',gap:6,flex:1,minWidth:0}}>
+                          <span style={{background:'#7C9263',color:'#fff',borderRadius:'50%',width:18,height:18,fontSize:9,fontWeight:700,display:'inline-flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>{item.canti}</span>
+                          <span style={{fontFamily:'Poppins,sans-serif',fontSize:12,color:'rgba(255,255,255,0.75)',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{item.nombre}</span>
+                        </div>
+                        <span style={{fontFamily:'Poppins,sans-serif',fontSize:12,fontWeight:600,color:'rgba(255,255,255,0.55)',flexShrink:0}}>${(item.precio * item.canti).toFixed(2)}</span>
+                      </div>
+                    ))}
+                    {carrito.length > 3 && (
+                      <div style={{fontFamily:'Poppins,sans-serif',fontSize:10,color:'rgba(255,255,255,0.3)',letterSpacing:0.5}}>+{carrito.length - 3} más</div>
+                    )}
+                  </div>
+                  <button onClick={()=>setVistaCliente('pedido')} style={{
+                    width:'100%',marginTop:10,padding:'10px',
+                    background:'rgba(255,255,255,0.08)',border:'1px solid rgba(255,255,255,0.15)',
+                    borderRadius:10,color:'#fff',fontFamily:'Poppins,sans-serif',
+                    fontSize:12,fontWeight:700,letterSpacing:0.5,cursor:'pointer'
+                  }}>Ver pedido completo</button>
+                </div>
+              )}
             </div>
           )
         })()}
       </div>
 
       {/* BARRA INFERIOR PÍLDORA CLIENTE */}
+      {/* Píldora Favoritos — flotante derecha, encima de la nav */}
+      {vistaCliente === 'menu' && (
+        <div style={{position:'fixed',bottom:'calc(74px + env(safe-area-inset-bottom))',right:'calc((100vw - min(100vw, 480px)) / 2 + 14px)',zIndex:250}}>
+          <button onClick={()=>setModalFavoritos(true)} style={{
+            background: vistaGrid==='slide' ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.08)',
+            backdropFilter:'blur(8px)',
+            border: vistaGrid==='slide' ? '1px solid rgba(255,255,255,0.18)' : '1px solid rgba(0,0,0,0.1)',
+            borderRadius:100,padding:'7px 13px',
+            display:'flex',alignItems:'center',gap:6,cursor:'pointer'
+          }}>
+            <svg width='14' height='14' viewBox='0 0 24 24' fill={favoritos.length>0?'#c62828':'none'} stroke={vistaGrid==='slide'?'rgba(255,255,255,0.7)':'#555'} strokeWidth='2' strokeLinecap='round' strokeLinejoin='round'>
+              <path d='M20.84 4.61a5.5 5.5 0 00-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 00-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 000-7.78z'/>
+            </svg>
+            {favoritos.length > 0 && (
+              <span style={{fontFamily:'Poppins,sans-serif',fontSize:10,fontWeight:700,color:vistaGrid==='slide'?'rgba(255,255,255,0.8)':'#555'}}>{favoritos.length}</span>
+            )}
+          </button>
+        </div>
+      )}
+
       {/* Botón carrito flotante — modo lista */}
       {totalItems > 0 && vistaCliente === 'menu' && vistaGrid === 'grid' && (
         <div style={{position:'fixed',bottom:'calc(82px + env(safe-area-inset-bottom))',left:'50%',transform:'translateX(-50%)',width:'calc(100% - 64px)',maxWidth:320,zIndex:300}}>
@@ -4066,6 +4144,76 @@ function ClienteApp({ onVolver, esPreview }) {
                 fontFamily:'Poppins,sans-serif',fontSize:12,fontWeight:700,cursor:'pointer'
               }}>Si, cancelar</button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL FAVORITOS */}
+      {modalFavoritos && (
+        <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.6)',zIndex:3500,display:'flex',alignItems:'flex-end'}}
+          onClick={e=>{if(e.target===e.currentTarget)setModalFavoritos(false)}}>
+          <div style={{background:'#fff',borderRadius:'20px 20px 0 0',width:'100%',maxWidth:480,margin:'0 auto',maxHeight:'80vh',display:'flex',flexDirection:'column'}}>
+            {/* Header */}
+            <div style={{padding:'20px 20px 14px',borderBottom:'1px solid #f0f0f0',display:'flex',alignItems:'center',justifyContent:'space-between',flexShrink:0}}>
+              <div>
+                <div style={{fontFamily:'Poppins,sans-serif',fontSize:16,fontWeight:700,color:'#1a1a1a'}}>Favoritos</div>
+                <div style={{fontFamily:'Poppins,sans-serif',fontSize:11,color:'#aaa',marginTop:2}}>{favoritos.length} {favoritos.length===1?'producto':'productos'}</div>
+              </div>
+              <button onClick={()=>setModalFavoritos(false)} style={{background:'none',border:'none',cursor:'pointer',padding:4,color:'#bbb'}}>
+                <svg width='20' height='20' viewBox='0 0 24 24' fill='none' stroke='currentColor' strokeWidth='2' strokeLinecap='round'><line x1='18' y1='6' x2='6' y2='18'/><line x1='6' y1='6' x2='18' y2='18'/></svg>
+              </button>
+            </div>
+            {/* Lista */}
+            <div style={{overflowY:'auto',flex:1,padding:'8px 0'}}>
+              {favoritos.length === 0 ? (
+                <div style={{display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',padding:'48px 24px',gap:12}}>
+                  <svg width='36' height='36' viewBox='0 0 24 24' fill='none' stroke='#ddd' strokeWidth='1.5' strokeLinecap='round' strokeLinejoin='round'>
+                    <path d='M20.84 4.61a5.5 5.5 0 00-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 00-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 000-7.78z'/>
+                  </svg>
+                  <span style={{fontFamily:'Poppins,sans-serif',fontSize:13,color:'#ccc',textAlign:'center'}}>Aún no tienes favoritos</span>
+                  <span style={{fontFamily:'Poppins,sans-serif',fontSize:11,color:'#ddd',textAlign:'center',lineHeight:1.6}}>Presiona el ícono de corazón en la galería para guardar productos</span>
+                </div>
+              ) : favoritos.map(fav => {
+                const cantFav = cantidades[fav.id] || 0
+                const menuProd = menu.find(m => m.id === fav.id)
+                const imgSrc = menuProd
+                  ? (imgError[fav.id] ? (IMGS_CATEGORIA[fav.categoria]||IMGS_CATEGORIA['default']) : getImgProducto(menuProd))
+                  : (IMGS_CATEGORIA[fav.categoria]||IMGS_CATEGORIA['default'])
+                return (
+                  <div key={fav.id} style={{display:'flex',alignItems:'center',gap:12,padding:'10px 20px',borderBottom:'1px solid #f8f8f8'}}>
+                    <div style={{width:52,height:52,borderRadius:10,overflow:'hidden',flexShrink:0,background:'#f5f5f5'}}>
+                      <img src={imgSrc} alt={fav.nombre}
+                        onError={()=>setImgError(p=>({...p,[fav.id]:true}))}
+                        style={{width:'100%',height:'100%',objectFit:'cover'}}/>
+                    </div>
+                    <div style={{flex:1,minWidth:0}}>
+                      <div style={{fontFamily:'Poppins,sans-serif',fontSize:13,fontWeight:700,color:'#1a1a1a',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{fav.nombre}</div>
+                      <div style={{fontFamily:'Poppins,sans-serif',fontSize:12,color:'#7C9263',fontWeight:600,marginTop:2}}>${parseFloat(fav.precio).toFixed(2)}</div>
+                    </div>
+                    <div style={{display:'flex',alignItems:'center',gap:8,flexShrink:0}}>
+                      <button onClick={()=>addCant(fav.id,-1)} style={{width:30,height:30,borderRadius:'50%',border:'1.5px solid #e0e0e0',background:'#fff',color:'#1a1a1a',fontSize:16,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center'}}>−</button>
+                      <span style={{fontFamily:'Poppins,sans-serif',fontSize:15,fontWeight:700,minWidth:18,textAlign:'center'}}>{cantFav}</span>
+                      <button onClick={()=>addCant(fav.id,1)} style={{width:30,height:30,borderRadius:'50%',border:'none',background:'#1a1a1a',color:'#fff',fontSize:16,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',fontWeight:700}}>+</button>
+                    </div>
+                    <button onClick={()=>toggleFavorito(fav)} style={{background:'none',border:'none',cursor:'pointer',padding:4,flexShrink:0}}>
+                      <svg width='16' height='16' viewBox='0 0 24 24' fill='#c62828' stroke='#c62828' strokeWidth='2' strokeLinecap='round' strokeLinejoin='round'>
+                        <path d='M20.84 4.61a5.5 5.5 0 00-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 00-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 000-7.78z'/>
+                      </svg>
+                    </button>
+                  </div>
+                )
+              })}
+            </div>
+            {/* Footer con total si hay items */}
+            {favoritos.some(f => (cantidades[f.id]||0) > 0) && (
+              <div style={{padding:'14px 20px',borderTop:'1px solid #f0f0f0',flexShrink:0,background:'#fff'}}>
+                <button onClick={()=>{ setModalFavoritos(false); setVistaCliente('pedido') }} style={{
+                  width:'100%',padding:'13px',background:'#1a1a1a',color:'#fff',
+                  border:'none',borderRadius:12,fontFamily:'Poppins,sans-serif',
+                  fontSize:13,fontWeight:700,letterSpacing:0.5,cursor:'pointer'
+                }}>Ver pedido</button>
+              </div>
+            )}
           </div>
         </div>
       )}
