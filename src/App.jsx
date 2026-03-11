@@ -686,6 +686,16 @@ function AdminApp({ onVerComoCliente }) {
 
   useEffect(() => { setPendientesSync(getPendientes()) }, [])
 
+  // ── HISTORY API admin — evita cierre accidental con gesto retroceso ──
+  useEffect(() => {
+    window.history.pushState({ admin: 'init' }, '')
+    const handleBack = () => {
+      window.history.pushState({ admin: tab }, '')
+    }
+    window.addEventListener('popstate', handleBack)
+    return () => window.removeEventListener('popstate', handleBack)
+  }, [])
+
   // ---- PROMOCIONES (tiempo real) ----
   useEffect(() => {
     if (!user || !aprobado) return
@@ -1399,7 +1409,7 @@ function AdminApp({ onVerComoCliente }) {
       </header>
 
       {/* MAIN */}
-      <main style={{maxWidth:900,margin:'0 auto',padding:'16px 12px 90px'}}>
+      <main style={{maxWidth:900,margin:'0 auto',padding:'16px 12px calc(90px + env(safe-area-inset-bottom))'}}>
 
         {/* ===== MENU ===== */}
         {tab==='menu' && (
@@ -2215,44 +2225,47 @@ function AdminApp({ onVerComoCliente }) {
         )}
       </main>
 
-      {/* ===== NAV INFERIOR ===== */}
-      <nav style={{position:'fixed',bottom:0,left:0,right:0,background:'#fff',borderTop:'1px solid #f0f0f0',display:'flex',zIndex:1000,boxShadow:'0 -2px 12px rgba(0,0,0,0.06)',paddingBottom:'env(safe-area-inset-bottom)'}}>
-        {navItems.map(n => {
-          const activo = tab === n.key
-          const ICONOS = {
-            menu: <svg width='20' height='20' viewBox='0 0 24 24' fill='none' stroke='currentColor' strokeWidth='2' strokeLinecap='round'><line x1='3' y1='6' x2='21' y2='6'/><line x1='3' y1='12' x2='21' y2='12'/><line x1='3' y1='18' x2='21' y2='18'/></svg>,
-            pedido: <svg width='20' height='20' viewBox='0 0 24 24' fill='none' stroke='currentColor' strokeWidth='2' strokeLinecap='round'><path d='M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z'/><polyline points='14 2 14 8 20 8'/><line x1='16' y1='13' x2='8' y2='13'/><line x1='16' y1='17' x2='8' y2='17'/><polyline points='10 9 9 9 8 9'/></svg>,
-            proceso: <svg width='20' height='20' viewBox='0 0 24 24' fill='none' stroke='currentColor' strokeWidth='2' strokeLinecap='round'><circle cx='12' cy='12' r='10'/><polyline points='12 6 12 12 16 14'/></svg>,
-            domicilio: <svg width='20' height='20' viewBox='0 0 24 24' fill='none' stroke='currentColor' strokeWidth='2' strokeLinecap='round'><path d='M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z'/><polyline points='9 22 9 12 15 12 15 22'/></svg>,
-            historial: <svg width='20' height='20' viewBox='0 0 24 24' fill='none' stroke='currentColor' strokeWidth='2' strokeLinecap='round'><polyline points='12 8 12 12 14 14'/><path d='M3.05 11a9 9 0 1 0 .5-4.5'/><polyline points='1 4 3 6 5 4'/></svg>,
-            stats: <svg width='20' height='20' viewBox='0 0 24 24' fill='none' stroke='currentColor' strokeWidth='2' strokeLinecap='round'><line x1='18' y1='20' x2='18' y2='10'/><line x1='12' y1='20' x2='12' y2='4'/><line x1='6' y1='20' x2='6' y2='14'/></svg>,
-          }
-          const LABELS = { menu:'Menú', pedido:'Pedido', proceso:'Proceso', domicilio:'Domicilio', historial:'Historial', stats:'Stats' }
-          return (
-            <button key={n.key} onClick={()=>{setTab(n.key);if(n.key==='stats')cargarStats(statsPeriodo)}} style={{
-              flex:1,padding:'10px 2px 8px',display:'flex',flexDirection:'column',alignItems:'center',gap:4,
-              border:'none',background:'none',cursor:'pointer',position:'relative'
-            }}>
-              {n.badge > 0 && (
-                <span style={{position:'absolute',top:6,right:'18%',background:'#c62828',color:'#fff',borderRadius:100,minWidth:16,height:16,fontSize:8,fontWeight:700,display:'flex',alignItems:'center',justifyContent:'center',padding:'0 3px',zIndex:1}}>
-                  {n.badge}
-                </span>
-              )}
-              <div style={{
-                width:36,height:36,borderRadius:10,display:'flex',alignItems:'center',justifyContent:'center',
-                background: activo ? '#1a1a1a' : 'transparent',
-                color: activo ? '#fff' : '#bbb',
-                transition:'0.15s'
+      {/* ===== NAV INFERIOR PÍLDORA ADMIN ===== */}
+      <div style={{position:'fixed',bottom:'calc(12px + env(safe-area-inset-bottom))',left:'50%',transform:'translateX(-50%)',width:'calc(100% - 32px)',maxWidth:440,zIndex:1000}}>
+        <nav style={{background:'#1a1a1a',borderRadius:100,padding:'6px 4px',display:'flex',alignItems:'center',boxShadow:'0 8px 28px rgba(0,0,0,0.4)'}}>
+          {navItems.map(n => {
+            const activo = tab === n.key
+            const ICONOS = {
+              menu: <svg width='20' height='20' viewBox='0 0 24 24' fill='none' stroke='currentColor' strokeWidth='2' strokeLinecap='round'><line x1='3' y1='6' x2='21' y2='6'/><line x1='3' y1='12' x2='21' y2='12'/><line x1='3' y1='18' x2='21' y2='18'/></svg>,
+              pedido: <svg width='20' height='20' viewBox='0 0 24 24' fill='none' stroke='currentColor' strokeWidth='2' strokeLinecap='round'><path d='M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z'/><polyline points='14 2 14 8 20 8'/><line x1='16' y1='13' x2='8' y2='13'/><line x1='16' y1='17' x2='8' y2='17'/><polyline points='10 9 9 9 8 9'/></svg>,
+              proceso: <svg width='20' height='20' viewBox='0 0 24 24' fill='none' stroke='currentColor' strokeWidth='2' strokeLinecap='round'><circle cx='12' cy='12' r='10'/><polyline points='12 6 12 12 16 14'/></svg>,
+              domicilio: <svg width='20' height='20' viewBox='0 0 24 24' fill='none' stroke='currentColor' strokeWidth='2' strokeLinecap='round'><path d='M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z'/><polyline points='9 22 9 12 15 12 15 22'/></svg>,
+              historial: <svg width='20' height='20' viewBox='0 0 24 24' fill='none' stroke='currentColor' strokeWidth='2' strokeLinecap='round'><polyline points='12 8 12 12 14 14'/><path d='M3.05 11a9 9 0 1 0 .5-4.5'/><polyline points='1 4 3 6 5 4'/></svg>,
+              stats: <svg width='20' height='20' viewBox='0 0 24 24' fill='none' stroke='currentColor' strokeWidth='2' strokeLinecap='round'><line x1='18' y1='20' x2='18' y2='10'/><line x1='12' y1='20' x2='12' y2='4'/><line x1='6' y1='20' x2='6' y2='14'/></svg>,
+            }
+            return (
+              <button key={n.key} onClick={()=>{setTab(n.key);if(n.key==='stats')cargarStats(statsPeriodo)}} style={{
+                flex:1,display:'flex',alignItems:'center',justifyContent:'center',
+                border:'none',background:'none',cursor:'pointer',position:'relative',padding:'2px 0'
               }}>
-                {ICONOS[n.key]}
-              </div>
-              <span style={{fontSize:9,fontWeight:600,letterSpacing:0.5,color:activo?'#1a1a1a':'#bbb',fontFamily:'Poppins,sans-serif'}}>
-                {LABELS[n.key]}
-              </span>
-            </button>
-          )
-        })}
-      </nav>
+                {n.badge > 0 && (
+                  <span style={{
+                    position:'absolute',top:-8,right:'calc(50% - 20px)',
+                    background:'#c62828',color:'#fff',borderRadius:100,
+                    minWidth:17,height:17,fontSize:9,fontWeight:700,
+                    display:'flex',alignItems:'center',justifyContent:'center',
+                    padding:'0 4px',zIndex:2,border:'2px solid #1a1a1a'
+                  }}>{n.badge}</span>
+                )}
+                <div style={{
+                  width:42,height:42,borderRadius:'50%',
+                  display:'flex',alignItems:'center',justifyContent:'center',
+                  background: activo ? '#7C9263' : 'transparent',
+                  color: activo ? '#fff' : 'rgba(255,255,255,0.45)',
+                  transition:'background 0.2s, color 0.2s'
+                }}>
+                  {ICONOS[n.key]}
+                </div>
+              </button>
+            )
+          })}
+        </nav>
+      </div>
 
       {/* MODAL PERFIL */}
       <Modal open={modalPerfil} onClose={()=>setModalPerfil(false)}
@@ -2936,6 +2949,31 @@ function ClienteApp({ onVolver, esPreview }) {
     }
   }, [])
 
+  // ── HISTORY API — gestos de retroceso ──────────────────────────────────────
+  useEffect(() => {
+    // Estado inicial para que el primer "atrás" no salga de la app
+    window.history.pushState({ nivel: 'menu' }, '')
+  }, [])
+
+  useEffect(() => {
+    const handleBack = () => {
+      // Cerrar en orden: modales primero, luego vistas
+      if (modalImportante)       { setModalImportante(false);   window.history.pushState({ nivel: 'pedido' }, ''); return }
+      if (modalCancelar)         { setModalCancelar(false);     window.history.pushState({ nivel: 'pedido' }, ''); return }
+      if (modalPerfilCliente)    { setModalPerfilCliente(false);window.history.pushState({ nivel: 'menu' }, '');  return }
+      if (buscadorAbierto)       { setBuscadorAbierto(false);   window.history.pushState({ nivel: 'menu' }, '');  return }
+      if (modalPromos)           { setModalPromos(false);       window.history.pushState({ nivel: 'menu' }, '');  return }
+      if (vistaCliente === 'pedido') {
+        setVistaCliente('menu')
+        window.history.pushState({ nivel: 'menu' }, '')
+        return
+      }
+      // En menú principal: dejar que el navegador salga normalmente
+    }
+    window.addEventListener('popstate', handleBack)
+    return () => window.removeEventListener('popstate', handleBack)
+  }, [modalImportante, modalCancelar, modalPerfilCliente, buscadorAbierto, modalPromos, vistaCliente])
+
   // Cargar menu + promociones en tiempo real
   useEffect(() => {
     const unsub = onSnapshot(
@@ -3222,7 +3260,7 @@ function ClienteApp({ onVolver, esPreview }) {
       </div>
 
       {/* GRID / CARRUSEL DE PRODUCTOS */}
-      <div style={{flex:1, overflow: vistaGrid==='slide' ? 'hidden' : 'auto', paddingBottom: vistaGrid==='grid' ? 140 : 0, display: vistaGrid==='slide' ? 'flex' : 'block', flexDirection:'column'}}>
+      <div style={{flex:1, overflow: vistaGrid==='slide' ? 'hidden' : 'auto', paddingBottom: vistaGrid==='grid' ? 'calc(160px + env(safe-area-inset-bottom))' : 0, display: vistaGrid==='slide' ? 'flex' : 'block', flexDirection:'column'}}>
 
         {/* ── MODO GRID — 2 columnas ── */}
         {vistaGrid === 'grid' && (
@@ -3382,34 +3420,30 @@ function ClienteApp({ onVolver, esPreview }) {
         })()}
       </div>
 
-      {/* BARRA INFERIOR FIJA */}
-      <div style={{position:'fixed',bottom:0,left:'50%',transform:'translateX(-50%)',width:'100%',maxWidth:480,zIndex:200,background:'#fff',borderTop:'1px solid #f0f0f0',boxShadow:'0 -2px 12px rgba(0,0,0,0.06)',paddingBottom:'env(safe-area-inset-bottom)'}}>
+      {/* BARRA INFERIOR PÍLDORA CLIENTE */}
+      {/* Botón carrito flotante — modo lista */}
+      {totalItems > 0 && vistaCliente === 'menu' && vistaGrid === 'grid' && (
+        <div style={{position:'fixed',bottom:'calc(82px + env(safe-area-inset-bottom))',left:'50%',transform:'translateX(-50%)',width:'calc(100% - 64px)',maxWidth:320,zIndex:300}}>
+          <button onClick={()=>setVistaCliente('pedido')} style={{
+            width:'100%',display:'flex',alignItems:'center',gap:12,justifyContent:'center',
+            background:'#1a1a1a',color:'#fff',border:'none',borderRadius:100,
+            padding:'13px 22px',boxShadow:'0 6px 20px rgba(0,0,0,0.28)',
+            cursor:'pointer',fontFamily:'Poppins,sans-serif'
+          }}>
+            <span style={{background:'#7C9263',color:'#fff',borderRadius:'50%',width:22,height:22,fontSize:11,fontWeight:700,display:'inline-flex',alignItems:'center',justifyContent:'center'}}>{totalItems}</span>
+            <span style={{fontSize:13,fontWeight:700,letterSpacing:0.5}}>Ver pedido</span>
+            <span style={{fontSize:14,fontWeight:700}}>${total.toFixed(2)}</span>
+          </button>
+        </div>
+      )}
 
-        {/* Botón carrito — solo en modo lista, no en galería (evita tapar controles) */}
-        {totalItems > 0 && vistaCliente === 'menu' && vistaGrid === 'grid' && (
-          <div style={{position:'absolute',top:-58,left:'50%',transform:'translateX(-50%)',width:'calc(100% - 32px)',maxWidth:320}}>
-            <button onClick={()=>setVistaCliente('pedido')} style={{
-              width:'100%',display:'flex',alignItems:'center',gap:12,justifyContent:'center',
-              background:'#1a1a1a',color:'#fff',border:'none',borderRadius:100,
-              padding:'13px 22px',boxShadow:'0 6px 20px rgba(0,0,0,0.22)',
-              cursor:'pointer',fontFamily:'Poppins,sans-serif'
-            }}>
-              <span style={{background:'#7C9263',color:'#fff',borderRadius:'50%',width:22,height:22,fontSize:11,fontWeight:700,display:'inline-flex',alignItems:'center',justifyContent:'center'}}>{totalItems}</span>
-              <span style={{fontSize:13,fontWeight:700,letterSpacing:0.5}}>Ver pedido</span>
-              <span style={{fontSize:14,fontWeight:700}}>${total.toFixed(2)}</span>
-            </button>
-          </div>
-        )}
-        {/* En modo galería: carrito como badge pequeño en el ícono Pedido (no flotante) */}
-
-        {/* Nav íconos */}
-        <div style={{display:'flex',alignItems:'stretch'}}>
+      <div style={{position:'fixed',bottom:'calc(12px + env(safe-area-inset-bottom))',left:'50%',transform:'translateX(-50%)',width:'calc(100% - 32px)',maxWidth:440,zIndex:200}}>
+        <nav style={{background:'#fff',borderRadius:100,padding:'6px 4px',display:'flex',alignItems:'center',boxShadow:'0 8px 28px rgba(0,0,0,0.18)'}}>
           {[
             {
               key:'vista',
-              label: vistaGrid==='slide' ? 'Galería' : 'Lista',
-              activo: true,
-              onClick: ()=>{ setVistaGrid(v=>v==='slide'?'grid':'slide'); setIndiceSlide(0) },
+              activo: vistaCliente === 'menu',
+              onClick: ()=>{ setVistaGrid(v=>v==='slide'?'grid':'slide'); setIndiceSlide(0); setVistaCliente('menu') },
               icon: vistaGrid==='slide'
                 ? <svg width='20' height='20' viewBox='0 0 24 24' fill='none' stroke='currentColor' strokeWidth='2' strokeLinecap='round'><rect x='2' y='3' width='20' height='18' rx='2'/><line x1='8' y1='10' x2='16' y2='10'/><line x1='8' y1='14' x2='16' y2='14'/></svg>
                 : <svg width='20' height='20' viewBox='0 0 24 24' fill='none' stroke='currentColor' strokeWidth='2' strokeLinecap='round'><rect x='2' y='3' width='9' height='9' rx='1'/><rect x='13' y='3' width='9' height='9' rx='1'/><rect x='2' y='14' width='9' height='9' rx='1'/><rect x='13' y='14' width='9' height='9' rx='1'/></svg>,
@@ -3417,7 +3451,6 @@ function ClienteApp({ onVolver, esPreview }) {
             },
             {
               key:'buscar',
-              label:'Buscar',
               activo: buscadorAbierto,
               onClick: ()=>setBuscadorAbierto(true),
               icon: <svg width='20' height='20' viewBox='0 0 24 24' fill='none' stroke='currentColor' strokeWidth='2' strokeLinecap='round'><circle cx='11' cy='11' r='8'/><line x1='21' y1='21' x2='16.65' y2='16.65'/></svg>,
@@ -3425,15 +3458,13 @@ function ClienteApp({ onVolver, esPreview }) {
             },
             {
               key:'promos',
-              label:'Promos',
-              activo: false,
+              activo: modalPromos,
               onClick: ()=>{ if(promociones.length>0) setModalPromos(true) },
               icon: <svg width='20' height='20' viewBox='0 0 24 24' fill='none' stroke='currentColor' strokeWidth='2' strokeLinecap='round'><path d='M20.59 13.41l-7.17 7.17a2 2 0 01-2.83 0L2 12V2h10l8.59 8.59a2 2 0 010 2.82z'/><line x1='7' y1='7' x2='7.01' y2='7'/></svg>,
               badge: promociones.length > 0 ? promociones.length : null
             },
             {
               key:'carrito',
-              label:'Pedido',
               activo: vistaCliente === 'pedido',
               onClick: ()=>setVistaCliente('pedido'),
               icon: <svg width='20' height='20' viewBox='0 0 24 24' fill='none' stroke='currentColor' strokeWidth='2' strokeLinecap='round'><path d='M6 2L3 6v14a2 2 0 002 2h14a2 2 0 002-2V6l-3-4z'/><line x1='3' y1='6' x2='21' y2='6'/><path d='M16 10a4 4 0 01-8 0'/></svg>,
@@ -3441,7 +3472,6 @@ function ClienteApp({ onVolver, esPreview }) {
             },
             {
               key:'perfil',
-              label:'Perfil',
               activo: modalPerfilCliente,
               onClick: ()=>setModalPerfilCliente(true),
               icon: <svg width='20' height='20' viewBox='0 0 24 24' fill='none' stroke='currentColor' strokeWidth='2' strokeLinecap='round'><path d='M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2'/><circle cx='12' cy='7' r='4'/></svg>,
@@ -3449,24 +3479,30 @@ function ClienteApp({ onVolver, esPreview }) {
             },
           ].map(t => (
             <button key={t.key} onClick={t.onClick} style={{
-              flex:1,padding:'8px 2px 8px',display:'flex',flexDirection:'column',
-              alignItems:'center',gap:3,border:'none',background:'none',cursor:'pointer',position:'relative'
+              flex:1,display:'flex',alignItems:'center',justifyContent:'center',
+              border:'none',background:'none',cursor:'pointer',position:'relative',padding:'2px 0'
             }}>
               {t.badge > 0 && (
-                <span style={{position:'absolute',top:5,right:'12%',background:t.key==='buscar'?'#7C9263':'#c62828',color:'#fff',borderRadius:100,minWidth:15,height:15,fontSize:8,fontWeight:700,display:'flex',alignItems:'center',justifyContent:'center',padding:'0 3px',zIndex:1}}>{t.badge}</span>
+                <span style={{
+                  position:'absolute',top:-8,right:'calc(50% - 20px)',
+                  background:'#c62828',color:'#fff',borderRadius:100,
+                  minWidth:17,height:17,fontSize:9,fontWeight:700,
+                  display:'flex',alignItems:'center',justifyContent:'center',
+                  padding:'0 4px',zIndex:2,border:'2px solid #fff'
+                }}>{t.badge}</span>
               )}
               <div style={{
-                width:36,height:36,borderRadius:10,display:'flex',alignItems:'center',justifyContent:'center',
-                background: t.activo ? '#1a1a1a' : 'transparent',
-                color: t.activo ? '#fff' : '#bbb',
-                transition:'0.15s'
+                width:42,height:42,borderRadius:'50%',
+                display:'flex',alignItems:'center',justifyContent:'center',
+                background: t.activo ? '#7C9263' : 'transparent',
+                color: t.activo ? '#fff' : '#333',
+                transition:'background 0.2s, color 0.2s'
               }}>
                 {t.icon}
               </div>
-              <span style={{fontSize:9,fontWeight:600,letterSpacing:0.5,color:t.activo?'#1a1a1a':'#bbb',fontFamily:'Poppins,sans-serif'}}>{t.label}</span>
             </button>
           ))}
-        </div>
+        </nav>
       </div>
 
       {/* VISTA PEDIDO */}
