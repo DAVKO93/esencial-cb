@@ -3448,26 +3448,14 @@ function ClienteApp({ onVolver, esPreview }) {
                     <span style={{fontFamily:'Poppins,sans-serif',fontSize:10,fontWeight:700,letterSpacing:2,textTransform:'uppercase',color:'rgba(255,255,255,0.35)'}}>Tu pedido</span>
                     <span style={{fontFamily:'Poppins,sans-serif',fontSize:12,fontWeight:700,color:'#fff'}}>${total.toFixed(2)}</span>
                   </div>
-                  <div style={{display:'flex',flexDirection:'column',gap:4,maxHeight:84,overflow:'hidden'}}>
-                    {carrito.slice(0,3).map(item => (
-                      <div key={item.id} style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:8}}>
-                        <div style={{display:'flex',alignItems:'center',gap:6,flex:1,minWidth:0}}>
-                          <span style={{background:'#7C9263',color:'#fff',borderRadius:'50%',width:18,height:18,fontSize:9,fontWeight:700,display:'inline-flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>{item.canti}</span>
-                          <span style={{fontFamily:'Poppins,sans-serif',fontSize:12,color:'rgba(255,255,255,0.75)',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{item.nombre}</span>
-                        </div>
-                        <span style={{fontFamily:'Poppins,sans-serif',fontSize:12,fontWeight:600,color:'rgba(255,255,255,0.55)',flexShrink:0}}>${(item.precio * item.canti).toFixed(2)}</span>
+                  <div style={{display:'flex',flexDirection:'column',gap:5,maxHeight:90,overflowY:'auto'}}>
+                    {carrito.map(item => (
+                      <div key={item.id} style={{display:'flex',alignItems:'center',gap:7,minWidth:0}}>
+                        <span style={{background:'#7C9263',color:'#fff',borderRadius:'50%',width:18,height:18,fontSize:9,fontWeight:700,display:'inline-flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>{item.canti}</span>
+                        <span style={{fontFamily:'Poppins,sans-serif',fontSize:12,color:'rgba(255,255,255,0.75)',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{item.nombre}</span>
                       </div>
                     ))}
-                    {carrito.length > 3 && (
-                      <div style={{fontFamily:'Poppins,sans-serif',fontSize:10,color:'rgba(255,255,255,0.3)',letterSpacing:0.5}}>+{carrito.length - 3} más</div>
-                    )}
                   </div>
-                  <button onClick={()=>setVistaCliente('pedido')} style={{
-                    width:'100%',marginTop:10,padding:'10px',
-                    background:'rgba(255,255,255,0.08)',border:'1px solid rgba(255,255,255,0.15)',
-                    borderRadius:10,color:'#fff',fontFamily:'Poppins,sans-serif',
-                    fontSize:12,fontWeight:700,letterSpacing:0.5,cursor:'pointer'
-                  }}>Ver pedido completo</button>
                 </div>
               )}
             </div>
@@ -3480,17 +3468,15 @@ function ClienteApp({ onVolver, esPreview }) {
       {vistaCliente === 'menu' && (
         <div style={{position:'fixed',bottom:'calc(74px + env(safe-area-inset-bottom))',right:'calc((100vw - min(100vw, 480px)) / 2 + 14px)',zIndex:250}}>
           <button onClick={()=>setModalFavoritos(true)} style={{
-            background: vistaGrid==='slide' ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.08)',
+            background: vistaGrid==='slide' ? 'rgba(255,255,255,0.13)' : 'rgba(0,0,0,0.07)',
             backdropFilter:'blur(8px)',
-            border: vistaGrid==='slide' ? '1px solid rgba(255,255,255,0.18)' : '1px solid rgba(0,0,0,0.1)',
-            borderRadius:100,padding:'7px 13px',
+            border: vistaGrid==='slide' ? '1px solid rgba(255,255,255,0.2)' : '1px solid rgba(0,0,0,0.1)',
+            borderRadius:100,padding:'7px 14px',
             display:'flex',alignItems:'center',gap:6,cursor:'pointer'
           }}>
-            <svg width='14' height='14' viewBox='0 0 24 24' fill={favoritos.length>0?'#c62828':'none'} stroke={vistaGrid==='slide'?'rgba(255,255,255,0.7)':'#555'} strokeWidth='2' strokeLinecap='round' strokeLinejoin='round'>
-              <path d='M20.84 4.61a5.5 5.5 0 00-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 00-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 000-7.78z'/>
-            </svg>
+            <span style={{fontFamily:'Poppins,sans-serif',fontSize:11,fontWeight:700,letterSpacing:0.3,color:vistaGrid==='slide'?'rgba(255,255,255,0.82)':'#444'}}>Favoritos</span>
             {favoritos.length > 0 && (
-              <span style={{fontFamily:'Poppins,sans-serif',fontSize:10,fontWeight:700,color:vistaGrid==='slide'?'rgba(255,255,255,0.8)':'#555'}}>{favoritos.length}</span>
+              <span style={{background:'#c62828',color:'#fff',borderRadius:'50%',width:16,height:16,fontSize:9,fontWeight:700,display:'inline-flex',alignItems:'center',justifyContent:'center'}}>{favoritos.length}</span>
             )}
           </button>
         </div>
