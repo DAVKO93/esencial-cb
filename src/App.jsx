@@ -1415,9 +1415,9 @@ function AdminApp({ onVerComoCliente }) {
         {/* ===== MENU ===== */}
         {tab==='menu' && (
           <div style={{animation:'fadeIn 0.3s ease'}}>
-            <div style={{marginBottom:14,paddingBottom:12,borderBottom:'2px solid #e0e0e0'}}>
+            <div style={{marginBottom:14,paddingBottom:12,borderBottom:'2px solid #e0e0e0',display:'flex',alignItems:'baseline',justifyContent:'space-between'}}>
               <h2 style={{fontFamily:'Poppins,sans-serif',fontSize:22,fontWeight:600}}>Menu</h2>
-              <p style={{fontSize:11,color:'#999',marginTop:2}}>{menuItems.length} productos {catActiva!=='Todos' && <span style={{color:'#7C9263',fontWeight:600}}>· {catActiva}</span>}</p>
+              <p style={{fontSize:11,color:'#999'}}>{menuItems.length} productos {catActiva!=='Todos' && <span style={{color:'#7C9263',fontWeight:600}}>· {catActiva}</span>}</p>
             </div>
 
             {/* LISTA DE PRODUCTOS */}
