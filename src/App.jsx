@@ -197,19 +197,20 @@ function Toast() {
     setTimeout(() => setToasts(p => p.filter(t => t.id !== id)), 3500)
   }
   const colors = { ok:'#22c55e', warn:'#f59e0b', err:'#ef4444' }
-  const labels  = { ok:'✓', warn:'!', err:'×' }
   return (
-    <div style={{position:'fixed',bottom:90,right:16,zIndex:3000,display:'flex',flexDirection:'column',gap:8,pointerEvents:'none'}}>
+    <div style={{position:'fixed',bottom:'calc(148px + env(safe-area-inset-bottom))',left:'50%',transform:'translateX(-50%)',zIndex:3000,display:'flex',flexDirection:'column',alignItems:'center',gap:6,pointerEvents:'none',width:'100%',maxWidth:440,padding:'0 20px'}}>
       {toasts.map(t => (
         <div key={t.id} style={{
-          background:'#1a1a1a', borderRadius:10, padding:'11px 16px',
-          minWidth:220, maxWidth:280, display:'flex', alignItems:'center', gap:10,
-          boxShadow:'0 8px 32px rgba(0,0,0,0.22)',
+          background:'#1a1a1a',
+          borderRadius:100,
+          padding:'10px 20px',
+          display:'flex',alignItems:'center',justifyContent:'center',
+          boxShadow:'0 6px 24px rgba(0,0,0,0.3)',
           animation:'toastIn 0.28s cubic-bezier(0.34,1.4,0.64,1)',
-          borderLeft:`3px solid ${colors[t.type]}`
+          border:`1.5px solid ${colors[t.type]}33`,
+          whiteSpace:'nowrap'
         }}>
-          <span style={{fontSize:11,fontWeight:700,color:colors[t.type],flexShrink:0}}>{labels[t.type]}</span>
-          <span style={{fontSize:11,color:'#e0e0e0',fontFamily:'Poppins,sans-serif',fontWeight:400,lineHeight:1.4}}>{t.msg}</span>
+          <span style={{fontSize:12,color:'#fff',fontFamily:'Poppins,sans-serif',fontWeight:600,letterSpacing:0.3}}>{t.msg}</span>
         </div>
       ))}
     </div>
@@ -1352,17 +1353,8 @@ function AdminApp({ onVerComoCliente }) {
     <>
       <style>{G}</style>
 
-      {/* OFFLINE BANNER */}
-      {!isOnline && (
-        <div style={{background:'#b8860b',color:'#fff',textAlign:'center',padding:'8px 16px',fontSize:11,fontWeight:600,position:'fixed',top:0,left:0,right:0,zIndex:9999,display:'flex',alignItems:'center',justifyContent:'center',gap:8}}>
-          <span style={{width:7,height:7,borderRadius:'50%',background:'#fff',display:'inline-block',flexShrink:0}}/>
-          Modo offline — Los cambios se sincronizaran al reconectar
-          {pendientesSync.length > 0 && <span style={{background:'rgba(0,0,0,0.3)',borderRadius:100,padding:'1px 7px'}}>{pendientesSync.length} pendiente{pendientesSync.length>1?'s':''}</span>}
-        </div>
-      )}
-
       {/* HEADER */}
-      <header style={{background:'#1a1a1a',padding:'0 16px',position:'sticky',top:isOnline?0:34,zIndex:1000,display:'flex',alignItems:'center',justifyContent:'space-between',height:58}}>
+      <header style={{background:'#1a1a1a',padding:'0 16px',position:'sticky',top:0,zIndex:1000,display:'flex',alignItems:'center',justifyContent:'space-between',height:58}}>
         <div>
           <div style={{display:'flex',alignItems:'center',gap:8}}>
               <img src='/logo.png' alt='logo' style={{height:30,width:30,objectFit:'contain',borderRadius:4,flexShrink:0}}/>
