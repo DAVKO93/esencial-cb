@@ -3466,7 +3466,7 @@ function ClienteApp({ onVolver, esPreview }) {
       {/* BARRA INFERIOR PÍLDORA CLIENTE */}
       {/* Píldora Favoritos — flotante derecha, encima de la nav */}
       {vistaCliente === 'menu' && (
-        <div style={{position:'fixed',bottom:'calc(74px + env(safe-area-inset-bottom))',right:'calc((100vw - min(100vw, 480px)) / 2 + 14px)',zIndex:250}}>
+        <div style={{position:'fixed',bottom:'calc(96px + env(safe-area-inset-bottom))',right:'calc((100vw - min(100vw, 480px)) / 2 + 14px)',zIndex:250}}>
           <button onClick={()=>setModalFavoritos(true)} style={{
             background: vistaGrid==='slide' ? 'rgba(255,255,255,0.13)' : 'rgba(0,0,0,0.07)',
             backdropFilter:'blur(8px)',
