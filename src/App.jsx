@@ -3196,7 +3196,7 @@ function ClienteApp({ onVolver, esPreview }) {
   )
 
   return (
-    <div style={{minHeight:'100vh',background:'#fff',display:'flex',flexDirection:'column',maxWidth:480,margin:'0 auto',position:'relative'}}>
+    <div style={{minHeight:'100vh',background: vistaGrid==='slide' && vistaCliente==='menu' ? '#000' : '#fff',display:'flex',flexDirection:'column',maxWidth:480,margin:'0 auto',position:'relative'}}>
       <style>{`
         @keyframes spin{to{transform:rotate(360deg)}}
         @keyframes fadeUp{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}}
@@ -3662,39 +3662,37 @@ function ClienteApp({ onVolver, esPreview }) {
             )}
           </div>
 
-          {/* Botones fondo */}
-          <div style={{padding:'8px 16px 0',borderTop:'1px solid #f0f0f0',background:'#fff',flexShrink:0,display:'flex',gap:8}}>
-            <button onClick={()=>setVistaCliente('menu')} style={{
-              flex:1,padding:'12px',background:'#f4f4f4',color:'#1a1a1a',
-              border:'none',borderRadius:11,fontFamily:'Poppins,sans-serif',fontSize:12,
-              fontWeight:700,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',gap:5
-            }}>
-              <svg width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='currentColor' strokeWidth='2.5' strokeLinecap='round'><path d='M19 12H5M12 5l-7 7 7 7'/></svg>
-              Menú
-            </button>
+          {/* Botones fondo: WhatsApp arriba, Menú+Cancelar abajo */}
+          <div style={{padding:'8px 16px 16px',borderTop:'1px solid #f0f0f0',background:'#fff',flexShrink:0}}>
             {carrito.length > 0 && (
-              <button onClick={()=>setModalCancelar(true)} style={{
-                flex:1,padding:'12px',background:'#fff',color:'#c62828',
-                border:'1.5px solid #ffcdd2',borderRadius:11,fontFamily:'Poppins,sans-serif',fontSize:12,
-                fontWeight:700,cursor:'pointer'
-              }}>Cancelar pedido</button>
-            )}
-          </div>
-
-          {/* Botón enviar */}
-          {carrito.length > 0 && (
-            <div style={{padding:'8px 16px 20px',background:'#fff',flexShrink:0}}>
               <button onClick={confirmarEnvio} style={{
                 width:'100%',padding:'15px',background:'#1a1a1a',color:'#fff',
                 border:'none',borderRadius:12,fontFamily:'Poppins,sans-serif',
                 fontSize:14,fontWeight:700,letterSpacing:0.5,cursor:'pointer',
-                display:'flex',alignItems:'center',justifyContent:'center',gap:10
+                display:'flex',alignItems:'center',justifyContent:'center',gap:10,marginBottom:8
               }}>
                 <svg width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='currentColor' strokeWidth='2.5' strokeLinecap='round' strokeLinejoin='round'><path d='M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07A19.5 19.5 0 013.07 9.81 19.79 19.79 0 01.04 1.22 2 2 0 012 .04h3a2 2 0 012 1.72 12.84 12.84 0 00.7 2.81 2 2 0 01-.45 2.11L6.09 7.91a16 16 0 006 6l1.27-1.27a2 2 0 012.11-.45 12.84 12.84 0 002.81.7A2 2 0 0122 14.92z'/></svg>
-                Enviar pedido por WhatsApp — ${total.toFixed(2)}
+                Enviar pedido por WhatsApp
               </button>
+            )}
+            <div style={{display:'flex',gap:8}}>
+              <button onClick={()=>setVistaCliente('menu')} style={{
+                flex:1,padding:'12px',background:'#f4f4f4',color:'#1a1a1a',
+                border:'none',borderRadius:11,fontFamily:'Poppins,sans-serif',fontSize:12,
+                fontWeight:700,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',gap:5
+              }}>
+                <svg width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='currentColor' strokeWidth='2.5' strokeLinecap='round'><path d='M19 12H5M12 5l-7 7 7 7'/></svg>
+                Menú
+              </button>
+              {carrito.length > 0 && (
+                <button onClick={()=>setModalCancelar(true)} style={{
+                  flex:1,padding:'12px',background:'#fff',color:'#c62828',
+                  border:'1.5px solid #ffcdd2',borderRadius:11,fontFamily:'Poppins,sans-serif',fontSize:12,
+                  fontWeight:700,cursor:'pointer'
+                }}>Cancelar pedido</button>
+              )}
             </div>
-          )}
+          </div>
         </div>
       )}
 
@@ -4091,19 +4089,16 @@ function ClienteApp({ onVolver, esPreview }) {
 
       {/* BOTÓN REGRESO AL ADMIN */}
       {esPreview && (
-        <div style={{position:'fixed',bottom:'calc(130px + env(safe-area-inset-bottom))',left:'50%',transform:'translateX(-50%)',zIndex:3000,pointerEvents:'none',width:'100%',maxWidth:480}}>
-          <div style={{display:'flex',justifyContent:'center',paddingBottom:6}}>
-            <button onClick={()=>onVolver()} style={{
-              pointerEvents:'all',
-              background:'#1a1a1a',color:'#fff',border:'none',borderRadius:100,
-              padding:'10px 20px',display:'flex',alignItems:'center',gap:6,
-              fontFamily:'Poppins,sans-serif',fontSize:12,fontWeight:700,
-              boxShadow:'0 4px 18px rgba(0,0,0,0.45)',cursor:'pointer',letterSpacing:0.5
-            }}>
-              <svg width='13' height='13' viewBox='0 0 24 24' fill='none' stroke='currentColor' strokeWidth='2.5' strokeLinecap='round'><polyline points='15 18 9 12 15 6'/></svg>
-              ← Volver a Admin
-            </button>
-          </div>
+        <div style={{position:'fixed',top:66,right:12,zIndex:3000}}>
+          <button onClick={()=>onVolver()} style={{
+            background:'#1a1a1a',color:'#fff',border:'none',borderRadius:100,
+            padding:'8px 14px',display:'flex',alignItems:'center',gap:5,
+            fontFamily:'Poppins,sans-serif',fontSize:11,fontWeight:700,
+            boxShadow:'0 4px 14px rgba(0,0,0,0.4)',cursor:'pointer',letterSpacing:0.3
+          }}>
+            <svg width='11' height='11' viewBox='0 0 24 24' fill='none' stroke='currentColor' strokeWidth='2.5' strokeLinecap='round'><polyline points='15 18 9 12 15 6'/></svg>
+            Admin
+          </button>
         </div>
       )}
     </div>
