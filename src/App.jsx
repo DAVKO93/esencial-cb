@@ -1403,11 +1403,13 @@ function AdminApp({ onVerComoCliente }) {
 
       {/* MAIN */}
       <main style={{maxWidth:900,margin:'0 auto',padding:'16px 12px calc(130px + env(safe-area-inset-bottom))',position:'relative'}} onClick={()=>catDropdown && setCatDropdown(false)}>
-        {/* Overlay cuando dropdown categoría está abierto */}
+        {/* Blur gaussiano cuando dropdown categoría está abierto */}
         {catDropdown && (
           <div style={{
             position:'fixed',inset:0,
-            background:'linear-gradient(to bottom, rgba(0,0,0,0.01) 0%, rgba(0,0,0,0.45) 100%)',
+            backdropFilter:'blur(3px)',
+            WebkitBackdropFilter:'blur(3px)',
+            background:'rgba(255,255,255,0.15)',
             zIndex:998,pointerEvents:'none'
           }}/>
         )}
@@ -2229,16 +2231,17 @@ function AdminApp({ onVerComoCliente }) {
             {catDropdown && (
               <div style={{
                 position:'absolute',bottom:'calc(100% + 10px)',right:0,
-                background:'#1a1a1a',borderRadius:16,padding:'10px 10px',
+                background:'#fff',borderRadius:16,padding:'10px',
                 display:'flex',flexDirection:'column',gap:6,
-                boxShadow:'0 8px 24px rgba(0,0,0,0.4)',minWidth:150,zIndex:10
+                boxShadow:'0 8px 28px rgba(0,0,0,0.22)',minWidth:150,zIndex:10,
+                border:'1px solid #ebebeb'
               }}>
                 {cats.map(c => (
                   <button key={c} onClick={()=>{ setCatActiva(c); setCatDropdown(false) }} style={{
                     padding:'9px 16px',borderRadius:100,border:'none',cursor:'pointer',
                     fontFamily:'Poppins,sans-serif',fontSize:12,fontWeight:700,letterSpacing:0.3,
-                    background: catActiva===c ? '#7C9263' : '#fff',
-                    color: catActiva===c ? '#fff' : '#1a1a1a',
+                    background: catActiva===c ? '#7C9263' : '#1a1a1a',
+                    color:'#fff',
                     textAlign:'left'
                   }}>{c}</button>
                 ))}
