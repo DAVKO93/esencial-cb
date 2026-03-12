@@ -762,7 +762,7 @@ function AdminApp({ onVerComoCliente }) {
       return [...prev, { ...item, cantidad:1 }]
     })
     try{Sound.play('add')}catch(e){}
-    showToast('ok', item.nombre + ' agregado')
+
   }
 
   function updateQty(id, delta) {
@@ -1402,7 +1402,15 @@ function AdminApp({ onVerComoCliente }) {
       </header>
 
       {/* MAIN */}
-      <main style={{maxWidth:900,margin:'0 auto',padding:'16px 12px calc(130px + env(safe-area-inset-bottom))'}} onClick={()=>catDropdown && setCatDropdown(false)}>
+      <main style={{maxWidth:900,margin:'0 auto',padding:'16px 12px calc(130px + env(safe-area-inset-bottom))',position:'relative'}} onClick={()=>catDropdown && setCatDropdown(false)}>
+        {/* Overlay cuando dropdown categoría está abierto */}
+        {catDropdown && (
+          <div style={{
+            position:'fixed',inset:0,
+            background:'linear-gradient(to bottom, rgba(0,0,0,0.01) 0%, rgba(0,0,0,0.45) 100%)',
+            zIndex:998,pointerEvents:'none'
+          }}/>
+        )}
 
         {/* ===== MENU ===== */}
         {tab==='menu' && (
@@ -2223,14 +2231,15 @@ function AdminApp({ onVerComoCliente }) {
                 position:'absolute',bottom:'calc(100% + 10px)',right:0,
                 background:'#1a1a1a',borderRadius:16,padding:'10px 10px',
                 display:'flex',flexDirection:'column',gap:6,
-                boxShadow:'0 8px 24px rgba(0,0,0,0.4)',minWidth:140,zIndex:10
+                boxShadow:'0 8px 24px rgba(0,0,0,0.4)',minWidth:150,zIndex:10
               }}>
                 {cats.map(c => (
                   <button key={c} onClick={()=>{ setCatActiva(c); setCatDropdown(false) }} style={{
                     padding:'9px 16px',borderRadius:100,border:'none',cursor:'pointer',
                     fontFamily:'Poppins,sans-serif',fontSize:12,fontWeight:700,letterSpacing:0.3,
-                    background: catActiva===c ? '#7C9263' : 'rgba(255,255,255,0.1)',
-                    color:'#fff',textAlign:'left'
+                    background: catActiva===c ? '#7C9263' : '#fff',
+                    color: catActiva===c ? '#fff' : '#1a1a1a',
+                    textAlign:'left'
                   }}>{c}</button>
                 ))}
               </div>
