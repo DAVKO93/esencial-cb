@@ -2210,7 +2210,8 @@ function AdminApp({ onVerComoCliente }) {
                 position:'relative',background:'#1a1a1a',color:'#fff',border:'none',
                 borderRadius:100,padding:'12px 14px',
                 fontFamily:'Poppins,sans-serif',fontSize:12,fontWeight:700,letterSpacing:0.5,
-                cursor:'pointer',boxShadow:'0 4px 14px rgba(0,0,0,0.3)'
+                cursor:'pointer',boxShadow:'0 4px 14px rgba(0,0,0,0.3)',
+                flex:1,textAlign:'center'
               }}>
                 Promociones
                 {promoHoy > 0 && (
@@ -2227,7 +2228,7 @@ function AdminApp({ onVerComoCliente }) {
           })()}
 
           {/* Categoría — dropdown */}
-          <div style={{position:'relative',flexShrink:0}}>
+          <div style={{position:'relative',flexShrink:0,width:150}}>
             {catDropdown && (
               <div style={{
                 position:'absolute',bottom:'calc(100% + 10px)',right:0,
@@ -2251,7 +2252,7 @@ function AdminApp({ onVerComoCliente }) {
               borderRadius:100,padding:'12px 18px',
               fontFamily:'Poppins,sans-serif',fontSize:12,fontWeight:700,letterSpacing:0.5,
               cursor:'pointer',boxShadow:'0 4px 14px rgba(0,0,0,0.3)',
-              display:'flex',alignItems:'center',gap:6,position:'relative',flex:1,justifyContent:'center'
+              display:'flex',alignItems:'center',gap:6,position:'relative',width:'100%',justifyContent:'center'
             }}>
               {catActiva==='Todos' ? 'Categoría' : catActiva}
               <svg width='11' height='11' viewBox='0 0 24 24' fill='none' stroke='currentColor' strokeWidth='2.5' strokeLinecap='round'>
