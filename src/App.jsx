@@ -299,9 +299,9 @@ function Modal({ open, onClose, title, sub, icon, children, footer }) {
         animation:'modalIn 0.28s cubic-bezier(0.34,1.3,0.64,1)'}}>
         <div style={{padding:'16px 20px',borderBottom:'1px solid #e0e0e0',display:'flex',alignItems:'center',gap:13,background:'#f9f9f9'}}>
           {icon && <div style={{width:36,height:36,background:'#1a1a1a',borderRadius:8,display:'flex',alignItems:'center',justifyContent:'center',color:'#fff',fontWeight:700,fontSize:13,flexShrink:0}}>{icon}</div>}
-          <div style={{flex:1}}>
-            <div style={{fontFamily:'Poppins,sans-serif',fontSize:15,fontWeight:600,color:'#1a1a1a'}}>{title}</div>
-            {sub && <div style={{fontSize:11,color:'#aaa',marginTop:2,fontFamily:'Poppins,sans-serif'}}>{sub}</div>}
+          <div style={{flex:1,minWidth:0}}>
+            <div style={{fontFamily:'Poppins,sans-serif',fontSize:15,fontWeight:600,color:'#1a1a1a',overflowWrap:'anywhere'}}>{title}</div>
+            {sub && <div style={{fontSize:11,color:'#aaa',marginTop:2,fontFamily:'Poppins,sans-serif',lineHeight:1.4,overflowWrap:'anywhere'}}>{sub}</div>}
           </div>
           <button onClick={()=>{try{Sound.play('tap')}catch(e){}onClose()}} style={{
             background:'#f0f0f0',border:'none',width:28,height:28,borderRadius:'50%',
@@ -830,6 +830,10 @@ function AdminApp({ onVerComoCliente }) {
 
   async function guardarItemsPedido(pedido, items, mensaje) {
     const total = totalPedidoItems(items)
+    // Actualiza la tarjeta de inmediato; Firestore confirma después en segundo plano.
+    setPedidosActivos(prev => prev.map(actual => actual.id === pedido.id ? {
+      ...actual, items, total, modificadoPor:nombreEmpleado
+    } : actual))
     try {
       await updateDoc(doc(db, 'pedidos', pedido.id), {
         items,
@@ -840,6 +844,8 @@ function AdminApp({ onVerComoCliente }) {
       showToast('ok', mensaje)
       return true
     } catch (e) {
+      // Al fallar, el listener de Firestore restaurará los datos reales.
+      setPedidosActivos(prev => prev.map(actual => actual.id === pedido.id ? pedido : actual))
       showToast('err', 'No se pudo actualizar el pedido')
       return false
     }
@@ -1748,8 +1754,8 @@ function AdminApp({ onVerComoCliente }) {
                       <span style={{fontSize:10,letterSpacing:2,textTransform:'uppercase',color:'#999',fontWeight:600}}>Total</span>
                       <span style={{fontFamily:'Poppins,sans-serif',fontSize:17}}>${parseFloat(p.total).toFixed(2)}</span>
                     </div>
-                    {totalCobradoSeparado(p.items) > 0 && <div style={{marginTop:7,padding:'7px 9px',borderRadius:6,background:'#f5f8f1',fontSize:10,color:'#587043',display:'flex',justifyContent:'space-between',fontWeight:700}}><span>Cobrado por separado</span><span>${totalCobradoSeparado(p.items).toFixed(2)}</span></div>}
-                    {totalCobradoSeparado(p.items) > 0 && <div style={{marginTop:5,fontSize:11,color:'#666',display:'flex',justifyContent:'space-between'}}><span>Saldo pendiente</span><strong>${Math.max(0, Number(p.total||0)-totalCobradoSeparado(p.items)).toFixed(2)}</strong></div>}
+                    {totalCobradoSeparado(p.items) > 0 && <div style={{marginTop:8,padding:'8px 10px',borderRadius:7,background:'#f5f8f1',border:'1px solid #dce8d2',color:'#587043',display:'flex',justifyContent:'space-between',alignItems:'center'}}><span style={{fontSize:10,letterSpacing:1.2,textTransform:'uppercase',fontWeight:700}}>Cobrado separado</span><span style={{fontFamily:'Poppins,sans-serif',fontSize:15,fontWeight:700}}>${totalCobradoSeparado(p.items).toFixed(2)}</span></div>}
+                    {totalCobradoSeparado(p.items) > 0 && <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',paddingTop:9,borderTop:'1.5px solid #d0d0d0',marginTop:7}}><span style={{fontSize:10,letterSpacing:2,textTransform:'uppercase',color:'#666',fontWeight:700}}>Saldo pendiente</span><span style={{fontFamily:'Poppins,sans-serif',fontSize:17,fontWeight:600,color:'#1a1a1a'}}>${Math.max(0, Number(p.total||0)-totalCobradoSeparado(p.items)).toFixed(2)}</span></div>}
 
                     {/* DATOS CLIENTE / FACTURACIÓN - ACORDEÓN */}
                     <div style={{marginTop:12,background:'#f8f8f8',border:'1px solid #e0e0e0',borderRadius:9,overflow:'hidden'}}>
@@ -2266,53 +2272,26 @@ function AdminApp({ onVerComoCliente }) {
                     </div>
                     <div style={{fontFamily:'Poppins,sans-serif',fontWeight:700,fontSize:30,color:'#fff'}}>${totalSum.toFixed(2)}</div>
                   </div>
-                  <div style={{background:'#fff',border:'1px solid #e0e0e0',borderRadius:13,overflow:'hidden',overflowX:'auto',boxShadow:'0 2px 8px rgba(0,0,0,0.05)'}}>
-                    <table style={{width:'100%',borderCollapse:'collapse'}}>
-                      <thead>
-                        <tr>
-                          {['Hora','Cliente','Mesa','Productos','Total','Pago','Estado','Empleado','Transferencia','Accion'].map(h => (
-                            <th key={h} style={{background:'#f4f4f4',padding:'10px 14px',textAlign:'left',fontSize:9,letterSpacing:2,textTransform:'uppercase',color:'#999',fontWeight:600,borderBottom:'1px solid #e0e0e0'}}>{h}</th>
-                          ))}
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {!filtrados.length ? (
-                          <tr><td colSpan={8} style={{padding:40,textAlign:'center',color:'#999',fontSize:12}}>Sin registros en este período</td></tr>
-                        ) : filtrados.map(p => (
-                          <tr key={p.id} style={{borderBottom:'1px solid #e0e0e0'}}>
-                            <td style={{padding:'10px 14px',fontSize:12,color:'#666'}}>{p.creadoEn?.toDate?.()?.toLocaleTimeString('es-EC',{hour:'2-digit',minute:'2-digit'})||'—'}</td>
-                            <td style={{padding:'10px 14px',fontSize:13,fontWeight:600,color:'#1a1a1a'}}>{p.cliente}</td>
-                            <td style={{padding:'10px 14px',fontSize:12,color:'#666'}}>{p.mesa||'—'}</td>
-                            <td style={{padding:'10px 14px',fontSize:11,color:'#999',maxWidth:140,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{p.items?.map(it=>`${it.cantidad}x ${it.nombre}`).join(', ')}</td>
-                            <td style={{padding:'10px 14px',fontFamily:'Poppins,sans-serif',fontSize:14}}>${parseFloat(p.total||0).toFixed(2)}</td>
-                            <td style={{padding:'10px 14px'}}>
-                              {p.formaPago ? <span style={{background:p.formaPago==='Efectivo'?'#e8f5e9':'#e3f2fd',color:p.formaPago==='Efectivo'?'#2e7d32':'#1565c0',border:`1px solid ${p.formaPago==='Efectivo'?'#a5d6a7':'#90caf9'}`,padding:'3px 8px',borderRadius:100,fontSize:9,fontWeight:700}}>{p.formaPago}</span> : <span style={{color:'#ccc',fontSize:11}}>—</span>}
-                            </td>
-                            <td style={{padding:'10px 14px'}}>
-                              <span style={{background:p.estado==='EN PROCESO'?'#fff8e1':'#e8f5e9',color:p.estado==='EN PROCESO'?'#b8860b':'#2e7d32',border:`1px solid ${p.estado==='EN PROCESO'?'#e8d88a':'#a5d6a7'}`,padding:'3px 8px',borderRadius:100,fontSize:9,fontWeight:700}}>{p.estado}</span>
-                            </td>
-                            <td style={{padding:'10px 14px'}}>
-                              <span style={{fontSize:11,color:'#666'}}>{p.empleado||'—'}</span>
-                            </td>
-                            <td style={{padding:'10px 14px'}}>
-                              {p.urlComprobante ? (
-                                <button onClick={()=>setModalComprobante(p.urlComprobante)} style={{
-                                  background:'#1a1a1a',border:'none',color:'#fff',
-                                  padding:'4px 10px',borderRadius:6,fontFamily:'Poppins,sans-serif',
-                                  fontSize:10,fontWeight:700,cursor:'pointer',whiteSpace:'nowrap'
-                                }}>
-                                  Ver transferencia
-                                </button>
-                              ) : <span style={{fontSize:10,color:'#ccc'}}>—</span>}
-                            </td>
-                            <td style={{padding:'10px 14px'}}>
-                              <button onClick={()=>setModalEliminar(p.id)} style={{background:'none',border:'1px solid #ffcdd2',color:'#c62828',padding:'3px 9px',borderRadius:5,fontFamily:'Poppins,sans-serif',fontSize:10,cursor:'pointer'}}>Eliminar</button>
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
+                  {!filtrados.length ? <div style={{background:'#fff',border:'1px solid #e0e0e0',borderRadius:13,padding:40,textAlign:'center',color:'#999',fontSize:12}}>Sin registros en este período</div> : <div style={{display:'flex',flexDirection:'column',gap:10}}>
+                    {filtrados.map(p => {
+                      const cobrosSeparados = (p.items||[]).filter(it=>it.pagoSeparado?.estado==='PAGADO')
+                      const totalSeparado = totalCobradoSeparado(p.items)
+                      const horaPedido = p.creadoEn?.toDate?.()?.toLocaleTimeString('es-EC',{hour:'2-digit',minute:'2-digit'})||'—'
+                      return <div key={p.id} style={{background:'#fff',border:'1px solid #e0e0e0',borderRadius:13,overflow:'hidden',boxShadow:'0 2px 8px rgba(0,0,0,0.05)'}}>
+                        <div style={{padding:'11px 14px',background:'#f4f4f4',borderBottom:'1px solid #e5e5e5',display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:8}}>
+                          <div><div style={{fontSize:13,fontWeight:700,color:'#1a1a1a'}}>{p.cliente || 'Consumidor final'}</div><div style={{fontSize:11,color:'#888',marginTop:2}}>{horaPedido} · {p.mesa || 'Sin mesa'} · {p.empleado || 'Sin empleado'}</div></div>
+                          <span style={{background:p.estado==='EN PROCESO'?'#fff8e1':'#e8f5e9',color:p.estado==='EN PROCESO'?'#b8860b':'#2e7d32',border:`1px solid ${p.estado==='EN PROCESO'?'#e8d88a':'#a5d6a7'}`,padding:'3px 8px',borderRadius:100,fontSize:9,fontWeight:700,whiteSpace:'nowrap'}}>{p.estado || 'LISTO'}</span>
+                        </div>
+                        <div style={{padding:'10px 14px'}}>
+                          <div style={{fontSize:10,letterSpacing:1.5,textTransform:'uppercase',color:'#999',fontWeight:700,marginBottom:5}}>Detalle del pedido</div>
+                          {(p.items||[]).map((it,i)=><div key={it.lineaId || i} style={{display:'flex',justifyContent:'space-between',gap:9,padding:'5px 0',borderBottom:'1px solid #f0f0f0',fontSize:12,color:it.pagoSeparado?.estado==='PAGADO'?'#587043':'#555'}}><span>{it.cantidad}x {it.nombre}{it.paraLlevar ? ` · Para llevar +$${Number(it.cargoParaLlevar||0).toFixed(2)} c/u` : ''}{it.pagoSeparado?.estado==='PAGADO' ? <small style={{display:'block',fontWeight:700,marginTop:2}}>Pagado separado · {it.pagoSeparado.formaPago}</small> : null}</span><strong style={{whiteSpace:'nowrap'}}>${totalItemPedido(it).toFixed(2)}</strong></div>)}
+                          <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',paddingTop:10,marginTop:4}}><span style={{fontSize:10,letterSpacing:1.5,textTransform:'uppercase',fontWeight:700,color:'#888'}}>Total</span><strong style={{fontFamily:'Poppins,sans-serif',fontSize:18}}>${Number(p.total||0).toFixed(2)}</strong></div>
+                          {cobrosSeparados.length > 0 && <div style={{marginTop:8,padding:'8px 9px',borderRadius:7,background:'#f5f8f1',border:'1px solid #dce8d2',fontSize:11,color:'#587043'}}><div style={{display:'flex',justifyContent:'space-between',fontWeight:700}}><span>Cobrado por separado</span><span>${totalSeparado.toFixed(2)}</span></div>{cobrosSeparados.map((it,i)=><div key={i} style={{marginTop:4}}>{it.nombre}: ${totalItemPedido(it).toFixed(2)} · {it.pagoSeparado.formaPago}</div>)}</div>}
+                          <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:8,marginTop:10,paddingTop:9,borderTop:'1px solid #eee'}}><span style={{fontSize:11,color:'#666'}}>Pago final: <strong>{p.formaPago || '—'}</strong></span><div style={{display:'flex',gap:7}}>{p.urlComprobante && <button onClick={()=>setModalComprobante(p.urlComprobante)} style={{background:'#1a1a1a',border:'none',color:'#fff',padding:'6px 9px',borderRadius:6,fontFamily:'Poppins,sans-serif',fontSize:10,fontWeight:700,cursor:'pointer'}}>Ver transferencia</button>}<button onClick={()=>setModalEliminar(p.id)} style={{background:'#fff',border:'1px solid #ffcdd2',color:'#c62828',padding:'6px 9px',borderRadius:6,fontFamily:'Poppins,sans-serif',fontSize:10,fontWeight:700,cursor:'pointer'}}>Eliminar</button></div></div>
+                        </div>
+                      </div>
+                    })}
+                  </div>}
                 </>
               )
             })()}
@@ -2404,7 +2383,7 @@ function AdminApp({ onVerComoCliente }) {
               pedido: <svg width='20' height='20' viewBox='0 0 24 24' fill='none' stroke='currentColor' strokeWidth='2' strokeLinecap='round'><path d='M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z'/><polyline points='14 2 14 8 20 8'/><line x1='16' y1='13' x2='8' y2='13'/><line x1='16' y1='17' x2='8' y2='17'/><polyline points='10 9 9 9 8 9'/></svg>,
               proceso: <svg width='20' height='20' viewBox='0 0 24 24' fill='none' stroke='currentColor' strokeWidth='2' strokeLinecap='round'><circle cx='12' cy='12' r='10'/><polyline points='12 6 12 12 16 14'/></svg>,
               domicilio: <svg width='20' height='20' viewBox='0 0 24 24' fill='none' stroke='currentColor' strokeWidth='2' strokeLinecap='round' strokeLinejoin='round'><path d='M5 17h10'/><path d='M13 5h3l3 5v7h-2'/><path d='M5 17V9h8'/><circle cx='7' cy='18' r='2'/><circle cx='17' cy='18' r='2'/><path d='M13 9l-2-4H7'/></svg>,
-              historial: <svg width='20' height='20' viewBox='0 0 24 24' fill='none' stroke='currentColor' strokeWidth='2' strokeLinecap='round'><polyline points='12 8 12 12 14 14'/><path d='M3.05 11a9 9 0 1 0 .5-4.5'/><polyline points='1 4 3 6 5 4'/></svg>,
+              historial: <svg width='20' height='20' viewBox='0 0 24 24' fill='none' stroke='currentColor' strokeWidth='2' strokeLinecap='round' strokeLinejoin='round'><path d='M4 4h16v16H4z'/><path d='M7 4v5h10V4'/><path d='M7 15h10'/><path d='M8 18h2'/><path d='M14 18h2'/></svg>,
               stats: <svg width='20' height='20' viewBox='0 0 24 24' fill='none' stroke='currentColor' strokeWidth='2' strokeLinecap='round'><line x1='18' y1='20' x2='18' y2='10'/><line x1='12' y1='20' x2='12' y2='4'/><line x1='6' y1='20' x2='6' y2='14'/></svg>,
             }
             return (
@@ -2653,7 +2632,7 @@ function AdminApp({ onVerComoCliente }) {
               <div style={{padding:'12px',border:'1px solid #e0e0e0',borderRadius:9,marginBottom:10}}>
                 <div style={{fontSize:12,fontWeight:700,color:'#1a1a1a',marginBottom:4}}>Preparar para llevar</div>
                 <div style={{fontSize:11,color:'#888',lineHeight:1.45,marginBottom:9}}>El cargo se suma únicamente a este producto, incluso si se cobra por separado.</div>
-                <div style={{display:'flex',gap:8,alignItems:'center'}}><span style={{fontSize:13,color:'#666'}}>$</span><input type='number' min='0' step='0.01' value={costoParaLlevar} onChange={e=>setCostoParaLlevar(e.target.value)} style={{flex:1,border:'1.5px solid #d0d0d0',borderRadius:7,padding:'9px 10px',fontFamily:'Poppins,sans-serif',fontSize:13,outline:'none'}}/><button onClick={guardarParaLlevar} style={{padding:'9px 12px',background:'#1a1a1a',color:'#fff',border:'none',borderRadius:7,fontFamily:'Poppins,sans-serif',fontWeight:700,fontSize:11,cursor:'pointer'}}>Guardar</button></div>
+                <div style={{display:'flex',gap:8,alignItems:'center',width:'100%'}}><span style={{fontSize:13,color:'#666',flexShrink:0}}>$</span><input type='number' min='0' step='0.01' value={costoParaLlevar} onChange={e=>setCostoParaLlevar(e.target.value)} style={{minWidth:0,flex:'1 1 90px',border:'1.5px solid #d0d0d0',borderRadius:7,padding:'9px 10px',fontFamily:'Poppins,sans-serif',fontSize:13,outline:'none'}}/><button onClick={guardarParaLlevar} style={{flexShrink:0,padding:'9px 12px',background:'#1a1a1a',color:'#fff',border:'none',borderRadius:7,fontFamily:'Poppins,sans-serif',fontWeight:700,fontSize:11,cursor:'pointer'}}>Guardar</button></div>
               </div>
               <button onClick={()=>setModalCobroItem(modalAccionesItem)} style={{width:'100%',padding:'11px',background:'#fff',color:'#1a1a1a',border:'1.5px solid #7C9263',borderRadius:8,fontFamily:'Poppins,sans-serif',fontWeight:700,fontSize:11,letterSpacing:1,textTransform:'uppercase',cursor:'pointer',marginBottom:9}}>Pagar por separado</button>
               <button onClick={quitarProductoPedido} style={{width:'100%',padding:'11px',background:'#fff',color:'#c62828',border:'1.5px solid #ffcdd2',borderRadius:8,fontFamily:'Poppins,sans-serif',fontWeight:700,fontSize:11,letterSpacing:1,textTransform:'uppercase',cursor:'pointer'}}>Quitar del pedido</button>
