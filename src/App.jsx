@@ -565,6 +565,7 @@ function AdminApp({ onVerComoCliente }) {
   const [modalAgregarPedido, setModalAgregarPedido] = useState(null)
   const [modalAccionesItem, setModalAccionesItem] = useState(null)
   const [modalCobroItem, setModalCobroItem] = useState(null)
+  const [confirmarQuitarItem, setConfirmarQuitarItem] = useState(null)
   const [costoParaLlevar, setCostoParaLlevar] = useState('0')
 
   // Actualizar contadores cada 30s
@@ -892,14 +893,13 @@ function AdminApp({ onVerComoCliente }) {
   }
 
   async function quitarProductoPedido() {
-    const data = modalAccionesItem
+    const data = confirmarQuitarItem
     if (!data) return
     const { pedido, indice } = data
     const item = pedido.items?.[indice]
     if (item?.pagoSeparado?.estado === 'PAGADO') { showToast('err', 'No puedes quitar un producto ya cobrado'); return }
-    if (!window.confirm(`¿Quitar “${item?.nombre || 'este producto'}” del pedido?`)) return
     const ok = await guardarItemsPedido(pedido, (pedido.items || []).filter((_, i) => i !== indice), 'Producto quitado del pedido')
-    if (ok) setModalAccionesItem(null)
+    if (ok) { setConfirmarQuitarItem(null); setModalAccionesItem(null) }
   }
 
   async function cobrarProductoSeparado(formaPago) {
@@ -1734,19 +1734,19 @@ function AdminApp({ onVerComoCliente }) {
                     </div>
                     {p.empleado && <div style={{fontSize:10,color:'#888',marginBottom:8,padding:'3px 8px',background:'#f4f4f4',borderRadius:5,display:'inline-block'}}>Tomado por: <strong>{p.empleado}</strong></div>}
                     <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',margin:'5px 0 2px'}}>
-                      <span style={{fontSize:10,letterSpacing:1.5,textTransform:'uppercase',fontWeight:700,color:'#999'}}>Productos</span>
+                      <span style={{fontSize:10,letterSpacing:1.5,textTransform:'uppercase',fontWeight:700,color:'#999'}}>Productos <small style={{fontSize:9,letterSpacing:0,textTransform:'none',fontWeight:500}}>· toca uno para gestionar</small></span>
                       <button onClick={()=>setModalAgregarPedido(p)} aria-label='Agregar producto al pedido' style={{width:27,height:27,borderRadius:'50%',border:'none',background:'#1a1a1a',color:'#fff',fontSize:20,lineHeight:1,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center'}}>+</button>
                     </div>
                     {p.items?.map((it,i) => {
                       const valorItem = totalItemPedido(it)
                       const cobrado = it.pagoSeparado?.estado === 'PAGADO'
-                      return <button key={it.lineaId || `${it.id}-${i}`} onClick={()=>abrirAccionesItem(p,i)} style={{width:'100%',display:'flex',justifyContent:'space-between',alignItems:'center',gap:8,textAlign:'left',fontFamily:'Poppins,sans-serif',fontSize:12,color:cobrado?'#7C9263':'#666',padding:'7px 3px',border:'none',borderBottom:'1px solid #e0e0e0',background:'transparent',cursor:'pointer'}}>
+                      return <button key={it.lineaId || `${it.id}-${i}`} onClick={()=>abrirAccionesItem(p,i)} style={{width:'100%',display:'flex',justifyContent:'space-between',alignItems:'center',gap:8,textAlign:'left',fontFamily:'Poppins,sans-serif',fontSize:12,color:cobrado?'#587043':'#555',padding:'8px 7px',border:'1px solid transparent',borderBottom:'1px solid #e6e6e6',borderRadius:6,background:cobrado?'#f5f8f1':'#fafafa',cursor:'pointer',transition:'background 0.15s, border-color 0.15s'}}>
                         <span style={{display:'flex',flexDirection:'column',gap:2,minWidth:0}}>
                           <span>{it.cantidad}x {it.nombre}{it.adicional ? <small style={{marginLeft:5,color:'#7C9263',fontWeight:700}}>ADICIONAL</small> : null}</span>
                           {it.paraLlevar && <small style={{color:'#9a6b18'}}>Para llevar +${Number(it.cargoParaLlevar||0).toFixed(2)} c/u</small>}
                           {cobrado && <small style={{color:'#7C9263',fontWeight:700}}>Pagado por separado · {it.pagoSeparado.formaPago}</small>}
                         </span>
-                        <span style={{whiteSpace:'nowrap',fontWeight:cobrado?700:400}}>${valorItem.toFixed(2)}</span>
+                        <span style={{display:'flex',alignItems:'center',gap:6,whiteSpace:'nowrap',fontWeight:cobrado?700:400}}>${valorItem.toFixed(2)}<svg width='13' height='13' viewBox='0 0 24 24' fill='none' stroke='currentColor' strokeWidth='2.5' strokeLinecap='round' strokeLinejoin='round'><polyline points='9 18 15 12 9 6'/></svg></span>
                       </button>
                     })}
                     {p.notas && <div style={{fontSize:11,color:'#666',background:'#fffdf0',border:'1px solid #e8e4c0',padding:'5px 9px',borderRadius:6,marginTop:7}}>Nota: {p.notas}</div>}
@@ -2635,11 +2635,30 @@ function AdminApp({ onVerComoCliente }) {
                 <div style={{display:'flex',gap:8,alignItems:'center',width:'100%'}}><span style={{fontSize:13,color:'#666',flexShrink:0}}>$</span><input type='number' min='0' step='0.01' value={costoParaLlevar} onChange={e=>setCostoParaLlevar(e.target.value)} style={{minWidth:0,flex:'1 1 90px',border:'1.5px solid #d0d0d0',borderRadius:7,padding:'9px 10px',fontFamily:'Poppins,sans-serif',fontSize:13,outline:'none'}}/><button onClick={guardarParaLlevar} style={{flexShrink:0,padding:'9px 12px',background:'#1a1a1a',color:'#fff',border:'none',borderRadius:7,fontFamily:'Poppins,sans-serif',fontWeight:700,fontSize:11,cursor:'pointer'}}>Guardar</button></div>
               </div>
               <button onClick={()=>setModalCobroItem(modalAccionesItem)} style={{width:'100%',padding:'11px',background:'#fff',color:'#1a1a1a',border:'1.5px solid #7C9263',borderRadius:8,fontFamily:'Poppins,sans-serif',fontWeight:700,fontSize:11,letterSpacing:1,textTransform:'uppercase',cursor:'pointer',marginBottom:9}}>Pagar por separado</button>
-              <button onClick={quitarProductoPedido} style={{width:'100%',padding:'11px',background:'#fff',color:'#c62828',border:'1.5px solid #ffcdd2',borderRadius:8,fontFamily:'Poppins,sans-serif',fontWeight:700,fontSize:11,letterSpacing:1,textTransform:'uppercase',cursor:'pointer'}}>Quitar del pedido</button>
+              <button onClick={()=>setConfirmarQuitarItem(modalAccionesItem)} style={{width:'100%',padding:'11px',background:'#fff',color:'#c62828',border:'1.5px solid #ffcdd2',borderRadius:8,fontFamily:'Poppins,sans-serif',fontWeight:700,fontSize:11,letterSpacing:1,textTransform:'uppercase',cursor:'pointer'}}>Quitar del pedido</button>
             </>}
           </>
         })()}
       </Modal>
+
+      {/* CONFIRMACIÓN PROPIA DE LA APP: reemplaza el aviso nativo del navegador */}
+      {confirmarQuitarItem && (() => {
+        const item = confirmarQuitarItem.pedido.items?.[confirmarQuitarItem.indice]
+        return <div style={{position:'fixed',inset:0,zIndex:3100,background:'rgba(0,0,0,0.46)',backdropFilter:'blur(5px)',display:'flex',alignItems:'center',justifyContent:'center',padding:20}} onClick={e=>{if(e.target===e.currentTarget)setConfirmarQuitarItem(null)}}>
+          <div style={{width:'100%',maxWidth:350,background:'#fff',borderRadius:16,overflow:'hidden',boxShadow:'0 24px 64px rgba(0,0,0,0.24)',animation:'modalIn 0.24s cubic-bezier(0.34,1.3,0.64,1)'}}>
+            <div style={{padding:'17px 20px',display:'flex',alignItems:'center',gap:12,borderBottom:'1px solid #e8e8e8',background:'#fafafa'}}>
+              <div style={{width:36,height:36,flexShrink:0,borderRadius:8,background:'#1a1a1a',color:'#fff',display:'flex',alignItems:'center',justifyContent:'center',fontFamily:'Poppins,sans-serif',fontSize:16,fontWeight:700}}>×</div>
+              <div style={{flex:1,minWidth:0}}><div style={{fontFamily:'Poppins,sans-serif',fontSize:16,fontWeight:700,color:'#1a1a1a'}}>Quitar producto</div><div style={{fontFamily:'Poppins,sans-serif',fontSize:11,color:'#999',marginTop:2}}>Esta acción no se puede deshacer</div></div>
+              <button onClick={()=>setConfirmarQuitarItem(null)} style={{width:28,height:28,flexShrink:0,border:'none',borderRadius:'50%',background:'#f0f0f0',color:'#888',fontSize:17,cursor:'pointer'}}>×</button>
+            </div>
+            <div style={{padding:'20px',fontFamily:'Poppins,sans-serif',fontSize:13,color:'#555',lineHeight:1.55}}>¿Deseas quitar <strong style={{color:'#1a1a1a'}}>{item?.cantidad}x {item?.nombre}</strong> de este pedido?</div>
+            <div style={{padding:'12px 20px',borderTop:'1px solid #e8e8e8',background:'#fafafa',display:'flex',gap:9,justifyContent:'flex-end'}}>
+              <button onClick={()=>setConfirmarQuitarItem(null)} style={{padding:'10px 15px',background:'#fff',border:'1.5px solid #d0d0d0',borderRadius:8,color:'#666',fontFamily:'Poppins,sans-serif',fontSize:11,fontWeight:700,letterSpacing:1,cursor:'pointer'}}>CANCELAR</button>
+              <button onClick={quitarProductoPedido} style={{padding:'10px 15px',background:'#d90820',border:'none',borderRadius:8,color:'#fff',fontFamily:'Poppins,sans-serif',fontSize:11,fontWeight:700,letterSpacing:1,cursor:'pointer'}}>ELIMINAR</button>
+            </div>
+          </div>
+        </div>
+      })()}
 
       {/* MODAL: COBRO INDIVIDUAL */}
       <Modal open={!!modalCobroItem} onClose={()=>setModalCobroItem(null)} title='Cobro separado' sub='El pago quedará asociado a este producto' icon='$'
