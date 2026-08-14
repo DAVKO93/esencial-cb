@@ -540,7 +540,7 @@ function AdminApp({ onVerComoCliente }) {
   const [historial, setHistorial] = useState([])
   const [loadingHist, setLoadingHist] = useState(false)
   const [isOnline, setIsOnline] = useState(navigator.onLine)
-
+  const [pendientesSync, setPendientesSync] = useState([])
   const [deferredPrompt, setDeferredPrompt] = useState(null)
   const [showInstall, setShowInstall] = useState(false)
   const [loadingMenu, setLoadingMenu] = useState(true)
@@ -557,10 +557,6 @@ function AdminApp({ onVerComoCliente }) {
   const fotoPerfRef = useRef(null)
   // Comprobante camara
   const [fotoComprobante, setFotoComprobante] = useState({}) // {pedidoId: dataURL}
-  const [subiendoFoto, setSubiendoFoto] = useState({}) // {pedidoId: bool}
-  const [comprobantePendiente, setComprobantePendiente] = useState({}) // {pedidoId: base64} aun no subido a Storage
-  const comprobantePendienteRef = useRef({})
-  useEffect(() => { comprobantePendienteRef.current = comprobantePendiente }, [comprobantePendiente])
   const [modalComprobante, setModalComprobante] = useState(null) // url de imagen
   const [datosCliente, setDatosCliente] = useState({})
   const [dcAbierto, setDcAbierto] = useState({}) // acordeon datos cliente
@@ -578,7 +574,7 @@ function AdminApp({ onVerComoCliente }) {
       const ahora = Date.now()
       const nuevos = {}
       ;[...pedidosActivos, ...(pedidosDomicilioHoy||[])].forEach(p => {
-        const ts = p.creadoEn?.toDate?.()?.getTime?.() || p.creadoEnMs
+        const ts = p.creadoEn?.toDate?.()?.getTime?.()
         if (ts) nuevos[p.id] = Math.floor((ahora - ts) / 60000)
       })
       setTiemposPedido(nuevos)
@@ -654,11 +650,8 @@ function AdminApp({ onVerComoCliente }) {
   }, [])
 
   // ---- ONLINE/OFFLINE ----
-  // Firestore ya sincroniza sus propias escrituras pendientes solo al reconectar (persistentLocalCache),
-  // asi que aqui solo se actualiza el indicador visual y se dispara la subida de comprobantes
-  // que hayan quedado guardados en base64 mientras no habia internet (Storage si necesita este empujon manual).
   useEffect(() => {
-    const onOnline = () => { setIsOnline(true); showToast('ok','Conexion restaurada'); sincronizarComprobantesPendientes() }
+    const onOnline = () => { setIsOnline(true); showToast('ok','Conexion restaurada'); sincronizarPendientes() }
     const onOffline = () => { setIsOnline(false); showToast('warn','Sin conexion - Modo offline') }
     window.addEventListener('online', onOnline)
     window.addEventListener('offline', onOffline)
@@ -680,6 +673,26 @@ function AdminApp({ onVerComoCliente }) {
       setDeferredPrompt(null); setShowInstall(false)
     })
   }
+
+  // ---- PENDIENTES OFFLINE ----
+  function getPendientes() { try { return JSON.parse(localStorage.getItem('esencial_pendientes')||'[]') } catch(e){ return [] } }
+  function setPendientesLS(arr) { localStorage.setItem('esencial_pendientes',JSON.stringify(arr)); setPendientesSync(arr) }
+
+  async function sincronizarPendientes() {
+    const pend = getPendientes()
+    if (!pend.length) return
+    const exitos = []
+    for (const p of pend) {
+      try {
+        await addDoc(collection(db,'pedidos'), { ...p, sincronizado: true, sincronizadoEn: serverTimestamp() })
+        exitos.push(p._idLocal)
+      } catch(e) {}
+    }
+    setPendientesLS(pend.filter(p => !exitos.includes(p._idLocal)))
+    if (exitos.length) showToast('ok', `${exitos.length} pedido(s) sincronizados`)
+  }
+
+  useEffect(() => { setPendientesSync(getPendientes()) }, [])
 
   // ── HISTORY API admin — evita cierre accidental con gesto retroceso ──
   useEffect(() => {
@@ -738,21 +751,14 @@ function AdminApp({ onVerComoCliente }) {
   }, [user, aprobado])
 
   // ---- PEDIDOS EN PROCESO (tiempo real) ----
-  // Se mantiene activo siempre (no solo cuando tab==='proceso') para que la insignia y la
-  // cache local esten siempre al dia, incluso si el mesero abre la app ya sin conexion.
-  // includeMetadataChanges + doc.metadata.hasPendingWrites permite marcar en la tarjeta los
-  // pedidos que aun no se sincronizan con el servidor (creados u operados sin internet).
   useEffect(() => {
-    if (!user || !aprobado) return
+    if (!user || !aprobado || tab !== 'proceso') return
     const q = query(collection(db,'pedidos'), where('estado','==','EN PROCESO'), orderBy('creadoEn','desc'))
-    const unsub = onSnapshot(q, { includeMetadataChanges: true }, (snap) => {
-      const lista = snap.docs.map(d => ({ id:d.id, ...d.data(), _pendienteSync: d.metadata.hasPendingWrites }))
-      // Orden de respaldo con creadoEnMs para pedidos cuyo serverTimestamp todavia no se resuelve
-      lista.sort((a,b) => (b.creadoEn?.toMillis?.() || b.creadoEnMs || 0) - (a.creadoEn?.toMillis?.() || a.creadoEnMs || 0))
-      setPedidosActivos(lista)
+    const unsub = onSnapshot(q, (snap) => {
+      setPedidosActivos(snap.docs.map(d => ({ id:d.id, ...d.data() })))
     })
     return unsub
-  }, [user, aprobado])
+  }, [user, aprobado, tab])
 
   // ---- CARRITO ----
   function addToCart(item) {
@@ -773,28 +779,38 @@ function AdminApp({ onVerComoCliente }) {
   const cartCount = cart.reduce((s,x) => s + x.cantidad, 0)
 
   // ---- CREAR PEDIDO ----
-  // Firestore ya tiene persistencia offline (persistentLocalCache en firebase.js), asi que
-  // addDoc funciona con o sin conexion: si no hay internet, el escrito se aplica de inmediato
-  // en la cache local y Firestore lo sincroniza solo cuando vuelve la señal. Por eso ya NO se
-  // bifurca por isOnline ni se guarda en un sistema aparte — el pedido es un documento real
-  // desde el primer momento y aparece en "En Proceso" con todas sus opciones, este online o no.
   async function confirmarPedido() {
     let datos = {}
     if (!cMesa) { showToast('err','Selecciona mesa o servicio'); return }
     datos = { tipoCliente:'Pendiente', idDocumento:'', cliente:'Pendiente', telefono:'', email:'', mesa:cMesa, notas:cNotas }
     const items = cart.map(x => ({ id:x.id, nombre:x.nombre, precio:x.precio, cantidad:x.cantidad }))
     const total = cartTotal
-    // creadoEnMs: marca de tiempo local (numero simple) para poder ordenar/mostrar el pedido
-    // de inmediato aunque serverTimestamp() todavia no se resuelva (queda null hasta sincronizar).
-    const pedido = { ...datos, items, total, estado:'EN PROCESO', empleado: nombreEmpleado, creadoEn: serverTimestamp(), creadoEnMs: Date.now() }
+    const pedido = { ...datos, items, total, estado:'EN PROCESO', empleado: nombreEmpleado, creadoEn: serverTimestamp() }
+
+    if (!isOnline) {
+      const idLocal = 'LOCAL-' + Date.now()
+      const pend = getPendientes()
+      pend.push({ ...pedido, _idLocal:idLocal, creadoEn: new Date().toISOString() })
+      setPendientesLS(pend)
+      setModalConfirm({ idPedido: idLocal, offline:true, datos:{ ...datos, items, total } })
+      setCart([]); limpiarForm(); return
+    }
 
     try {
       const ref = await addDoc(collection(db,'pedidos'), pedido)
-      try{Sound.play('notify')}catch(e){}
-      setModalConfirm({ idPedido: ref.id, offline:!isOnline, datos:{ ...datos, items, total } })
+      const nuevoPedido = { id: ref.id, ...datos, items, total, estado:'EN PROCESO', empleado: nombreEmpleado, creadoEn: { toDate: () => new Date() } }
+        try{Sound.play('notify')}catch(e){}
+      setPedidosActivos(prev => [nuevoPedido, ...prev])
+      setModalConfirm({ idPedido: ref.id, offline:false, datos:{ ...datos, items, total } })
       setCart([]); limpiarForm()
     } catch(e) {
-      showToast('err','No se pudo crear el pedido')
+      const idLocal = 'LOCAL-' + Date.now()
+      const pend = getPendientes()
+      pend.push({ ...pedido, _idLocal:idLocal, creadoEn: new Date().toISOString() })
+      setPendientesLS(pend)
+      setModalConfirm({ idPedido: idLocal, offline:true, datos:{ ...datos, items, total } })
+      setCart([]); limpiarForm()
+      showToast('warn','Guardado offline.')
     }
   }
 
@@ -997,54 +1013,32 @@ function AdminApp({ onVerComoCliente }) {
     if (cameraRefs.current[pedidoId]) cameraRefs.current[pedidoId].click()
   }
 
-  // Firebase Storage NO tiene cola offline (a diferencia de Firestore), asi que una foto
-  // tomada sin conexion no se puede subir en el momento. Se comprime y se guarda el base64
-  // como comprobante provisional (funciona igual para ver/compartir/marcar listo) y queda
-  // marcada como pendiente para reintentar la subida real cuando vuelva la señal.
-  async function subirComprobante(pedidoId, base64) {
-    try {
-      const res = await fetch(base64)
-      const blob = await res.blob()
-      const nombre = `comprobantes/mesa_${pedidoId}_${Date.now()}.jpg`
-      const storageRef = ref(storage, nombre)
-      await uploadBytes(storageRef, blob, { contentType: 'image/jpeg' })
-      const url = await getDownloadURL(storageRef)
-      setFotoComprobante(p => ({...p, [pedidoId]: url}))
-      setComprobantePendiente(p => { const n={...p}; delete n[pedidoId]; return n })
-      return true
-    } catch(err) {
-      setComprobantePendiente(p => ({...p, [pedidoId]: base64}))
-      return false
-    }
-  }
-
   async function onFotoCapturada(pedidoId, e) {
     const file = e.target.files[0]
     if (!file) return
     const reader = new FileReader()
     reader.onload = async (ev) => {
-      const comprimida = await comprimirImagen(ev.target.result)
-      setFotoComprobante(p => ({...p, [pedidoId]: comprimida}))
+      const base64 = ev.target.result
+      setFotoComprobante(p => ({...p, [pedidoId]: base64}))
       setSubiendoFoto(p => ({...p, [pedidoId]: true}))
-      const ok = await subirComprobante(pedidoId, comprimida)
+      try {
+        // Subir a Firebase Storage
+        const res = await fetch(base64)
+        const blob = await res.blob()
+        const nombre = `comprobantes/mesa_${pedidoId}_${Date.now()}.jpg`
+        const storageRef = ref(storage, nombre)
+        await uploadBytes(storageRef, blob, { contentType: 'image/jpeg' })
+        const url = await getDownloadURL(storageRef)
+        setFotoComprobante(p => ({...p, [pedidoId]: url}))
+
+        showToast('ok', 'Foto guardada')
+      } catch(err) {
+        showToast('warn', 'Error al procesar comprobante')
+      }
       setSubiendoFoto(p => ({...p, [pedidoId]: false}))
-      showToast(ok ? 'ok' : 'warn', ok ? 'Foto guardada' : 'Sin conexion - foto guardada localmente, se subira al reconectar')
     }
     reader.readAsDataURL(file)
     e.target.value = ''
-  }
-
-  // Reintenta subir a Storage las fotos de comprobante que quedaron pendientes por falta de red.
-  async function sincronizarComprobantesPendientes() {
-    const pendientes = comprobantePendienteRef.current
-    const ids = Object.keys(pendientes)
-    if (!ids.length) return
-    let exitos = 0
-    for (const pedidoId of ids) {
-      const ok = await subirComprobante(pedidoId, pendientes[pedidoId])
-      if (ok) exitos++
-    }
-    if (exitos) showToast('ok', `${exitos} comprobante(s) sincronizados`)
   }
 
   async function compartirComprobante(pedidoId) {
@@ -1469,7 +1463,7 @@ function AdminApp({ onVerComoCliente }) {
   const navItems = [
     { key:'menu', label:'Menu' },
     { key:'pedido', label:'Pedido', badge: cartCount },
-    { key:'proceso', label:'En Proceso', badge: pedidosActivos.length },
+    { key:'proceso', label:'En Proceso', badge: pedidosActivos.length+pendientesSync.length },
     { key:'historial', label:'Historial' },
     { key:'stats', label:'Stats' },
     { key:'domicilio', label:'Delivery', badge: pedidosDomicilioHoy.length },
@@ -1493,15 +1487,11 @@ function AdminApp({ onVerComoCliente }) {
               Instalar
             </button>
           )}
-          {(() => {
-            const pendientes = pedidosActivos.filter(p => p._pendienteSync).length
-            if (!pendientes && isOnline) return null
-            return (
-              <span style={{background:'#b8860b',color:'#fff',borderRadius:100,padding:'2px 8px',fontSize:9,fontWeight:700}}>
-                {!isOnline ? 'Sin conexion' : `${pendientes} sin sincronizar`}
-              </span>
-            )
-          })()}
+          {pendientesSync.length > 0 && (
+            <span style={{background:'#b8860b',color:'#fff',borderRadius:100,padding:'2px 8px',fontSize:9,fontWeight:700}}>
+              {pendientesSync.length} offline
+            </span>
+          )}
           {/* BOTON ADMIN - solo para admin */}
           {esAdmin && (
             <button onClick={()=>{setModalAdmin(true);cargarEmpleadosPendientes()}} style={{
@@ -1640,7 +1630,7 @@ function AdminApp({ onVerComoCliente }) {
                 </div>
                 {!isOnline && (
                   <div style={{margin:'0 16px 12px',padding:'9px 13px',background:'#fff8e1',border:'1px solid #e8d88a',borderRadius:8,fontSize:11,color:'#b8860b',fontWeight:600}}>
-                    Sin internet - el pedido se creara igual y se sincronizara al reconectar
+                    Sin internet - Pedido se guardara localmente
                   </div>
                 )}
                 <div style={{margin:'0 16px 12px',padding:12,background:'#f4f4f4',borderRadius:9,border:'1px solid #e0e0e0'}}>
@@ -1666,19 +1656,34 @@ function AdminApp({ onVerComoCliente }) {
               <p style={{fontSize:11,color:'#999',marginTop:2}}>Tiempo real</p>
             </div>
             <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(290px,1fr))',gap:13}}>
+              {/* Pendientes offline */}
+              {pendientesSync.map(p => (
+                <div key={p._idLocal} style={{background:'#fffdf5',border:'1px solid #e8d88a',borderRadius:13,overflow:'hidden'}}>
+                  <div style={{background:'#fff8e1',padding:'11px 15px',display:'flex',alignItems:'center',justifyContent:'space-between',borderBottom:'1px solid #e8d88a'}}>
+                    <div style={{fontFamily:'Poppins,sans-serif',fontSize:13}}>LOCAL</div>
+                    <span style={{background:'#fff8e1',color:'#b8860b',border:'1px solid #e8d88a',padding:'2px 7px',borderRadius:100,fontSize:9,fontWeight:700}}>OFFLINE</span>
+                  </div>
+                  <div style={{padding:'12px 15px'}}>
+                    <div style={{fontSize:13,fontWeight:600,marginBottom:7}}>{p.cliente}</div>
+                    {p.items?.map((it,i) => <div key={i} style={{display:'flex',justifyContent:'space-between',fontSize:12,color:'#666',padding:'3px 0',borderBottom:'1px solid #e0e0e0'}}><span>{it.cantidad}x {it.nombre}</span><span>${(it.precio*it.cantidad).toFixed(2)}</span></div>)}
+                    <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',paddingTop:9,borderTop:'1.5px solid #d0d0d0',marginTop:7}}>
+                      <span style={{fontSize:10,letterSpacing:2,textTransform:'uppercase',color:'#999',fontWeight:600}}>Total</span>
+                      <span style={{fontFamily:'Poppins,sans-serif',fontSize:17}}>${parseFloat(p.total).toFixed(2)}</span>
+                    </div>
+                    <div style={{marginTop:9,fontSize:11,color:'#b8860b',fontWeight:600}}>Se enviará al reconectar</div>
+                  </div>
+                </div>
+              ))}
+
+              {/* Pedidos online */}
               {pedidosActivos.map(p => (
                 <div key={p.id} style={{background:'#fff',border:'1px solid #e0e0e0',borderRadius:13,overflow:'hidden',boxShadow:'0 2px 8px rgba(0,0,0,0.05)'}}>
                   <div style={{background:'#f4f4f4',padding:'11px 15px',display:'flex',alignItems:'center',justifyContent:'space-between',borderBottom:'1px solid #e0e0e0'}}>
                     <div>
                       <div style={{fontFamily:'Poppins,sans-serif',fontSize:13}}>{p.id.slice(0,8)}...</div>
-                      <div style={{fontSize:10,color:'#999',marginTop:1}}>{(p.creadoEn?.toDate?.() || (p.creadoEnMs ? new Date(p.creadoEnMs) : null))?.toLocaleTimeString('es-EC',{hour:'2-digit',minute:'2-digit'})||''}</div>
+                      <div style={{fontSize:10,color:'#999',marginTop:1}}>{p.creadoEn?.toDate?.()?.toLocaleTimeString('es-EC',{hour:'2-digit',minute:'2-digit'})||''}</div>
                     </div>
-                    <div style={{display:'flex',alignItems:'center',gap:6}}>
-                      {p._pendienteSync && (
-                        <span title='Sin sincronizar - se enviara solo al reconectar' style={{background:'#fff8e1',color:'#b8860b',border:'1px solid #e8d88a',padding:'3px 7px',borderRadius:100,fontSize:9,fontWeight:700}}>OFFLINE</span>
-                      )}
-                      <span style={{background:'#fff8e1',color:'#b8860b',border:'1px solid #e8d88a',padding:'3px 8px',borderRadius:100,fontSize:9,fontWeight:700}}>EN PROCESO</span>
-                    </div>
+                    <span style={{background:'#fff8e1',color:'#b8860b',border:'1px solid #e8d88a',padding:'3px 8px',borderRadius:100,fontSize:9,fontWeight:700}}>EN PROCESO</span>
                   </div>
                   <div style={{padding:'12px 15px'}}>
                     {/* CLIENTE + MESA PROMINENTE */}
@@ -1877,7 +1882,7 @@ function AdminApp({ onVerComoCliente }) {
                 </div>
               ))}
 
-              {!pedidosActivos.length && (
+              {!pedidosActivos.length && !pendientesSync.length && (
                 <div style={{gridColumn:'1/-1',textAlign:'center',padding:50}}>
                   <div style={{fontFamily:'Poppins,sans-serif',fontSize:18,marginBottom:6}}>Sin pedidos activos</div>
                   <p style={{color:'#999',fontSize:12}}>Los pedidos aparecen aquí en tiempo real</p>
@@ -2669,13 +2674,13 @@ function AdminApp({ onVerComoCliente }) {
 
       {/* MODAL CONFIRMAR PEDIDO */}
       <Modal open={!!modalConfirm} onClose={()=>setModalConfirm(null)}
-        title='Pedido Confirmado'
-        sub={modalConfirm?.offline?'Guardado — se sincronizará al reconectar':'Registrado exitosamente'}
+        title={modalConfirm?.offline?'Pedido Guardado Offline':'Pedido Confirmado'}
+        sub={modalConfirm?.offline?'Se enviará al reconectar':'Registrado exitosamente'}
         icon='OK'
         footer={<Btn onClick={()=>setModalConfirm(null)}>Aceptar</Btn>}>
         {modalConfirm && (
           <>
-            {modalConfirm.offline && <div style={{background:'#fff8e1',border:'1px solid #e8d88a',borderRadius:8,padding:'9px 13px',marginBottom:12,fontSize:12,color:'#b8860b',fontWeight:600}}>Sin conexión — el pedido ya quedó tomado y aparece en "En Proceso" con todas las opciones</div>}
+            {modalConfirm.offline && <div style={{background:'#fff8e1',border:'1px solid #e8d88a',borderRadius:8,padding:'9px 13px',marginBottom:12,fontSize:12,color:'#b8860b',fontWeight:600}}>Sin conexión — Guardado localmente</div>}
             <div style={{background:'#f4f4f4',borderRadius:8,padding:12,border:'1px solid #e0e0e0'}}>
               <div style={{fontSize:11,color:'#666',marginBottom:7,fontWeight:600}}>{modalConfirm.datos?.tipoCliente} — {modalConfirm.datos?.mesa}</div>
               {modalConfirm.datos?.items?.map((it,i) => (
