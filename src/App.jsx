@@ -607,6 +607,7 @@ function AdminApp({ onVerComoCliente }) {
   const [fHasta, setFHasta] = useState(hoy)
   const [busqueda, setBusqueda] = useState('')
   const [periodoActivo, setPeriodoActivo] = useState('hoy')
+  const [periodoAbierto, setPeriodoAbierto] = useState(false)
 
   const ADMIN_EMAIL = 'sega93david@gmail.com'
 
@@ -670,6 +671,18 @@ function AdminApp({ onVerComoCliente }) {
     window.addEventListener('focus', onVisible)
     return () => { document.removeEventListener('visibilitychange', onVisible); window.removeEventListener('focus', onVisible) }
   }, [])
+
+  // ---- RESPALDO: REFRESCO PERIÓDICO EN "EN PROCESO" E "HISTORIAL" ----
+  // La escucha en tiempo real de Firestore debería empujar los cambios de otros
+  // empleados sola, pero en celulares la conexión de datos a veces se corta un
+  // instante sin avisar (aunque la pantalla siga encendida y la app en uso). Como
+  // respaldo, cada 15s se reconecta sola la escucha mientras estas dos pantallas
+  // están abiertas, para que nunca dependa de recargar la página manualmente.
+  useEffect(() => {
+    if (tab !== 'proceso' && tab !== 'historial') return
+    const interval = setInterval(() => setRefreshKey(k => k + 1), 15000)
+    return () => clearInterval(interval)
+  }, [tab])
 
   // ---- PWA INSTALL ----
   useEffect(() => {
@@ -1414,6 +1427,7 @@ function AdminApp({ onVerComoCliente }) {
 
   // ---- STATS ----
   const [statsRegistros, setStatsRegistros] = useState([])
+  const [statsPedidos, setStatsPedidos] = useState([])
   const [loadingStats, setLoadingStats] = useState(false)
   const [statsPeriodo, setStatsPeriodo] = useState('hoy')
 
@@ -1440,7 +1454,22 @@ function AdminApp({ onVerComoCliente }) {
       )
       const snap = await getDocs(q)
       setStatsRegistros(snap.docs.map(d => ({id:d.id,...d.data()})))
-    } catch(e) { setStatsRegistros([]) }
+
+      // Las ventas y el total vendido se calculan de los pedidos que SIGUEN
+      // existiendo con estado LISTO — no del registro de eventos, que nunca se
+      // limpia cuando se elimina un pedido (por eso antes seguía sumando pedidos
+      // de prueba ya borrados).
+      const snapPedidos = await getDocs(query(collection(db,'pedidos'), where('estado','==','LISTO')))
+      const pedidosDelPeriodo = snapPedidos.docs
+        .map(d => ({ id:d.id, ...d.data() }))
+        .filter(p => {
+          if (!p.creadoEn) return false
+          const f = p.creadoEn.toDate ? p.creadoEn.toDate() : new Date(p.creadoEn)
+          const fStr = fmt(f)
+          return fStr >= fechaDesde && fStr <= fechaHasta
+        })
+      setStatsPedidos(pedidosDelPeriodo)
+    } catch(e) { setStatsRegistros([]); setStatsPedidos([]) }
     setLoadingStats(false)
   }
 
@@ -2055,19 +2084,21 @@ function AdminApp({ onVerComoCliente }) {
 
         {/* ===== STATS ===== */}
         {tab==='stats' && (() => {
-          // Calcular métricas desde registros
-          const ventas = statsRegistros.filter(r => r.tipo === 'venta_completada')
+          // Las ventas y el total vendido se calculan de los pedidos que siguen
+          // existiendo con estado LISTO (mesa y domicilio entregado incluidos) —
+          // así un pedido eliminado ya no sigue sumando en las estadísticas.
+          const ventas = statsPedidos
           const cancelados = statsRegistros.filter(r => r.tipo === 'pedido_cancelado')
           const sesiones = statsRegistros.filter(r => r.tipo === 'sesion_inicio')
           const productosAgregados = statsRegistros.filter(r => r.tipo === 'producto_agregado')
 
           // Total vendido
-          const totalVendido = ventas.reduce((s,r) => s + parseFloat(r.total||0), 0)
+          const totalVendido = ventas.reduce((s,p) => s + parseFloat(p.total||0), 0)
 
           // Productos más vendidos
           const conteoProductos = {}
-          ventas.forEach(r => {
-            (r.items||[]).forEach(it => {
+          ventas.forEach(p => {
+            (p.items||[]).forEach(it => {
               conteoProductos[it.nombre] = (conteoProductos[it.nombre]||0) + (it.cantidad||1)
             })
           })
@@ -2077,8 +2108,8 @@ function AdminApp({ onVerComoCliente }) {
 
           // Ventas por hora (hoy)
           const ventasPorHora = {}
-          ventas.forEach(r => {
-            const ts = r.timestamp?.toDate?.()
+          ventas.forEach(p => {
+            const ts = p.creadoEn?.toDate ? p.creadoEn.toDate() : (p.creadoEn ? new Date(p.creadoEn) : null)
             if (!ts) return
             const hora = ts.getHours()
             ventasPorHora[hora] = (ventasPorHora[hora]||0) + 1
@@ -2089,15 +2120,15 @@ function AdminApp({ onVerComoCliente }) {
 
           // Forma de pago
           const pagoConteo = {}
-          ventas.forEach(r => {
-            const p = r.formaPago || 'Sin datos'
-            pagoConteo[p] = (pagoConteo[p]||0) + 1
+          ventas.forEach(p => {
+            const fp = p.formaPago || 'Sin datos'
+            pagoConteo[fp] = (pagoConteo[fp]||0) + 1
           })
 
           // Origen ventas
           const origenConteo = {}
-          ventas.forEach(r => {
-            const o = r.origen === 'admin_mesa' ? 'Mesa' : r.origen === 'admin_domicilio' ? 'Domicilio' : 'Otro'
+          ventas.forEach(p => {
+            const o = p.mesa === 'A Domicilio' ? 'Domicilio' : 'Mesa'
             origenConteo[o] = (origenConteo[o]||0) + 1
           })
 
@@ -2122,7 +2153,7 @@ function AdminApp({ onVerComoCliente }) {
                     border:`1.5px solid ${statsPeriodo===p.k?'#1a1a1a':'#e0e0e0'}`
                   }}>{p.l}</button>
                 ))}
-                {statsRegistros.length === 0 && !loadingStats && (
+                {statsRegistros.length === 0 && statsPedidos.length === 0 && !loadingStats && (
                   <button onClick={()=>cargarStats(statsPeriodo)} style={{padding:'7px 16px',borderRadius:100,fontFamily:'Poppins,sans-serif',fontSize:11,fontWeight:600,cursor:'pointer',background:'#f4f4f4',color:'#666',border:'1.5px solid #e0e0e0'}}>
                     Cargar datos
                   </button>
@@ -2255,7 +2286,7 @@ function AdminApp({ onVerComoCliente }) {
                     )
                   })()}
 
-                  {statsRegistros.length === 0 && (
+                  {statsRegistros.length === 0 && statsPedidos.length === 0 && (
                     <div style={{textAlign:'center',padding:'40px 20px',color:'#ccc'}}>
                       <div style={{fontSize:13,fontFamily:'Poppins,sans-serif',marginBottom:8}}>Sin datos en este período</div>
                       <div style={{fontSize:11,fontFamily:'Poppins,sans-serif',color:'#ddd'}}>Los registros se generan automáticamente con el uso de la app</div>
@@ -2277,39 +2308,58 @@ function AdminApp({ onVerComoCliente }) {
               </div>
             </div>
 
-            {/* Botones periodo */}
-            <div style={{display:'flex',gap:7,flexWrap:'wrap',marginBottom:13}}>
-              {[
-                {key:'hoy',label:'Hoy'},
-                {key:'ayer',label:'Ayer'},
-                {key:'semana',label:'Semana actual'},
-                {key:'semana_ant',label:'Semana anterior'},
-                {key:'mes',label:'Este mes'}
-              ].map(p => (
-                <button key={p.key} onClick={()=>aplicarPeriodo(p.key)} style={{
-                  padding:'7px 14px',borderRadius:100,fontFamily:'Poppins,sans-serif',fontSize:11,fontWeight:600,cursor:'pointer',transition:'0.2s',border:'2px solid',
-                  background:periodoActivo===p.key?'#1a1a1a':'#fff',
-                  color:periodoActivo===p.key?'#fff':'#666',
-                  borderColor:periodoActivo===p.key?'#1a1a1a':'#d0d0d0'
-                }}>{p.label}</button>
-              ))}
+            {/* Selector de período — colapsado por defecto */}
+            <div style={{marginBottom:13}}>
+              <button onClick={()=>setPeriodoAbierto(o=>!o)} style={{
+                display:'flex',alignItems:'center',gap:7,padding:'8px 15px',borderRadius:100,
+                fontFamily:'Poppins,sans-serif',fontSize:12,fontWeight:600,cursor:'pointer',
+                background:'#1a1a1a',color:'#fff',border:'2px solid #1a1a1a'
+              }}>
+                {({hoy:'Hoy',ayer:'Ayer',semana:'Semana actual',semana_ant:'Semana anterior',mes:'Este mes'})[periodoActivo] || 'Período'}
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" style={{transform:periodoAbierto?'rotate(180deg)':'none',transition:'transform 0.2s'}}><polyline points="6 9 12 15 18 9"/></svg>
+              </button>
+              {periodoAbierto && (
+                <div style={{display:'flex',gap:7,flexWrap:'wrap',marginTop:9}}>
+                  {[
+                    {key:'hoy',label:'Hoy'},
+                    {key:'ayer',label:'Ayer'},
+                    {key:'semana',label:'Semana actual'},
+                    {key:'semana_ant',label:'Semana anterior'},
+                    {key:'mes',label:'Este mes'}
+                  ].map(p => (
+                    <button key={p.key} onClick={()=>{aplicarPeriodo(p.key);setPeriodoAbierto(false)}} style={{
+                      padding:'7px 14px',borderRadius:100,fontFamily:'Poppins,sans-serif',fontSize:11,fontWeight:600,cursor:'pointer',transition:'0.2s',border:'2px solid',
+                      background:periodoActivo===p.key?'#1a1a1a':'#fff',
+                      color:periodoActivo===p.key?'#fff':'#666',
+                      borderColor:periodoActivo===p.key?'#1a1a1a':'#d0d0d0'
+                    }}>{p.label}</button>
+                  ))}
+                </div>
+              )}
             </div>
 
             {/* Filtros */}
-            <div style={{background:'#fff',border:'1px solid #e0e0e0',borderRadius:13,padding:'14px 16px',marginBottom:13,display:'flex',alignItems:'flex-end',gap:12,flexWrap:'wrap',boxShadow:'0 2px 8px rgba(0,0,0,0.05)'}}>
-              <div>
-                <label style={{display:'block',fontSize:10,letterSpacing:2,textTransform:'uppercase',color:'#999',marginBottom:5,fontWeight:600}}>Desde</label>
-                <input type='date' value={fDesde} onChange={e=>{setFDesde(e.target.value);setPeriodoActivo('')}} style={{background:'#fff',border:'1.5px solid #d0d0d0',borderRadius:7,color:'#1a1a1a',fontFamily:'Poppins,sans-serif',fontSize:12,padding:'8px 11px',outline:'none'}}/>
+            <div style={{background:'#fff',border:'1px solid #e0e0e0',borderRadius:13,padding:'14px 16px',marginBottom:13,boxShadow:'0 2px 8px rgba(0,0,0,0.05)'}}>
+              <div style={{display:'grid',gridTemplateColumns:'1fr 1fr auto',gap:10,alignItems:'flex-end'}}>
+                <div>
+                  <label style={{display:'block',fontSize:10,letterSpacing:2,textTransform:'uppercase',color:'#999',marginBottom:5,fontWeight:600}}>Desde</label>
+                  <input type='date' value={fDesde} onChange={e=>{setFDesde(e.target.value);setPeriodoActivo('')}} style={{width:'100%',background:'#fff',border:'1.5px solid #d0d0d0',borderRadius:7,color:'#1a1a1a',fontFamily:'Poppins,sans-serif',fontSize:12,padding:'8px 8px',outline:'none',boxSizing:'border-box'}}/>
+                </div>
+                <div>
+                  <label style={{display:'block',fontSize:10,letterSpacing:2,textTransform:'uppercase',color:'#999',marginBottom:5,fontWeight:600}}>Hasta</label>
+                  <input type='date' value={fHasta} onChange={e=>{setFHasta(e.target.value);setPeriodoActivo('')}} style={{width:'100%',background:'#fff',border:'1.5px solid #d0d0d0',borderRadius:7,color:'#1a1a1a',fontFamily:'Poppins,sans-serif',fontSize:12,padding:'8px 8px',outline:'none',boxSizing:'border-box'}}/>
+                </div>
+                <button onClick={()=>{setPeriodoActivo('');setRefreshKey(k=>k+1)}} aria-label="Filtrar" title="Filtrar" style={{
+                  width:37,height:37,borderRadius:9,background:'#1a1a1a',border:'none',cursor:'pointer',
+                  display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0
+                }}>
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2.3" strokeLinecap="round"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                </button>
               </div>
-              <div>
-                <label style={{display:'block',fontSize:10,letterSpacing:2,textTransform:'uppercase',color:'#999',marginBottom:5,fontWeight:600}}>Hasta</label>
-                <input type='date' value={fHasta} onChange={e=>{setFHasta(e.target.value);setPeriodoActivo('')}} style={{background:'#fff',border:'1.5px solid #d0d0d0',borderRadius:7,color:'#1a1a1a',fontFamily:'Poppins,sans-serif',fontSize:12,padding:'8px 11px',outline:'none'}}/>
-              </div>
-              <Btn onClick={()=>{setPeriodoActivo('');setRefreshKey(k=>k+1)}}>Filtrar</Btn>
-              <div style={{flex:1,minWidth:160}}>
+              <div style={{marginTop:12}}>
                 <label style={{display:'block',fontSize:10,letterSpacing:2,textTransform:'uppercase',color:'#999',marginBottom:5,fontWeight:600}}>Buscar</label>
                 <input value={busqueda} onChange={e=>setBusqueda(e.target.value)} placeholder='Nombre, ID o telefono...'
-                  style={{width:'100%',background:'#fff',border:'1.5px solid #d0d0d0',borderRadius:7,color:'#1a1a1a',fontFamily:'Poppins,sans-serif',fontSize:12,padding:'8px 11px',outline:'none'}}/>
+                  style={{width:'100%',background:'#fff',border:'1.5px solid #d0d0d0',borderRadius:7,color:'#1a1a1a',fontFamily:'Poppins,sans-serif',fontSize:12,padding:'8px 11px',outline:'none',boxSizing:'border-box'}}/>
               </div>
             </div>
 
