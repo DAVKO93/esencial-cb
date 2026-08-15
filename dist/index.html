@@ -25,12 +25,29 @@
         window.__pwaInstallPrompt = e
         window.dispatchEvent(new Event('pwaInstallReady'))
       })
-      // Registrar Service Worker
+      // Registrar Service Worker y actualizar la app sola cuando hay version nueva
       if ('serviceWorker' in navigator) {
         window.addEventListener('load', () => {
           navigator.serviceWorker.register('/sw.js')
-            .then(() => console.log('SW OK'))
+            .then(reg => {
+              console.log('SW OK')
+              // Revisar si hay una version nueva cada vez que la app vuelve a primer plano
+              document.addEventListener('visibilitychange', () => {
+                if (document.visibilityState === 'visible') reg.update().catch(() => {})
+              })
+              // Revisar tambien cada 5 minutos mientras la app este abierta
+              setInterval(() => reg.update().catch(() => {}), 5 * 60 * 1000)
+            })
             .catch(e => console.warn('SW:', e))
+        })
+        // Cuando el Service Worker nuevo toma control, recargar UNA vez para
+        // que la pestaña abierta pase a correr el codigo mas reciente sola,
+        // sin que nadie tenga que recargar la pagina a mano.
+        let recargando = false
+        navigator.serviceWorker.addEventListener('controllerchange', () => {
+          if (recargando) return
+          recargando = true
+          window.location.reload()
         })
       }
     </script>
