@@ -528,6 +528,7 @@ function AdminApp({ onVerComoCliente }) {
   const [catDropdown, setCatDropdown] = useState(false)
   const [tipoCliente, setTipoCliente] = useState('cliente')
   const [pedidosActivos, setPedidosActivos] = useState([])
+  const [ultimaActProceso, setUltimaActProceso] = useState(null) // diagnóstico: cuándo se actualizó la data por última vez
   const [pagoSel, setPagoSel] = useState({})
   const [modalEliminar, setModalEliminar] = useState(null)
   const [modalConfirm, setModalConfirm] = useState(null)
@@ -807,7 +808,9 @@ function AdminApp({ onVerComoCliente }) {
     if (!user || !aprobado) return
     const q = query(collection(db,'pedidos'), where('estado','==','EN PROCESO'), orderBy('creadoEn','desc'))
     const unsub = onSnapshot(q, (snap) => {
-      setPedidosActivos(snap.docs.map(d => ({ id:d.id, ...d.data() })))
+      const datos = snap.docs.map(d => ({ id:d.id, ...d.data() }))
+      setPedidosActivos(datos)
+      setUltimaActProceso({ hora: new Date(), cantidad: datos.length, via: 'tiempo real' })
     })
     return unsub
   }, [user, aprobado])
@@ -819,17 +822,18 @@ function AdminApp({ onVerComoCliente }) {
   // servidor y se reemplaza la lista — así la burbuja y la lista de "En Proceso"
   // nunca dependen de recargar la página, sin importar qué tan sana esté la
   // conexión en tiempo real en ese momento.
+  async function refrescarProcesoDirecto() {
+    try {
+      const snap = await getDocs(query(collection(db,'pedidos'), where('estado','==','EN PROCESO'), orderBy('creadoEn','desc')))
+      const datos = snap.docs.map(d => ({ id:d.id, ...d.data() }))
+      setPedidosActivos(datos)
+      setUltimaActProceso({ hora: new Date(), cantidad: datos.length, via: 'consulta directa' })
+    } catch(e) {}
+  }
   useEffect(() => {
     if (!user || !aprobado) return
-    let activo = true
-    async function refrescarDirecto() {
-      try {
-        const snap = await getDocs(query(collection(db,'pedidos'), where('estado','==','EN PROCESO'), orderBy('creadoEn','desc')))
-        if (activo) setPedidosActivos(snap.docs.map(d => ({ id:d.id, ...d.data() })))
-      } catch(e) {}
-    }
-    const interval = setInterval(refrescarDirecto, 8000)
-    return () => { activo = false; clearInterval(interval) }
+    const interval = setInterval(refrescarProcesoDirecto, 8000)
+    return () => clearInterval(interval)
   }, [user, aprobado])
 
   // ---- CARRITO ----
@@ -1783,9 +1787,21 @@ function AdminApp({ onVerComoCliente }) {
         {/* ===== EN PROCESO ===== */}
         {tab==='proceso' && (
           <div style={{animation:'fadeIn 0.3s ease'}}>
-            <div style={{marginBottom:16,paddingBottom:12,borderBottom:'2px solid #e0e0e0'}}>
-              <h2 style={{fontFamily:'Poppins,sans-serif',fontSize:22,fontWeight:600}}>En Proceso</h2>
-              <p style={{fontSize:11,color:'#999',marginTop:2}}>Tiempo real</p>
+            <div style={{marginBottom:16,paddingBottom:12,borderBottom:'2px solid #e0e0e0',display:'flex',justifyContent:'space-between',alignItems:'flex-end',gap:10,flexWrap:'wrap'}}>
+              <div>
+                <h2 style={{fontFamily:'Poppins,sans-serif',fontSize:22,fontWeight:600}}>En Proceso</h2>
+                <p style={{fontSize:11,color:'#999',marginTop:2}}>Tiempo real</p>
+              </div>
+              <div style={{display:'flex',alignItems:'center',gap:8}}>
+                <span style={{fontSize:10,color:'#999'}}>
+                  {ultimaActProceso
+                    ? `Servidor a las ${ultimaActProceso.hora.toLocaleTimeString('es-EC',{hour:'2-digit',minute:'2-digit',second:'2-digit'})} · ${ultimaActProceso.cantidad} pedido(s) · ${ultimaActProceso.via}`
+                    : 'Consultando...'}
+                </span>
+                <button onClick={refrescarProcesoDirecto} title="Actualizar ahora" style={{width:28,height:28,borderRadius:8,border:'1.5px solid #d0d0d0',background:'#fff',cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#666" strokeWidth="2.3" strokeLinecap="round" strokeLinejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M20.49 9A9 9 0 0 0 5.64 5.64L1 10m22 4-4.64 4.36A9 9 0 0 1 3.51 15"/></svg>
+                </button>
+              </div>
             </div>
             <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(290px,1fr))',gap:13}}>
               {/* Pedidos en proceso: los de Firestore + los tomados sin señal (mismas opciones para ambos) */}
