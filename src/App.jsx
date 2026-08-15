@@ -541,6 +541,7 @@ function AdminApp({ onVerComoCliente }) {
   const [loadingHist, setLoadingHist] = useState(false)
   const [isOnline, setIsOnline] = useState(navigator.onLine)
   const [pendientesSync, setPendientesSync] = useState([])
+  const [refreshKey, setRefreshKey] = useState(0) // sube para forzar reconexión de escuchas en tiempo real
   const [deferredPrompt, setDeferredPrompt] = useState(null)
   const [showInstall, setShowInstall] = useState(false)
   const [loadingMenu, setLoadingMenu] = useState(true)
@@ -573,8 +574,9 @@ function AdminApp({ onVerComoCliente }) {
     function calcular() {
       const ahora = Date.now()
       const nuevos = {}
-      ;[...pedidosActivos, ...(pedidosDomicilioHoy||[])].forEach(p => {
-        const ts = p.creadoEn?.toDate?.()?.getTime?.()
+      const locales = pendientesSync.filter(p => p.estado !== 'LISTO').map(p => ({ ...p, id: p._idLocal }))
+      ;[...pedidosActivos, ...locales, ...(pedidosDomicilioHoy||[])].forEach(p => {
+        const ts = p.creadoEn?.toDate?.() ? p.creadoEn.toDate().getTime() : (p.creadoEn ? new Date(p.creadoEn).getTime() : null)
         if (ts) nuevos[p.id] = Math.floor((ahora - ts) / 60000)
       })
       setTiemposPedido(nuevos)
@@ -582,7 +584,7 @@ function AdminApp({ onVerComoCliente }) {
     calcular()
     const interval = setInterval(calcular, 30000)
     return () => clearInterval(interval)
-  }, [pedidosActivos, pedidosDomicilioHoy]) // {pedidoId: {tipo,id,nombre,tel,email}}
+  }, [pedidosActivos, pendientesSync, pedidosDomicilioHoy]) // {pedidoId: {tipo,id,nombre,tel,email}}
   const cameraRefs = useRef({})
 
   // Form cliente
@@ -651,11 +653,22 @@ function AdminApp({ onVerComoCliente }) {
 
   // ---- ONLINE/OFFLINE ----
   useEffect(() => {
-    const onOnline = () => { setIsOnline(true); showToast('ok','Conexion restaurada'); sincronizarPendientes() }
+    const onOnline = () => { setIsOnline(true); showToast('ok','Conexion restaurada'); sincronizarPendientes(); setRefreshKey(k=>k+1) }
     const onOffline = () => { setIsOnline(false); showToast('warn','Sin conexion - Modo offline') }
     window.addEventListener('online', onOnline)
     window.addEventListener('offline', onOffline)
     return () => { window.removeEventListener('online',onOnline); window.removeEventListener('offline',onOffline) }
+  }, [])
+
+  // ---- REVIVIR ESCUCHAS AL VOLVER A LA APP ----
+  // En celulares el sistema pausa la conexión en segundo plano (pantalla bloqueada, cambio de app).
+  // Al volver a primer plano forzamos que las pantallas en tiempo real se reconecten,
+  // para no depender de recargar la página para ver pedidos de otros empleados.
+  useEffect(() => {
+    const onVisible = () => { if (document.visibilityState === 'visible') setRefreshKey(k => k + 1) }
+    document.addEventListener('visibilitychange', onVisible)
+    window.addEventListener('focus', onVisible)
+    return () => { document.removeEventListener('visibilitychange', onVisible); window.removeEventListener('focus', onVisible) }
   }, [])
 
   // ---- PWA INSTALL ----
@@ -684,8 +697,30 @@ function AdminApp({ onVerComoCliente }) {
     const exitos = []
     for (const p of pend) {
       try {
-        await addDoc(collection(db,'pedidos'), { ...p, sincronizado: true, sincronizadoEn: serverTimestamp() })
+        const { comprobantePendiente, _idLocal, ...datosPedido } = p
+        const docRef = await addDoc(collection(db,'pedidos'), { ...datosPedido, sincronizado: true, sincronizadoEn: serverTimestamp() })
         exitos.push(p._idLocal)
+
+        // Si se tomó foto del comprobante sin señal, se sube recién ahora.
+        if (comprobantePendiente && fotoComprobante[p._idLocal]) {
+          try {
+            const res = await fetch(fotoComprobante[p._idLocal])
+            const blob = await res.blob()
+            const storageRef = ref(storage, `comprobantes/mesa_${docRef.id}_${Date.now()}.jpg`)
+            await uploadBytes(storageRef, blob, { contentType: 'image/jpeg' })
+            const url = await getDownloadURL(storageRef)
+            await updateDoc(docRef, { urlComprobante: url })
+          } catch(e) {}
+          setFotoComprobante(prev => { const n={...prev}; delete n[p._idLocal]; return n })
+        }
+
+        if (p.estado === 'LISTO') {
+          registrarEvento('venta_completada', {
+            origen: 'admin_mesa', mesa: p.mesa || '',
+            items: (p.items||[]).map(x=>({nombre:x.nombre, cantidad:x.cantidad, precio:x.precio})),
+            total: p.total || 0, formaPago: p.formaPago
+          })
+        }
       } catch(e) {}
     }
     setPendientesLS(pend.filter(p => !exitos.includes(p._idLocal)))
@@ -711,7 +746,7 @@ function AdminApp({ onVerComoCliente }) {
       setPromociones(snap.docs.map(d => ({id:d.id,...d.data()})))
     })
     return unsub
-  }, [user, aprobado])
+  }, [user, aprobado, refreshKey])
 
   // ---- DOMICILIO (tiempo real, solo hoy) ----
   useEffect(() => {
@@ -736,7 +771,7 @@ function AdminApp({ onVerComoCliente }) {
       }
     )
     return unsub
-  }, [user, aprobado])
+  }, [user, aprobado, refreshKey])
 
   // ---- MENU (tiempo real) ----
   useEffect(() => {
@@ -748,7 +783,7 @@ function AdminApp({ onVerComoCliente }) {
       setLoadingMenu(false)
     }, () => setLoadingMenu(false))
     return unsub
-  }, [user, aprobado])
+  }, [user, aprobado, refreshKey])
 
   // ---- PEDIDOS EN PROCESO (tiempo real) ----
   useEffect(() => {
@@ -758,7 +793,7 @@ function AdminApp({ onVerComoCliente }) {
       setPedidosActivos(snap.docs.map(d => ({ id:d.id, ...d.data() })))
     })
     return unsub
-  }, [user, aprobado, tab])
+  }, [user, aprobado, tab, refreshKey])
 
   // ---- CARRITO ----
   function addToCart(item) {
@@ -829,27 +864,39 @@ function AdminApp({ onVerComoCliente }) {
   const totalPedidoItems = (items) => (items || []).reduce((total, item) => total + totalItemPedido(item), 0)
   const totalCobradoSeparado = (items) => (items || []).reduce((total, item) => total + (item?.pagoSeparado?.estado === 'PAGADO' ? totalItemPedido(item) : 0), 0)
 
-  async function guardarItemsPedido(pedido, items, mensaje) {
+  // Actualiza un pedido tomado sin señal (vive solo en este celular, aún no existe en Firestore).
+  function actualizarPedidoLocal(idLocal, cambios) {
+    const pend = getPendientes()
+    const idx = pend.findIndex(p => p._idLocal === idLocal)
+    if (idx === -1) return null
+    const actualizado = { ...pend[idx], ...cambios }
+    pend[idx] = actualizado
+    setPendientesLS(pend)
+    return actualizado
+  }
+
+  function guardarItemsPedido(pedido, items, mensaje) {
     const total = totalPedidoItems(items)
-    // Actualiza la tarjeta de inmediato; Firestore confirma después en segundo plano.
+
+    if (pedido._local) {
+      actualizarPedidoLocal(pedido.id, { items, total, modificadoPor: nombreEmpleado })
+      showToast('ok', mensaje)
+      return true
+    }
+
+    // Actualiza la tarjeta de inmediato; Firestore confirma después en segundo plano,
+    // sin bloquear la pantalla aunque la señal esté lenta o caída.
     setPedidosActivos(prev => prev.map(actual => actual.id === pedido.id ? {
       ...actual, items, total, modificadoPor:nombreEmpleado
     } : actual))
-    try {
-      await updateDoc(doc(db, 'pedidos', pedido.id), {
-        items,
-        total,
-        modificadoEn: serverTimestamp(),
-        modificadoPor: nombreEmpleado
-      })
-      showToast('ok', mensaje)
-      return true
-    } catch (e) {
-      // Al fallar, el listener de Firestore restaurará los datos reales.
-      setPedidosActivos(prev => prev.map(actual => actual.id === pedido.id ? pedido : actual))
-      showToast('err', 'No se pudo actualizar el pedido')
-      return false
-    }
+    updateDoc(doc(db, 'pedidos', pedido.id), {
+      items,
+      total,
+      modificadoEn: serverTimestamp(),
+      modificadoPor: nombreEmpleado
+    }).catch(() => { showToast('warn', 'Se guardó en el celular — se confirmará al reconectar') })
+    showToast('ok', mensaje)
+    return true
   }
 
   async function agregarProductoAlPedido(producto) {
@@ -931,13 +978,16 @@ function AdminApp({ onVerComoCliente }) {
   }
 
   // ---- MARCAR LISTO ----
-  async function marcarListo(id) {
-    const pedidoActual = pedidosActivos.find(x => x.id === id)
+  function marcarListo(id) {
+    const esLocal = String(id).startsWith('LOCAL-')
+    const pedidoActual = esLocal ? pendientesSync.find(x => x._idLocal === id) : pedidosActivos.find(x => x.id === id)
     const saldoPendiente = Math.max(0, Number(pedidoActual?.total || 0) - totalCobradoSeparado(pedidoActual?.items))
     if (saldoPendiente > 0 && !pagoSel[id]) { showToast('err','Selecciona la forma de pago del saldo pendiente'); return }
     const formaPago = saldoPendiente > 0 ? pagoSel[id] : 'Cobros separados'
     const dc = datosCliente[id] || {}
     const urlFoto = fotoComprobante[id]
+    const fotoYaSubida = urlFoto && !urlFoto.startsWith('data:')
+    const fotoPendienteSubir = urlFoto && urlFoto.startsWith('data:')
     const updateData = {
       estado:'LISTO',
       formaPago,
@@ -947,33 +997,42 @@ function AdminApp({ onVerComoCliente }) {
       telefono: dc.tel || '',
       email: dc.email || '',
       saldoCobradoAlCerrar: saldoPendiente,
-      ...(urlFoto ? { urlComprobante: urlFoto } : {}),
+      ...(fotoYaSubida ? { urlComprobante: urlFoto } : {}),
+    }
+
+    setPagoSel(p => { const n={...p}; delete n[id]; return n })
+    setDatosCliente(p => { const n={...p}; delete n[id]; return n })
+
+    if (esLocal) {
+      // Nunca llegó a existir en Firestore todavía: se marca listo en el celular y
+      // pasa directo a Historial. Si la foto del comprobante quedó en base64 (sin
+      // subir), se sube recién al sincronizar, para no guardar imágenes pesadas
+      // en el almacenamiento local.
+      actualizarPedidoLocal(id, { ...updateData, comprobantePendiente: !!fotoPendienteSubir })
+      try{Sound.play('success')}catch(e){}
+      showToast('ok','Pedido marcado como listo · se sincronizará')
+      return
     }
 
     // Quitar inmediatamente de EN PROCESO
     setPedidosActivos(p => p.filter(x => x.id !== id))
-    setPagoSel(p => { const n={...p}; delete n[id]; return n })
     setFotoComprobante(p => { const n={...p}; delete n[id]; return n })
+    try{Sound.play('success')}catch(e){}
+    showToast('ok','Pedido marcado como listo')
 
-    setDatosCliente(p => { const n={...p}; delete n[id]; return n })
-    try {
-      await updateDoc(doc(db,'pedidos',id), updateData)
-      // Registrar venta completada con productos
-      const pedidoCompletado = pedidoActual
-      if (pedidoCompletado) {
-        registrarEvento('venta_completada', {
-          origen: 'admin_mesa',
-          mesa: pedidoCompletado.mesa || '',
-          items: (pedidoCompletado.items||[]).map(x=>({nombre:x.nombre, cantidad:x.cantidad, precio:x.precio})),
-          total: pedidoCompletado.total || 0,
-          formaPago
-        })
-      }
-      try{Sound.play('success')}catch(e){}
-      showToast('ok','Pedido marcado como listo')
-    } catch(e) {
-      showToast('err','Error al actualizar')
-    }
+    updateDoc(doc(db,'pedidos',id), updateData)
+      .then(() => {
+        if (pedidoActual) {
+          registrarEvento('venta_completada', {
+            origen: 'admin_mesa',
+            mesa: pedidoActual.mesa || '',
+            items: (pedidoActual.items||[]).map(x=>({nombre:x.nombre, cantidad:x.cantidad, precio:x.precio})),
+            total: pedidoActual.total || 0,
+            formaPago
+          })
+        }
+      })
+      .catch(() => { showToast('warn','Se guardó en el celular — se confirmará al reconectar') })
   }
 
   function setDcField(pedidoId, field, value) {
@@ -984,28 +1043,34 @@ function AdminApp({ onVerComoCliente }) {
   }
 
   // ---- ELIMINAR ----
-  async function eliminarPedido() {
+  function eliminarPedido() {
     if (!modalEliminar) return
     const idEliminar = modalEliminar
     setModalEliminar(null)
+    const esLocal = String(idEliminar).startsWith('LOCAL-')
+
+    if (esLocal) {
+      // Nunca existió en Firestore — basta con quitarlo del celular.
+      setPendientesLS(getPendientes().filter(p => p._idLocal !== idEliminar))
+      setFotoComprobante(p => { const n={...p}; delete n[idEliminar]; return n })
+      showToast('ok','Pedido eliminado')
+      return
+    }
+
+    const pedidoElim = pedidosActivos.find(x => x.id === idEliminar) || historial.find(x => x.id === idEliminar)
     // Quitar inmediatamente de la UI
     setPedidosActivos(p => p.filter(x => x.id !== idEliminar))
     setHistorial(p => p.filter(x => x.id !== idEliminar))
-    try {
-      const pedidoElim = pedidosActivos.find(x => x.id === idEliminar)
-      registrarEvento('pedido_cancelado', {
-        origen: 'admin_mesa',
-        mesa: pedidoElim?.mesa || '',
-        items: (pedidoElim?.items||[]).map(x=>({nombre:x.nombre, cantidad:x.cantidad})),
-        total: pedidoElim?.total || 0
-      })
-      await deleteDoc(doc(db,'pedidos', idEliminar))
-      showToast('ok','Pedido eliminado')
-    } catch(e) {
-      showToast('err','Error al eliminar')
-      // Si falla, recargar pedidos
-      setPedidosActivos(p => p)
-    }
+    showToast('ok','Pedido eliminado')
+    registrarEvento('pedido_cancelado', {
+      origen: 'admin_mesa',
+      mesa: pedidoElim?.mesa || '',
+      items: (pedidoElim?.items||[]).map(x=>({nombre:x.nombre, cantidad:x.cantidad})),
+      total: pedidoElim?.total || 0
+    })
+    deleteDoc(doc(db,'pedidos', idEliminar)).catch(() => {
+      showToast('warn','Se eliminó en el celular — se confirmará al reconectar')
+    })
   }
 
   // ---- CAMARA COMPROBANTE ----
@@ -1020,6 +1085,14 @@ function AdminApp({ onVerComoCliente }) {
     reader.onload = async (ev) => {
       const base64 = ev.target.result
       setFotoComprobante(p => ({...p, [pedidoId]: base64}))
+
+      // Sin señal: se queda la foto guardada en el celular y se sube sola al marcar
+      // listo el pedido y reconectar — no tiene caso intentar subirla ahora.
+      if (!navigator.onLine) {
+        showToast('warn', 'Sin señal — la foto se subirá al reconectar')
+        return
+      }
+
       setSubiendoFoto(p => ({...p, [pedidoId]: true}))
       try {
         // Subir a Firebase Storage
@@ -1033,7 +1106,7 @@ function AdminApp({ onVerComoCliente }) {
 
         showToast('ok', 'Foto guardada')
       } catch(err) {
-        showToast('warn', 'Error al procesar comprobante')
+        showToast('warn', 'La foto quedó guardada en el celular — se subirá al reconectar')
       }
       setSubiendoFoto(p => ({...p, [pedidoId]: false}))
     }
@@ -1276,7 +1349,7 @@ function AdminApp({ onVerComoCliente }) {
 
     // Tabla pedidos
     const rows = filtrados.map(p => {
-      const hora = p.creadoEn?.toDate?.()?.toLocaleTimeString('es-EC',{hour:'2-digit',minute:'2-digit'})||'—'
+      const hora = p.creadoEn?.toDate?.() ? p.creadoEn.toDate().toLocaleTimeString('es-EC',{hour:'2-digit',minute:'2-digit'}) : (p.creadoEn ? new Date(p.creadoEn).toLocaleTimeString('es-EC',{hour:'2-digit',minute:'2-digit'}) : '—')
       const prods = p.items?.map(it=>`${it.cantidad}x ${it.nombre}`).join(', ') || '—'
       return [
         hora,
@@ -1372,25 +1445,32 @@ function AdminApp({ onVerComoCliente }) {
   }
 
   // ---- HISTORIAL ----
-  async function loadHistorial(desde, hasta) {
+  // ---- HISTORIAL (tiempo real mientras la pestaña está abierta) ----
+  // Antes esto hacía una sola consulta (getDocs): si otro empleado marcaba un pedido
+  // como listo o lo eliminaba, no se veía hasta recargar la página. Ahora escucha
+  // los cambios en vivo, igual que "En Proceso".
+  useEffect(() => {
+    if (!user || !aprobado || tab !== 'historial') return
     setLoadingHist(true)
-    try {
-      const snap = await getDocs(query(collection(db,'pedidos'), orderBy('creadoEn','desc')))
-      let pedidos = snap.docs.map(d => ({ id:d.id, ...d.data() }))
-      const d = desde || fDesde
-      const h = hasta || fHasta
-      if (d && h) {
-        pedidos = pedidos.filter(p => {
-          if (!p.creadoEn) return false
-          const f = p.creadoEn.toDate ? p.creadoEn.toDate() : new Date(p.creadoEn)
-          const fechaLocal = `${f.getFullYear()}-${String(f.getMonth()+1).padStart(2,'0')}-${String(f.getDate()).padStart(2,'0')}`
-          return fechaLocal >= d && fechaLocal <= h
-        })
-      }
-      setHistorial(pedidos)
-    } catch(e) { showToast('err','Error al cargar historial') }
-    setLoadingHist(false)
-  }
+    const unsub = onSnapshot(
+      query(collection(db,'pedidos'), orderBy('creadoEn','desc')),
+      (snap) => {
+        let pedidos = snap.docs.map(d => ({ id:d.id, ...d.data() }))
+        if (fDesde && fHasta) {
+          pedidos = pedidos.filter(p => {
+            if (!p.creadoEn) return false
+            const f = p.creadoEn.toDate ? p.creadoEn.toDate() : new Date(p.creadoEn)
+            const fechaLocal = `${f.getFullYear()}-${String(f.getMonth()+1).padStart(2,'0')}-${String(f.getDate()).padStart(2,'0')}`
+            return fechaLocal >= fDesde && fechaLocal <= fHasta
+          })
+        }
+        setHistorial(pedidos)
+        setLoadingHist(false)
+      },
+      () => setLoadingHist(false)
+    )
+    return unsub
+  }, [user, aprobado, tab, fDesde, fHasta, refreshKey])
 
   function getFecha(offsetDias) {
     const d = new Date()
@@ -1424,8 +1504,7 @@ function AdminApp({ onVerComoCliente }) {
     else if (periodo==='semana') { desde=getLunesSemana(0); hasta=getDomingoSemana(0) }
     else if (periodo==='semana_ant') { desde=getLunesSemana(-1); hasta=getDomingoSemana(-1) }
     else if (periodo==='mes') { desde=getPrimerDiaMes(); hasta=hoyStr }
-    setFDesde(desde); setFHasta(hasta)
-    loadHistorial(desde, hasta)
+    setFDesde(desde); setFHasta(hasta) // la escucha de Historial se refiltra sola al cambiar estas fechas
   }
 
   useEffect(() => { if (tab==='historial' && user && aprobado) aplicarPeriodo('hoy') }, [tab])
@@ -1656,34 +1735,21 @@ function AdminApp({ onVerComoCliente }) {
               <p style={{fontSize:11,color:'#999',marginTop:2}}>Tiempo real</p>
             </div>
             <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(290px,1fr))',gap:13}}>
-              {/* Pendientes offline */}
-              {pendientesSync.map(p => (
-                <div key={p._idLocal} style={{background:'#fffdf5',border:'1px solid #e8d88a',borderRadius:13,overflow:'hidden'}}>
-                  <div style={{background:'#fff8e1',padding:'11px 15px',display:'flex',alignItems:'center',justifyContent:'space-between',borderBottom:'1px solid #e8d88a'}}>
-                    <div style={{fontFamily:'Poppins,sans-serif',fontSize:13}}>LOCAL</div>
-                    <span style={{background:'#fff8e1',color:'#b8860b',border:'1px solid #e8d88a',padding:'2px 7px',borderRadius:100,fontSize:9,fontWeight:700}}>OFFLINE</span>
-                  </div>
-                  <div style={{padding:'12px 15px'}}>
-                    <div style={{fontSize:13,fontWeight:600,marginBottom:7}}>{p.cliente}</div>
-                    {p.items?.map((it,i) => <div key={i} style={{display:'flex',justifyContent:'space-between',fontSize:12,color:'#666',padding:'3px 0',borderBottom:'1px solid #e0e0e0'}}><span>{it.cantidad}x {it.nombre}</span><span>${(it.precio*it.cantidad).toFixed(2)}</span></div>)}
-                    <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',paddingTop:9,borderTop:'1.5px solid #d0d0d0',marginTop:7}}>
-                      <span style={{fontSize:10,letterSpacing:2,textTransform:'uppercase',color:'#999',fontWeight:600}}>Total</span>
-                      <span style={{fontFamily:'Poppins,sans-serif',fontSize:17}}>${parseFloat(p.total).toFixed(2)}</span>
-                    </div>
-                    <div style={{marginTop:9,fontSize:11,color:'#b8860b',fontWeight:600}}>Se enviará al reconectar</div>
-                  </div>
-                </div>
-              ))}
-
-              {/* Pedidos online */}
-              {pedidosActivos.map(p => (
-                <div key={p.id} style={{background:'#fff',border:'1px solid #e0e0e0',borderRadius:13,overflow:'hidden',boxShadow:'0 2px 8px rgba(0,0,0,0.05)'}}>
-                  <div style={{background:'#f4f4f4',padding:'11px 15px',display:'flex',alignItems:'center',justifyContent:'space-between',borderBottom:'1px solid #e0e0e0'}}>
+              {/* Pedidos en proceso: los de Firestore + los tomados sin señal (mismas opciones para ambos) */}
+              {[
+                ...pedidosActivos,
+                ...pendientesSync.filter(p => p.estado !== 'LISTO').map(p => ({ ...p, id: p._idLocal, _local: true }))
+              ].map(p => (
+                <div key={p.id} style={{background:p._local?'#fffdf5':'#fff',border:p._local?'1px solid #e8d88a':'1px solid #e0e0e0',borderRadius:13,overflow:'hidden',boxShadow:'0 2px 8px rgba(0,0,0,0.05)'}}>
+                  <div style={{background:p._local?'#fff8e1':'#f4f4f4',padding:'11px 15px',display:'flex',alignItems:'center',justifyContent:'space-between',borderBottom:p._local?'1px solid #e8d88a':'1px solid #e0e0e0'}}>
                     <div>
-                      <div style={{fontFamily:'Poppins,sans-serif',fontSize:13}}>{p.id.slice(0,8)}...</div>
-                      <div style={{fontSize:10,color:'#999',marginTop:1}}>{p.creadoEn?.toDate?.()?.toLocaleTimeString('es-EC',{hour:'2-digit',minute:'2-digit'})||''}</div>
+                      <div style={{fontFamily:'Poppins,sans-serif',fontSize:13}}>{p._local ? 'Pedido local' : `${p.id.slice(0,8)}...`}</div>
+                      <div style={{fontSize:10,color:'#999',marginTop:1}}>{p.creadoEn?.toDate?.() ? p.creadoEn.toDate().toLocaleTimeString('es-EC',{hour:'2-digit',minute:'2-digit'}) : (p.creadoEn ? new Date(p.creadoEn).toLocaleTimeString('es-EC',{hour:'2-digit',minute:'2-digit'}) : '')}</div>
                     </div>
-                    <span style={{background:'#fff8e1',color:'#b8860b',border:'1px solid #e8d88a',padding:'3px 8px',borderRadius:100,fontSize:9,fontWeight:700}}>EN PROCESO</span>
+                    <div style={{display:'flex',alignItems:'center',gap:5}}>
+                      {p._local && <span style={{background:'#fff8e1',color:'#b8860b',border:'1px solid #e8d88a',padding:'3px 7px',borderRadius:100,fontSize:9,fontWeight:700}}>SIN SINCRONIZAR</span>}
+                      <span style={{background:'#fff8e1',color:'#b8860b',border:'1px solid #e8d88a',padding:'3px 8px',borderRadius:100,fontSize:9,fontWeight:700}}>EN PROCESO</span>
+                    </div>
                   </div>
                   <div style={{padding:'12px 15px'}}>
                     {/* CLIENTE + MESA PROMINENTE */}
@@ -1882,7 +1948,7 @@ function AdminApp({ onVerComoCliente }) {
                 </div>
               ))}
 
-              {!pedidosActivos.length && !pendientesSync.length && (
+              {!pedidosActivos.length && !pendientesSync.some(p => p.estado !== 'LISTO') && (
                 <div style={{gridColumn:'1/-1',textAlign:'center',padding:50}}>
                   <div style={{fontFamily:'Poppins,sans-serif',fontSize:18,marginBottom:6}}>Sin pedidos activos</div>
                   <p style={{color:'#999',fontSize:12}}>Los pedidos aparecen aquí en tiempo real</p>
@@ -2239,7 +2305,7 @@ function AdminApp({ onVerComoCliente }) {
                 <label style={{display:'block',fontSize:10,letterSpacing:2,textTransform:'uppercase',color:'#999',marginBottom:5,fontWeight:600}}>Hasta</label>
                 <input type='date' value={fHasta} onChange={e=>{setFHasta(e.target.value);setPeriodoActivo('')}} style={{background:'#fff',border:'1.5px solid #d0d0d0',borderRadius:7,color:'#1a1a1a',fontFamily:'Poppins,sans-serif',fontSize:12,padding:'8px 11px',outline:'none'}}/>
               </div>
-              <Btn onClick={()=>{setPeriodoActivo('');loadHistorial()}}>Filtrar</Btn>
+              <Btn onClick={()=>{setPeriodoActivo('');setRefreshKey(k=>k+1)}}>Filtrar</Btn>
               <div style={{flex:1,minWidth:160}}>
                 <label style={{display:'block',fontSize:10,letterSpacing:2,textTransform:'uppercase',color:'#999',marginBottom:5,fontWeight:600}}>Buscar</label>
                 <input value={busqueda} onChange={e=>setBusqueda(e.target.value)} placeholder='Nombre, ID o telefono...'
@@ -2248,12 +2314,18 @@ function AdminApp({ onVerComoCliente }) {
             </div>
 
             {loadingHist ? <Spinner/> : (() => {
+              // Pedidos marcados "listo" sin señal: se muestran ya en Historial aunque
+              // Firestore todavía no los tenga, para que no se mezclen con "En Proceso".
+              const historialCompleto = [
+                ...pendientesSync.filter(p => p.estado === 'LISTO').map(p => ({ ...p, id: p._idLocal, _local: true })),
+                ...historial
+              ]
               const term = busqueda.toLowerCase()
-              const filtrados = busqueda ? historial.filter(p =>
+              const filtrados = busqueda ? historialCompleto.filter(p =>
                 (p.cliente||'').toLowerCase().includes(term) ||
                 (p.idDocumento||'').toLowerCase().includes(term) ||
                 (p.telefono||'').toLowerCase().includes(term)
-              ) : historial
+              ) : historialCompleto
               const totalSum = filtrados.reduce((s,p)=>s+parseFloat(p.total||0),0)
               return (
                 <>
@@ -2276,11 +2348,14 @@ function AdminApp({ onVerComoCliente }) {
                     {filtrados.map(p => {
                       const cobrosSeparados = (p.items||[]).filter(it=>it.pagoSeparado?.estado==='PAGADO')
                       const totalSeparado = totalCobradoSeparado(p.items)
-                      const horaPedido = p.creadoEn?.toDate?.()?.toLocaleTimeString('es-EC',{hour:'2-digit',minute:'2-digit'})||'—'
+                      const horaPedido = p.creadoEn?.toDate?.() ? p.creadoEn.toDate().toLocaleTimeString('es-EC',{hour:'2-digit',minute:'2-digit'}) : (p.creadoEn ? new Date(p.creadoEn).toLocaleTimeString('es-EC',{hour:'2-digit',minute:'2-digit'}) : '—')
                       return <div key={p.id} style={{background:'#fff',border:'1px solid #e0e0e0',borderRadius:13,overflow:'hidden',boxShadow:'0 2px 8px rgba(0,0,0,0.05)'}}>
                         <div style={{padding:'11px 14px',background:'#f4f4f4',borderBottom:'1px solid #e5e5e5',display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:8}}>
                           <div><div style={{fontSize:13,fontWeight:700,color:'#1a1a1a'}}>{p.cliente || 'Consumidor final'}</div><div style={{fontSize:11,color:'#888',marginTop:2}}>{horaPedido} · {p.mesa || 'Sin mesa'} · {p.empleado || 'Sin empleado'}</div></div>
-                          <span style={{background:p.estado==='EN PROCESO'?'#fff8e1':'#e8f5e9',color:p.estado==='EN PROCESO'?'#b8860b':'#2e7d32',border:`1px solid ${p.estado==='EN PROCESO'?'#e8d88a':'#a5d6a7'}`,padding:'3px 8px',borderRadius:100,fontSize:9,fontWeight:700,whiteSpace:'nowrap'}}>{p.estado || 'LISTO'}</span>
+                          <div style={{display:'flex',flexDirection:'column',alignItems:'flex-end',gap:4}}>
+                            {p._local && <span style={{background:'#fff8e1',color:'#b8860b',border:'1px solid #e8d88a',padding:'3px 8px',borderRadius:100,fontSize:9,fontWeight:700,whiteSpace:'nowrap'}}>SIN SINCRONIZAR</span>}
+                            <span style={{background:p.estado==='EN PROCESO'?'#fff8e1':'#e8f5e9',color:p.estado==='EN PROCESO'?'#b8860b':'#2e7d32',border:`1px solid ${p.estado==='EN PROCESO'?'#e8d88a':'#a5d6a7'}`,padding:'3px 8px',borderRadius:100,fontSize:9,fontWeight:700,whiteSpace:'nowrap'}}>{p.estado || 'LISTO'}</span>
+                          </div>
                         </div>
                         <div style={{padding:'10px 14px'}}>
                           <div style={{fontSize:10,letterSpacing:1.5,textTransform:'uppercase',color:'#999',fontWeight:700,marginBottom:5}}>Detalle del pedido</div>
