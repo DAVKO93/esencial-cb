@@ -800,10 +800,9 @@ function AdminApp({ onVerComoCliente }) {
   }, [user, aprobado, refreshKey])
 
   // ---- PEDIDOS EN PROCESO (tiempo real) ----
-  // Antes esta escucha solo se activaba estando parado en la pestaña "En Proceso".
-  // Por eso la burbuja roja del menú inferior (y la lista) no se actualizaban para
-  // otro empleado hasta cambiar de pestaña — literalmente lo único que reactivaba
-  // la escucha. Ahora queda siempre activa mientras haya sesión iniciada.
+  // Escucha en vivo — se mantiene activa siempre que haya sesión iniciada, sin
+  // importar la pestaña. Se deja de reconectar por refreshKey (ver abajo el
+  // respaldo por consulta directa, que es más confiable para esta consulta).
   useEffect(() => {
     if (!user || !aprobado) return
     const q = query(collection(db,'pedidos'), where('estado','==','EN PROCESO'), orderBy('creadoEn','desc'))
@@ -811,7 +810,27 @@ function AdminApp({ onVerComoCliente }) {
       setPedidosActivos(snap.docs.map(d => ({ id:d.id, ...d.data() })))
     })
     return unsub
-  }, [user, aprobado, refreshKey])
+  }, [user, aprobado])
+
+  // ---- RESPALDO DIRECTO PARA "EN PROCESO" ----
+  // La escucha en tiempo real de arriba no siempre empuja los cambios de otro
+  // empleado de forma confiable en celulares (se notó incluso reconectándola
+  // periódicamente). Como garantía dura, cada 8s se hace una consulta directa al
+  // servidor y se reemplaza la lista — así la burbuja y la lista de "En Proceso"
+  // nunca dependen de recargar la página, sin importar qué tan sana esté la
+  // conexión en tiempo real en ese momento.
+  useEffect(() => {
+    if (!user || !aprobado) return
+    let activo = true
+    async function refrescarDirecto() {
+      try {
+        const snap = await getDocs(query(collection(db,'pedidos'), where('estado','==','EN PROCESO'), orderBy('creadoEn','desc')))
+        if (activo) setPedidosActivos(snap.docs.map(d => ({ id:d.id, ...d.data() })))
+      } catch(e) {}
+    }
+    const interval = setInterval(refrescarDirecto, 8000)
+    return () => { activo = false; clearInterval(interval) }
+  }, [user, aprobado])
 
   // ---- CARRITO ----
   function addToCart(item) {
