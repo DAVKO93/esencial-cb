@@ -672,17 +672,18 @@ function AdminApp({ onVerComoCliente }) {
     return () => { document.removeEventListener('visibilitychange', onVisible); window.removeEventListener('focus', onVisible) }
   }, [])
 
-  // ---- RESPALDO: REFRESCO PERIÓDICO EN "EN PROCESO" E "HISTORIAL" ----
+  // ---- RESPALDO: REFRESCO PERIÓDICO ----
   // La escucha en tiempo real de Firestore debería empujar los cambios de otros
   // empleados sola, pero en celulares la conexión de datos a veces se corta un
   // instante sin avisar (aunque la pantalla siga encendida y la app en uso). Como
-  // respaldo, cada 15s se reconecta sola la escucha mientras estas dos pantallas
-  // están abiertas, para que nunca dependa de recargar la página manualmente.
+  // respaldo, cada 15s se reconectan solas las escuchas — corre siempre (no solo
+  // en una pestaña) porque la burbuja de "En Proceso" del menú inferior depende
+  // de esto sin importar en qué sección esté el empleado.
   useEffect(() => {
-    if (tab !== 'proceso' && tab !== 'historial') return
+    if (!user || !aprobado) return
     const interval = setInterval(() => setRefreshKey(k => k + 1), 15000)
     return () => clearInterval(interval)
-  }, [tab])
+  }, [user, aprobado])
 
   // ---- PWA INSTALL ----
   useEffect(() => {
@@ -799,14 +800,18 @@ function AdminApp({ onVerComoCliente }) {
   }, [user, aprobado, refreshKey])
 
   // ---- PEDIDOS EN PROCESO (tiempo real) ----
+  // Antes esta escucha solo se activaba estando parado en la pestaña "En Proceso".
+  // Por eso la burbuja roja del menú inferior (y la lista) no se actualizaban para
+  // otro empleado hasta cambiar de pestaña — literalmente lo único que reactivaba
+  // la escucha. Ahora queda siempre activa mientras haya sesión iniciada.
   useEffect(() => {
-    if (!user || !aprobado || tab !== 'proceso') return
+    if (!user || !aprobado) return
     const q = query(collection(db,'pedidos'), where('estado','==','EN PROCESO'), orderBy('creadoEn','desc'))
     const unsub = onSnapshot(q, (snap) => {
       setPedidosActivos(snap.docs.map(d => ({ id:d.id, ...d.data() })))
     })
     return unsub
-  }, [user, aprobado, tab, refreshKey])
+  }, [user, aprobado, refreshKey])
 
   // ---- CARRITO ----
   function addToCart(item) {
