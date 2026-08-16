@@ -4,7 +4,7 @@ import autoTable from 'jspdf-autotable'
 import { db, auth, storage } from './firebase'
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage'
 import {
-  collection, addDoc, getDocs, getDocsFromServer, doc, updateDoc, deleteDoc,
+  collection, addDoc, getDocs, doc, updateDoc, deleteDoc,
   query, where, orderBy, onSnapshot, serverTimestamp
 } from 'firebase/firestore'
 import {
@@ -528,7 +528,6 @@ function AdminApp({ onVerComoCliente }) {
   const [catDropdown, setCatDropdown] = useState(false)
   const [tipoCliente, setTipoCliente] = useState('cliente')
   const [pedidosActivos, setPedidosActivos] = useState([])
-  const [ultimaActProceso, setUltimaActProceso] = useState(null) // diagnóstico: cuándo se actualizó la data por última vez
   const [pagoSel, setPagoSel] = useState({})
   const [modalEliminar, setModalEliminar] = useState(null)
   const [modalConfirm, setModalConfirm] = useState(null)
@@ -608,6 +607,7 @@ function AdminApp({ onVerComoCliente }) {
   const [fHasta, setFHasta] = useState(hoy)
   const [busqueda, setBusqueda] = useState('')
   const [periodoActivo, setPeriodoActivo] = useState('hoy')
+  const [vistaProceso, setVistaProceso] = useState('tuyos') // 'tuyos' | 'otros' — qué pedidos se muestran en "En Proceso"
   const [periodoAbierto, setPeriodoAbierto] = useState(false)
 
   const ADMIN_EMAIL = 'sega93david@gmail.com'
@@ -801,42 +801,22 @@ function AdminApp({ onVerComoCliente }) {
   }, [user, aprobado, refreshKey])
 
   // ---- PEDIDOS EN PROCESO (tiempo real) ----
-  // Escucha en vivo — se mantiene activa siempre que haya sesión iniciada, sin
-  // importar la pestaña. Se deja de reconectar por refreshKey (ver abajo el
-  // respaldo por consulta directa, que es más confiable para esta consulta).
+  // Antes esta consulta combinaba un filtro (estado == 'EN PROCESO') con un orden
+  // (creadoEn) — ese tipo de combinación en Firestore necesita un índice especial
+  // que nunca se creó, y por eso nunca llegaba a los demás empleados en vivo,
+  // aunque sí funcionaba para quien creaba el pedido (por la actualización local
+  // optimista). Ahora se trae todo igual que en Historial (sin combinar
+  // condiciones) y se filtra ya en el celular — sin necesitar ningún índice.
   useEffect(() => {
     if (!user || !aprobado) return
-    const q = query(collection(db,'pedidos'), where('estado','==','EN PROCESO'), orderBy('creadoEn','desc'))
+    const q = query(collection(db,'pedidos'), orderBy('creadoEn','desc'))
     const unsub = onSnapshot(q, (snap) => {
-      const datos = snap.docs.map(d => ({ id:d.id, ...d.data() }))
+      const datos = snap.docs
+        .map(d => ({ id:d.id, ...d.data() }))
+        .filter(p => p.estado === 'EN PROCESO')
       setPedidosActivos(datos)
-      setUltimaActProceso({ hora: new Date(), cantidad: datos.length, via: 'tiempo real' })
     })
     return unsub
-  }, [user, aprobado])
-
-  // ---- RESPALDO DIRECTO PARA "EN PROCESO" ----
-  // Comprobado con pruebas reales: cuando hay una escucha en vivo activa sobre
-  // esta misma consulta, un getDocs() normal a veces reutiliza el estado local de
-  // esa escucha en vez de ir genuinamente al servidor — heredando el mismo atasco
-  // que estábamos tratando de evitar. getDocsFromServer() se salta cualquier
-  // caché sin excepción, igual de confiable que recargar la página, pero cada 8s
-  // y automático.
-  async function refrescarProcesoDirecto() {
-    try {
-      const snap = await getDocsFromServer(query(collection(db,'pedidos'), where('estado','==','EN PROCESO'), orderBy('creadoEn','desc')))
-      const datos = snap.docs.map(d => ({ id:d.id, ...d.data() }))
-      setPedidosActivos(datos)
-      setUltimaActProceso({ hora: new Date(), cantidad: datos.length, via: 'servidor (forzado)' })
-    } catch(e) {
-      setUltimaActProceso(prev => prev ? { ...prev, via: 'error: '+(e?.code||e?.message||'?') } : null)
-    }
-  }
-  useEffect(() => {
-    if (!user || !aprobado) return
-    refrescarProcesoDirecto()
-    const interval = setInterval(refrescarProcesoDirecto, 8000)
-    return () => clearInterval(interval)
   }, [user, aprobado])
 
 
@@ -1506,32 +1486,29 @@ function AdminApp({ onVerComoCliente }) {
   }
 
   // ---- HISTORIAL ----
-  // ---- HISTORIAL (tiempo real mientras la pestaña está abierta) ----
-  // Antes esto hacía una sola consulta (getDocs): si otro empleado marcaba un pedido
-  // como listo o lo eliminaba, no se veía hasta recargar la página. Ahora escucha
-  // los cambios en vivo, igual que "En Proceso".
-  useEffect(() => {
-    if (!user || !aprobado || tab !== 'historial') return
+  // Antes tenía una escucha en vivo, pero eso hacía que la pantalla "saltara" al
+  // leer un pedido si algo cambiaba de fondo. Historial no necesita tiempo real
+  // (son pedidos ya cerrados) — vuelve a ser una consulta simple, igual que
+  // siempre, y el tiempo real se queda dedicado a "En Proceso".
+  async function loadHistorial(desde, hasta) {
     setLoadingHist(true)
-    const unsub = onSnapshot(
-      query(collection(db,'pedidos'), orderBy('creadoEn','desc')),
-      (snap) => {
-        let pedidos = snap.docs.map(d => ({ id:d.id, ...d.data() }))
-        if (fDesde && fHasta) {
-          pedidos = pedidos.filter(p => {
-            if (!p.creadoEn) return false
-            const f = p.creadoEn.toDate ? p.creadoEn.toDate() : new Date(p.creadoEn)
-            const fechaLocal = `${f.getFullYear()}-${String(f.getMonth()+1).padStart(2,'0')}-${String(f.getDate()).padStart(2,'0')}`
-            return fechaLocal >= fDesde && fechaLocal <= fHasta
-          })
-        }
-        setHistorial(pedidos)
-        setLoadingHist(false)
-      },
-      () => setLoadingHist(false)
-    )
-    return unsub
-  }, [user, aprobado, tab, fDesde, fHasta, refreshKey])
+    try {
+      const snap = await getDocs(query(collection(db,'pedidos'), orderBy('creadoEn','desc')))
+      let pedidos = snap.docs.map(d => ({ id:d.id, ...d.data() }))
+      const d = desde || fDesde
+      const h = hasta || fHasta
+      if (d && h) {
+        pedidos = pedidos.filter(p => {
+          if (!p.creadoEn) return false
+          const f = p.creadoEn.toDate ? p.creadoEn.toDate() : new Date(p.creadoEn)
+          const fechaLocal = `${f.getFullYear()}-${String(f.getMonth()+1).padStart(2,'0')}-${String(f.getDate()).padStart(2,'0')}`
+          return fechaLocal >= d && fechaLocal <= h
+        })
+      }
+      setHistorial(pedidos)
+    } catch(e) { showToast('err','Error al cargar historial') }
+    setLoadingHist(false)
+  }
 
   function getFecha(offsetDias) {
     const d = new Date()
@@ -1565,7 +1542,8 @@ function AdminApp({ onVerComoCliente }) {
     else if (periodo==='semana') { desde=getLunesSemana(0); hasta=getDomingoSemana(0) }
     else if (periodo==='semana_ant') { desde=getLunesSemana(-1); hasta=getDomingoSemana(-1) }
     else if (periodo==='mes') { desde=getPrimerDiaMes(); hasta=hoyStr }
-    setFDesde(desde); setFHasta(hasta) // la escucha de Historial se refiltra sola al cambiar estas fechas
+    setFDesde(desde); setFHasta(hasta)
+    loadHistorial(desde, hasta)
   }
 
   useEffect(() => { if (tab==='historial' && user && aprobado) aplicarPeriodo('hoy') }, [tab])
@@ -1791,28 +1769,37 @@ function AdminApp({ onVerComoCliente }) {
         {/* ===== EN PROCESO ===== */}
         {tab==='proceso' && (
           <div style={{animation:'fadeIn 0.3s ease'}}>
-            <div style={{marginBottom:16,paddingBottom:12,borderBottom:'2px solid #e0e0e0',display:'flex',justifyContent:'space-between',alignItems:'flex-end',gap:10,flexWrap:'wrap'}}>
-              <div>
-                <h2 style={{fontFamily:'Poppins,sans-serif',fontSize:22,fontWeight:600}}>En Proceso</h2>
-                <p style={{fontSize:11,color:'#999',marginTop:2}}>Tiempo real</p>
-              </div>
-              <div style={{display:'flex',alignItems:'center',gap:8}}>
-                <span style={{fontSize:10,color:'#999'}}>
-                  {ultimaActProceso
-                    ? `Servidor a las ${ultimaActProceso.hora.toLocaleTimeString('es-EC',{hour:'2-digit',minute:'2-digit',second:'2-digit'})} · ${ultimaActProceso.cantidad} pedido(s) · ${ultimaActProceso.via}`
-                    : 'Consultando...'}
-                </span>
-                <button onClick={refrescarProcesoDirecto} title="Actualizar ahora" style={{width:28,height:28,borderRadius:8,border:'1.5px solid #d0d0d0',background:'#fff',cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>
-                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#666" strokeWidth="2.3" strokeLinecap="round" strokeLinejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M20.49 9A9 9 0 0 0 5.64 5.64L1 10m22 4-4.64 4.36A9 9 0 0 1 3.51 15"/></svg>
-                </button>
-              </div>
+            <div style={{marginBottom:14,paddingBottom:12,borderBottom:'2px solid #e0e0e0'}}>
+              <h2 style={{fontFamily:'Poppins,sans-serif',fontSize:22,fontWeight:600}}>En Proceso</h2>
+              <p style={{fontSize:11,color:'#999',marginTop:2}}>Tiempo real</p>
             </div>
-            <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(290px,1fr))',gap:13}}>
-              {/* Pedidos en proceso: los de Firestore + los tomados sin señal (mismas opciones para ambos) */}
-              {[
+            {(() => {
+              const todosProceso = [
                 ...pedidosActivos,
                 ...pendientesSync.filter(p => p.estado !== 'LISTO').map(p => ({ ...p, id: p._idLocal, _local: true }))
-              ].map(p => (
+              ]
+              const tuyos = todosProceso.filter(p => p._local || p.empleado === nombreEmpleado)
+              const otros = todosProceso.filter(p => !p._local && p.empleado !== nombreEmpleado)
+              const listaActual = vistaProceso === 'tuyos' ? tuyos : otros
+              return (<>
+                <div style={{display:'flex',gap:9,marginBottom:16}}>
+                  <button onClick={()=>setVistaProceso('tuyos')} style={{
+                    padding:'9px 18px',borderRadius:100,fontFamily:'Poppins,sans-serif',fontSize:12,fontWeight:600,cursor:'pointer',border:'2px solid #1a1a1a',
+                    background:vistaProceso==='tuyos'?'#1a1a1a':'#fff', color:vistaProceso==='tuyos'?'#fff':'#1a1a1a'
+                  }}>Tus Pedidos</button>
+                  <button onClick={()=>setVistaProceso('otros')} style={{
+                    position:'relative',padding:'9px 18px',borderRadius:100,fontFamily:'Poppins,sans-serif',fontSize:12,fontWeight:600,cursor:'pointer',border:'2px solid #1a1a1a',
+                    background:vistaProceso==='otros'?'#1a1a1a':'#fff', color:vistaProceso==='otros'?'#fff':'#1a1a1a'
+                  }}>
+                    Otros Pedidos
+                    {otros.length > 0 && (
+                      <span style={{position:'absolute',top:-7,right:-7,background:'#e74c3c',color:'#fff',fontSize:10,fontWeight:700,minWidth:18,height:18,borderRadius:100,display:'flex',alignItems:'center',justifyContent:'center',padding:'0 4px',border:'2px solid #f4f4f4'}}>{otros.length}</span>
+                    )}
+                  </button>
+                </div>
+            <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(290px,1fr))',gap:13}}>
+              {/* Pedidos en proceso: los de Firestore + los tomados sin señal (mismas opciones para ambos) */}
+              {listaActual.map(p => (
                 <div key={p.id} style={{background:p._local?'#fffdf5':'#fff',border:p._local?'1px solid #e8d88a':'1px solid #e0e0e0',borderRadius:13,overflow:'hidden',boxShadow:'0 2px 8px rgba(0,0,0,0.05)'}}>
                   <div style={{background:p._local?'#fff8e1':'#f4f4f4',padding:'11px 15px',display:'flex',alignItems:'center',justifyContent:'space-between',borderBottom:p._local?'1px solid #e8d88a':'1px solid #e0e0e0'}}>
                     <div>
@@ -2021,13 +2008,17 @@ function AdminApp({ onVerComoCliente }) {
                 </div>
               ))}
 
-              {!pedidosActivos.length && !pendientesSync.some(p => p.estado !== 'LISTO') && (
+              {listaActual.length === 0 && (
                 <div style={{gridColumn:'1/-1',textAlign:'center',padding:50}}>
-                  <div style={{fontFamily:'Poppins,sans-serif',fontSize:18,marginBottom:6}}>Sin pedidos activos</div>
+                  <div style={{fontFamily:'Poppins,sans-serif',fontSize:18,marginBottom:6}}>
+                    {vistaProceso==='tuyos' ? 'Sin pedidos activos' : 'Sin pedidos de otros empleados'}
+                  </div>
                   <p style={{color:'#999',fontSize:12}}>Los pedidos aparecen aquí en tiempo real</p>
                 </div>
               )}
             </div>
+              </>)
+            })()}
           </div>
         )}
 
@@ -2393,7 +2384,7 @@ function AdminApp({ onVerComoCliente }) {
                   <label style={{display:'block',fontSize:10,letterSpacing:2,textTransform:'uppercase',color:'#999',marginBottom:5,fontWeight:600}}>Hasta</label>
                   <input type='date' value={fHasta} onChange={e=>{setFHasta(e.target.value);setPeriodoActivo('')}} style={{width:'100%',background:'#fff',border:'1.5px solid #d0d0d0',borderRadius:7,color:'#1a1a1a',fontFamily:'Poppins,sans-serif',fontSize:12,padding:'8px 8px',outline:'none',boxSizing:'border-box'}}/>
                 </div>
-                <button onClick={()=>{setPeriodoActivo('');setRefreshKey(k=>k+1)}} aria-label="Filtrar" title="Filtrar" style={{
+                <button onClick={()=>{setPeriodoActivo('');loadHistorial()}} aria-label="Filtrar" title="Filtrar" style={{
                   width:37,height:37,borderRadius:9,background:'#1a1a1a',border:'none',cursor:'pointer',
                   display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0
                 }}>
