@@ -528,6 +528,7 @@ function AdminApp({ onVerComoCliente }) {
   const [catDropdown, setCatDropdown] = useState(false)
   const [tipoCliente, setTipoCliente] = useState('cliente')
   const [pedidosActivos, setPedidosActivos] = useState([])
+  const [procesoPendiente, setProcesoPendiente] = useState(null) // datos nuevos esperando a que el empleado los aplique
   const [pagoSel, setPagoSel] = useState({})
   const [modalEliminar, setModalEliminar] = useState(null)
   const [modalConfirm, setModalConfirm] = useState(null)
@@ -541,7 +542,6 @@ function AdminApp({ onVerComoCliente }) {
   const [loadingHist, setLoadingHist] = useState(false)
   const [isOnline, setIsOnline] = useState(navigator.onLine)
   const [pendientesSync, setPendientesSync] = useState([])
-  const [refreshKey, setRefreshKey] = useState(0) // sube para forzar reconexión de escuchas en tiempo real
   const [deferredPrompt, setDeferredPrompt] = useState(null)
   const [showInstall, setShowInstall] = useState(false)
   const [loadingMenu, setLoadingMenu] = useState(true)
@@ -655,36 +655,12 @@ function AdminApp({ onVerComoCliente }) {
 
   // ---- ONLINE/OFFLINE ----
   useEffect(() => {
-    const onOnline = () => { setIsOnline(true); showToast('ok','Conexion restaurada'); sincronizarPendientes(); setRefreshKey(k=>k+1) }
+    const onOnline = () => { setIsOnline(true); showToast('ok','Conexion restaurada'); sincronizarPendientes() }
     const onOffline = () => { setIsOnline(false); showToast('warn','Sin conexion - Modo offline') }
     window.addEventListener('online', onOnline)
     window.addEventListener('offline', onOffline)
     return () => { window.removeEventListener('online',onOnline); window.removeEventListener('offline',onOffline) }
   }, [])
-
-  // ---- REVIVIR ESCUCHAS AL VOLVER A LA APP ----
-  // En celulares el sistema pausa la conexión en segundo plano (pantalla bloqueada, cambio de app).
-  // Al volver a primer plano forzamos que las pantallas en tiempo real se reconecten,
-  // para no depender de recargar la página para ver pedidos de otros empleados.
-  useEffect(() => {
-    const onVisible = () => { if (document.visibilityState === 'visible') setRefreshKey(k => k + 1) }
-    document.addEventListener('visibilitychange', onVisible)
-    window.addEventListener('focus', onVisible)
-    return () => { document.removeEventListener('visibilitychange', onVisible); window.removeEventListener('focus', onVisible) }
-  }, [])
-
-  // ---- RESPALDO: REFRESCO PERIÓDICO ----
-  // La escucha en tiempo real de Firestore debería empujar los cambios de otros
-  // empleados sola, pero en celulares la conexión de datos a veces se corta un
-  // instante sin avisar (aunque la pantalla siga encendida y la app en uso). Como
-  // respaldo, cada 15s se reconectan solas las escuchas — corre siempre (no solo
-  // en una pestaña) porque la burbuja de "En Proceso" del menú inferior depende
-  // de esto sin importar en qué sección esté el empleado.
-  useEffect(() => {
-    if (!user || !aprobado) return
-    const interval = setInterval(() => setRefreshKey(k => k + 1), 15000)
-    return () => clearInterval(interval)
-  }, [user, aprobado])
 
   // ---- PWA INSTALL ----
   useEffect(() => {
@@ -761,7 +737,7 @@ function AdminApp({ onVerComoCliente }) {
       setPromociones(snap.docs.map(d => ({id:d.id,...d.data()})))
     })
     return unsub
-  }, [user, aprobado, refreshKey])
+  }, [user, aprobado])
 
   // ---- DOMICILIO (tiempo real, solo hoy) ----
   useEffect(() => {
@@ -786,7 +762,7 @@ function AdminApp({ onVerComoCliente }) {
       }
     )
     return unsub
-  }, [user, aprobado, refreshKey])
+  }, [user, aprobado])
 
   // ---- MENU (tiempo real) ----
   useEffect(() => {
@@ -798,7 +774,7 @@ function AdminApp({ onVerComoCliente }) {
       setLoadingMenu(false)
     }, () => setLoadingMenu(false))
     return unsub
-  }, [user, aprobado, refreshKey])
+  }, [user, aprobado])
 
   // ---- PEDIDOS EN PROCESO (tiempo real) ----
   // Antes esta consulta combinaba un filtro (estado == 'EN PROCESO') con un orden
@@ -807,6 +783,14 @@ function AdminApp({ onVerComoCliente }) {
   // aunque sí funcionaba para quien creaba el pedido (por la actualización local
   // optimista). Ahora se trae todo igual que en Historial (sin combinar
   // condiciones) y se filtra ya en el celular — sin necesitar ningún índice.
+  //
+  // Cuando llega un cambio de otro empleado, NO se reemplaza la pantalla de una
+  // — eso es lo que interrumpía al mesero a mitad de gestionar un pedido. En vez
+  // de eso, el cambio queda "en espera" y se avisa con una burbuja; recién se
+  // aplica cuando el empleado la toca.
+  const pedidosActivosRef = useRef([])
+  useEffect(() => { pedidosActivosRef.current = pedidosActivos }, [pedidosActivos])
+
   useEffect(() => {
     if (!user || !aprobado) return
     const q = query(collection(db,'pedidos'), orderBy('creadoEn','desc'))
@@ -814,7 +798,12 @@ function AdminApp({ onVerComoCliente }) {
       const datos = snap.docs
         .map(d => ({ id:d.id, ...d.data() }))
         .filter(p => p.estado === 'EN PROCESO')
-      setPedidosActivos(datos)
+      const firma = arr => arr.map(p=>p.id+':'+p.estado).sort().join(',')
+      if (firma(datos) === firma(pedidosActivosRef.current)) {
+        setProcesoPendiente(null) // ya coincide con lo que se ve en pantalla
+      } else {
+        setProcesoPendiente(datos)
+      }
     })
     return unsub
   }, [user, aprobado])
@@ -861,6 +850,7 @@ function AdminApp({ onVerComoCliente }) {
       const nuevoPedido = { id: ref.id, ...datos, items, total, estado:'EN PROCESO', empleado: nombreEmpleado, creadoEn: { toDate: () => new Date() } }
         try{Sound.play('notify')}catch(e){}
       setPedidosActivos(prev => [nuevoPedido, ...prev])
+      setProcesoPendiente(null)
       setModalConfirm({ idPedido: ref.id, offline:false, datos:{ ...datos, items, total } })
       setCart([]); limpiarForm()
     } catch(e) {
@@ -914,6 +904,7 @@ function AdminApp({ onVerComoCliente }) {
     setPedidosActivos(prev => prev.map(actual => actual.id === pedido.id ? {
       ...actual, items, total, modificadoPor:nombreEmpleado
     } : actual))
+    setProcesoPendiente(null)
     updateDoc(doc(db, 'pedidos', pedido.id), {
       items,
       total,
@@ -1041,6 +1032,7 @@ function AdminApp({ onVerComoCliente }) {
 
     // Quitar inmediatamente de EN PROCESO
     setPedidosActivos(p => p.filter(x => x.id !== id))
+    setProcesoPendiente(null)
     setFotoComprobante(p => { const n={...p}; delete n[id]; return n })
     try{Sound.play('success')}catch(e){}
     showToast('ok','Pedido marcado como listo')
@@ -1085,6 +1077,7 @@ function AdminApp({ onVerComoCliente }) {
     const pedidoElim = pedidosActivos.find(x => x.id === idEliminar) || historial.find(x => x.id === idEliminar)
     // Quitar inmediatamente de la UI
     setPedidosActivos(p => p.filter(x => x.id !== idEliminar))
+    setProcesoPendiente(null)
     setHistorial(p => p.filter(x => x.id !== idEliminar))
     showToast('ok','Pedido eliminado')
     registrarEvento('pedido_cancelado', {
@@ -1581,7 +1574,7 @@ function AdminApp({ onVerComoCliente }) {
   const navItems = [
     { key:'menu', label:'Menu' },
     { key:'pedido', label:'Pedido', badge: cartCount },
-    { key:'proceso', label:'En Proceso', badge: pedidosActivos.length+pendientesSync.length },
+    { key:'proceso', label:'En Proceso', badge: (procesoPendiente ? procesoPendiente.length : pedidosActivos.length) + pendientesSync.filter(p=>p.estado!=='LISTO').length },
     { key:'historial', label:'Historial' },
     { key:'stats', label:'Stats' },
     { key:'domicilio', label:'Delivery', badge: pedidosDomicilioHoy.length },
@@ -1773,6 +1766,15 @@ function AdminApp({ onVerComoCliente }) {
               <h2 style={{fontFamily:'Poppins,sans-serif',fontSize:22,fontWeight:600}}>En Proceso</h2>
               <p style={{fontSize:11,color:'#999',marginTop:2}}>Tiempo real</p>
             </div>
+            {procesoPendiente && (
+              <button
+                onClick={()=>{ setPedidosActivos(procesoPendiente); setProcesoPendiente(null) }}
+                style={{width:'100%',display:'flex',alignItems:'center',justifyContent:'center',gap:8,marginBottom:16,padding:'11px 16px',borderRadius:100,border:'none',cursor:'pointer',background:'#7C9263',color:'#fff',fontFamily:'Poppins,sans-serif',fontSize:12,fontWeight:600,animation:'fadeIn 0.3s ease'}}
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M20.49 9A9 9 0 0 0 5.64 5.64L1 10m22 4-4.64 4.36A9 9 0 0 1 3.51 15"/></svg>
+                Pedidos actualizados · toca para ver
+              </button>
+            )}
             {(() => {
               const todosProceso = [
                 ...pedidosActivos,
