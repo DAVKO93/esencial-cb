@@ -4,7 +4,7 @@ import autoTable from 'jspdf-autotable'
 import { db, auth, storage } from './firebase'
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage'
 import {
-  collection, addDoc, getDocs, doc, updateDoc, deleteDoc,
+  collection, addDoc, getDocs, getDocsFromServer, doc, updateDoc, deleteDoc,
   query, where, orderBy, onSnapshot, serverTimestamp
 } from 'firebase/firestore'
 import {
@@ -816,25 +816,29 @@ function AdminApp({ onVerComoCliente }) {
   }, [user, aprobado])
 
   // ---- RESPALDO DIRECTO PARA "EN PROCESO" ----
-  // La escucha en tiempo real de arriba no siempre empuja los cambios de otro
-  // empleado de forma confiable en celulares (se notó incluso reconectándola
-  // periódicamente). Como garantía dura, cada 8s se hace una consulta directa al
-  // servidor y se reemplaza la lista — así la burbuja y la lista de "En Proceso"
-  // nunca dependen de recargar la página, sin importar qué tan sana esté la
-  // conexión en tiempo real en ese momento.
+  // Comprobado con pruebas reales: cuando hay una escucha en vivo activa sobre
+  // esta misma consulta, un getDocs() normal a veces reutiliza el estado local de
+  // esa escucha en vez de ir genuinamente al servidor — heredando el mismo atasco
+  // que estábamos tratando de evitar. getDocsFromServer() se salta cualquier
+  // caché sin excepción, igual de confiable que recargar la página, pero cada 8s
+  // y automático.
   async function refrescarProcesoDirecto() {
     try {
-      const snap = await getDocs(query(collection(db,'pedidos'), where('estado','==','EN PROCESO'), orderBy('creadoEn','desc')))
+      const snap = await getDocsFromServer(query(collection(db,'pedidos'), where('estado','==','EN PROCESO'), orderBy('creadoEn','desc')))
       const datos = snap.docs.map(d => ({ id:d.id, ...d.data() }))
       setPedidosActivos(datos)
-      setUltimaActProceso({ hora: new Date(), cantidad: datos.length, via: 'consulta directa' })
-    } catch(e) {}
+      setUltimaActProceso({ hora: new Date(), cantidad: datos.length, via: 'servidor (forzado)' })
+    } catch(e) {
+      setUltimaActProceso(prev => prev ? { ...prev, via: 'error: '+(e?.code||e?.message||'?') } : null)
+    }
   }
   useEffect(() => {
     if (!user || !aprobado) return
+    refrescarProcesoDirecto()
     const interval = setInterval(refrescarProcesoDirecto, 8000)
     return () => clearInterval(interval)
   }, [user, aprobado])
+
 
   // ---- CARRITO ----
   function addToCart(item) {
