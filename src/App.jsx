@@ -520,7 +520,7 @@ function comprimirImagen(base64, maxWidth=800) {
 function AdminApp({ onVerComoCliente }) {
   const [user, setUser] = useState(null)
   const [authReady, setAuthReady] = useState(false)
-  const [aprobado, setAprobado] = useState(false)
+  const [aprobado, setAprobado] = useState(() => leerCache('aprobado', false))
   const [tab, setTab] = useState('menu')
   const [menuItems, setMenuItems] = useState([])
   const [cart, setCart] = useState([])
@@ -545,11 +545,15 @@ function AdminApp({ onVerComoCliente }) {
   const [deferredPrompt, setDeferredPrompt] = useState(null)
   const [showInstall, setShowInstall] = useState(false)
   const [loadingMenu, setLoadingMenu] = useState(true)
-  const [nombreEmpleado, setNombreEmpleado] = useState('')
-  const [esAdmin, setEsAdmin] = useState(false)
-  const [fotoPerfil, setFotoPerfil] = useState(null) // se carga desde localStorage cuando hay user
+  const [nombreEmpleado, setNombreEmpleado] = useState(() => leerCache('nombreEmpleado', ''))
+  const [esAdmin, setEsAdmin] = useState(() => leerCache('esAdmin', false))
+  const [fotoPerfil, setFotoPerfil] = useState(() => leerCache('fotoPerfil', null)) // se carga desde localStorage cuando hay user
+  const [seccionesPermitidas, setSeccionesPermitidas] = useState(() => leerCache('secciones', null)) // null = sin restricciones (todo permitido)
   const [modalPerfil, setModalPerfil] = useState(false)
   const [modalAdmin, setModalAdmin] = useState(false)
+  const [modalPermisos, setModalPermisos] = useState(null) // empleado seleccionado para gestionar sus secciones
+  const [permisosEdit, setPermisosEdit] = useState({})
+  const [guardandoPermisos, setGuardandoPermisos] = useState(false)
   const [empleadosPendientes, setEmpleadosPendientes] = useState([])
   const [editNombre, setEditNombre] = useState('')
   const [editFoto, setEditFoto] = useState(null)
@@ -611,44 +615,72 @@ function AdminApp({ onVerComoCliente }) {
   const [periodoAbierto, setPeriodoAbierto] = useState(false)
 
   const ADMIN_EMAIL = 'sega93david@gmail.com'
+  const SECCIONES_APP = [
+    { key:'menu', label:'Menú' },
+    { key:'pedido', label:'Mi Pedido' },
+    { key:'proceso', label:'En Proceso' },
+    { key:'historial', label:'Historial' },
+    { key:'stats', label:'Estadísticas' },
+    { key:'domicilio', label:'A Domicilio' },
+  ]
 
   // ---- AUTH ----
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, async (u) => {
       setUser(u)
       if (u) {
+        // No bloquear el arranque esperando a Firestore — con lo que ya tenemos en
+        // caché (o los valores por defecto) alcanza para mostrar la app de inmediato,
+        // incluso sin señal. Lo real se confirma abajo, en segundo plano.
+        setAuthReady(true)
         // Admin siempre aprobado
         if (u.email === ADMIN_EMAIL) {
           setAprobado(true)
           setEsAdmin(true)
           setNombreEmpleado('Admin')
+          setSeccionesPermitidas(null)
+          guardarCache({ aprobado:true, esAdmin:true, nombreEmpleado:'Admin', secciones:null })
           // Cargar foto del admin desde Firestore si existe
           try {
             const qa = query(collection(db,'usuarios'), where('uid','==',u.uid))
             const sa = await getDocs(qa)
-            if (!sa.empty && sa.docs[0].data().foto) setFotoPerfil(sa.docs[0].data().foto)
+            if (!sa.empty && sa.docs[0].data().foto) {
+              setFotoPerfil(sa.docs[0].data().foto)
+              guardarCache({ fotoPerfil: sa.docs[0].data().foto })
+            }
           } catch(e) {}
-          setAuthReady(true)
           return
         }
-        const q = query(collection(db,'usuarios'), where('uid','==',u.uid))
-        const snap = await getDocs(q)
-        if (!snap.empty) {
-          const userData = snap.docs[0].data()
-          setAprobado(userData.estado === 'APROBADO')
-          setNombreEmpleado(userData.nombre || u.email)
-          setFotoPerfil(userData.foto || null)
-          setEditNombre(userData.nombre || '')
-        } else {
-          setAprobado(true)
-          setNombreEmpleado(u.email)
-          setEditNombre(u.email)
+        try {
+          const q = query(collection(db,'usuarios'), where('uid','==',u.uid))
+          const snap = await getDocs(q)
+          if (!snap.empty) {
+            const userData = snap.docs[0].data()
+            const nuevoAprobado = userData.estado === 'APROBADO'
+            const nuevoNombre = userData.nombre || u.email
+            const nuevaFoto = userData.foto || null
+            const nuevasSecciones = userData.secciones || null
+            setAprobado(nuevoAprobado)
+            setNombreEmpleado(nuevoNombre)
+            setFotoPerfil(nuevaFoto)
+            setEditNombre(userData.nombre || '')
+            setSeccionesPermitidas(nuevasSecciones)
+            guardarCache({ aprobado:nuevoAprobado, esAdmin:false, nombreEmpleado:nuevoNombre, fotoPerfil:nuevaFoto, secciones:nuevasSecciones })
+          } else {
+            setAprobado(true)
+            setNombreEmpleado(u.email)
+            setEditNombre(u.email)
+            guardarCache({ aprobado:true, esAdmin:false, nombreEmpleado:u.email, secciones:null })
+          }
+        } catch(e) {
+          // Sin señal y sin nada en caché todavía: se queda con lo que ya había
+          // (valores por defecto) hasta que la conexión regrese sola.
         }
       } else {
         setAprobado(false)
         setEsAdmin(false)
+        setAuthReady(true)
       }
-      setAuthReady(true)
     })
     return unsub
   }, [])
@@ -661,6 +693,12 @@ function AdminApp({ onVerComoCliente }) {
     window.addEventListener('offline', onOffline)
     return () => { window.removeEventListener('online',onOnline); window.removeEventListener('offline',onOffline) }
   }, [])
+
+  // Si la pestaña activa deja de estar permitida (el admin le quitó acceso mientras
+  // la tenía abierta), volver a Menú en vez de dejarlo en una pantalla bloqueada.
+  useEffect(() => {
+    if (!esAdmin && seccionesPermitidas && seccionesPermitidas[tab] === false) setTab('menu')
+  }, [seccionesPermitidas, tab, esAdmin])
 
   // ---- PWA INSTALL ----
   useEffect(() => {
@@ -681,6 +719,26 @@ function AdminApp({ onVerComoCliente }) {
   // ---- PENDIENTES OFFLINE ----
   function getPendientes() { try { return JSON.parse(localStorage.getItem('esencial_pendientes')||'[]') } catch(e){ return [] } }
   function setPendientesLS(arr) { localStorage.setItem('esencial_pendientes',JSON.stringify(arr)); setPendientesSync(arr) }
+
+  // ---- SESIÓN EN CACHÉ (arranque instantáneo sin conexión) ----
+  // Guarda lo esencial de la sesión (aprobado, nombre, foto, si es admin, permisos
+  // por sección) para que la próxima vez que se abra la app sin señal, se muestre
+  // de inmediato con estos datos en vez de quedarse esperando a Firestore.
+  function leerCache(campo, porDefecto) {
+    try {
+      const raw = localStorage.getItem('esencial_sesion')
+      if (!raw) return porDefecto
+      const datos = JSON.parse(raw)
+      return (campo in datos) ? datos[campo] : porDefecto
+    } catch(e) { return porDefecto }
+  }
+  function guardarCache(datos) {
+    try {
+      const raw = localStorage.getItem('esencial_sesion')
+      const actual = raw ? JSON.parse(raw) : {}
+      localStorage.setItem('esencial_sesion', JSON.stringify({ ...actual, ...datos }))
+    } catch(e) {}
+  }
 
   async function sincronizarPendientes() {
     const pend = getPendientes()
@@ -1261,6 +1319,25 @@ function AdminApp({ onVerComoCliente }) {
     } catch(e) { showToast('err','Error al desvincular') }
   }
 
+  function abrirPermisos(emp) {
+    const actuales = {}
+    SECCIONES_APP.forEach(s => { actuales[s.key] = emp.secciones ? emp.secciones[s.key] !== false : true })
+    setPermisosEdit(actuales)
+    setModalPermisos(emp)
+  }
+
+  async function guardarPermisos() {
+    if (!modalPermisos) return
+    setGuardandoPermisos(true)
+    try {
+      await updateDoc(doc(db,'usuarios', modalPermisos.id), { secciones: permisosEdit })
+      setEmpleadosActivos(p => p.map(e => e.id === modalPermisos.id ? { ...e, secciones: permisosEdit } : e))
+      showToast('ok','Accesos actualizados')
+      setModalPermisos(null)
+    } catch(e) { showToast('err','No se pudo guardar') }
+    setGuardandoPermisos(false)
+  }
+
   async function cargarEmpleadosPendientes() {
     try {
       const q = query(collection(db,'usuarios'), where('estado','==','PENDIENTE'))
@@ -1571,7 +1648,7 @@ function AdminApp({ onVerComoCliente }) {
   const mesaOpts = ['Mesa 1','Mesa 2','Mesa 3','Mesa 4','Mesa 5','A Domicilio']
 
   // Iconos nav
-  const navItems = [
+  const navItemsTodos = [
     { key:'menu', label:'Menu' },
     { key:'pedido', label:'Pedido', badge: cartCount },
     { key:'proceso', label:'En Proceso', badge: (procesoPendiente ? procesoPendiente.length : pedidosActivos.length) + pendientesSync.filter(p=>p.estado!=='LISTO').length },
@@ -1579,6 +1656,12 @@ function AdminApp({ onVerComoCliente }) {
     { key:'stats', label:'Stats' },
     { key:'domicilio', label:'Delivery', badge: pedidosDomicilioHoy.length },
   ]
+  // El admin siempre ve todo. Para un empleado, si no tiene "secciones" configurado
+  // (nunca se le restringió nada) también ve todo — solo se oculta lo que el admin
+  // desactivó explícitamente.
+  const navItems = (esAdmin || !seccionesPermitidas)
+    ? navItemsTodos
+    : navItemsTodos.filter(n => seccionesPermitidas[n.key] !== false)
 
   return (
     <>
@@ -2616,11 +2699,11 @@ function AdminApp({ onVerComoCliente }) {
               <div style={{display:'flex',flexDirection:'column',gap:8,marginBottom:14}}>
                 {empleadosActivos.map(emp => (
                   <div key={emp.id} style={{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'10px 12px',background:'#f8f8f8',borderRadius:9,border:'1px solid #e0e0e0'}}>
-                    <div style={{flex:1,minWidth:0}}>
+                    <div onClick={()=>abrirPermisos(emp)} style={{flex:1,minWidth:0,cursor:'pointer'}}>
                       <div style={{fontSize:13,fontWeight:600,color:'#1a1a1a',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{emp.nombre||'Sin nombre'}</div>
                       <div style={{fontSize:11,color:'#999',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{emp.email}</div>
                     </div>
-                    <button onClick={()=>desvincularEmpleado(emp.id)} style={{
+                    <button onClick={(e)=>{e.stopPropagation();desvincularEmpleado(emp.id)}} style={{
                       flexShrink:0,marginLeft:10,padding:'6px 12px',background:'#fff',color:'#c62828',
                       border:'1.5px solid #ffcdd2',borderRadius:7,fontFamily:'Poppins,sans-serif',
                       fontSize:10,fontWeight:700,cursor:'pointer'
@@ -2664,6 +2747,26 @@ function AdminApp({ onVerComoCliente }) {
             </button>
           </div>
         </div>
+      </Modal>
+
+      {/* MODAL PERMISOS POR SECCIÓN */}
+      <Modal open={!!modalPermisos} onClose={()=>setModalPermisos(null)}
+        title={modalPermisos?.nombre || 'Empleado'} sub='Secciones con acceso' icon='S'
+        footer={<><Btn variant='sec' onClick={()=>setModalPermisos(null)}>Cancelar</Btn><Btn onClick={guardarPermisos} disabled={guardandoPermisos}>{guardandoPermisos?'Guardando...':'Guardar'}</Btn></>}>
+        <div style={{display:'flex',flexDirection:'column',gap:2}}>
+          {SECCIONES_APP.map(s => (
+            <div key={s.key} onClick={()=>setPermisosEdit(p=>({...p,[s.key]:!p[s.key]}))} style={{
+              display:'flex',alignItems:'center',justifyContent:'space-between',padding:'13px 4px',
+              borderBottom:'1px solid #eee',cursor:'pointer'
+            }}>
+              <span style={{fontSize:13,fontWeight:600,color:'#1a1a1a'}}>{s.label}</span>
+              <div style={{width:42,height:24,borderRadius:100,background:permisosEdit[s.key]?'#1a1a1a':'#e0e0e0',position:'relative',transition:'background 0.2s',flexShrink:0}}>
+                <div style={{width:18,height:18,borderRadius:'50%',background:'#fff',position:'absolute',top:3,left:permisosEdit[s.key]?21:3,transition:'left 0.2s',boxShadow:'0 1px 3px rgba(0,0,0,0.3)'}}/>
+              </div>
+            </div>
+          ))}
+        </div>
+        <p style={{fontSize:11,color:'#999',marginTop:14}}>Las secciones desactivadas no aparecerán en el menú inferior de este empleado.</p>
       </Modal>
 
       {/* MODAL ADMIN - EMPLEADOS */}
