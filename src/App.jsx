@@ -4,7 +4,7 @@ import autoTable from 'jspdf-autotable'
 import { db, auth, storage } from './firebase'
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage'
 import {
-  collection, addDoc, getDocs, doc, updateDoc, deleteDoc,
+  collection, addDoc, getDocs, doc, updateDoc, deleteDoc, increment,
   query, where, orderBy, onSnapshot, serverTimestamp
 } from 'firebase/firestore'
 import {
@@ -430,13 +430,13 @@ function FormProducto({ item, onClose, onSave }) {
   async function guardar() {
     if (!nombre || !precio || !categoria) { showToast('err','Nombre, precio y categoria son obligatorios'); return }
     setLoading(true)
-    const datos = { nombre, descripcion, precio: parseFloat(precio), categoria, imagen, disponible, visibleClientes }
+    const datos = { nombre, descripcion, precio: parseFloat(precio), categoria, imagen, disponible, visibleClientes, modificadoEn: serverTimestamp() }
     try {
       if (item?.id) {
         await updateDoc(doc(db,'menu',item.id), datos)
         showToast('ok','Producto actualizado')
       } else {
-        await addDoc(collection(db,'menu'), datos)
+        await addDoc(collection(db,'menu'), { ...datos, creadoEn: serverTimestamp(), vecesVendido: 0 })
         showToast('ok','Producto agregado al menu')
       }
       onSave()
@@ -526,6 +526,9 @@ function AdminApp({ onVerComoCliente }) {
   const [cart, setCart] = useState([])
   const [catActiva, setCatActiva] = useState('Todos')
   const [catDropdown, setCatDropdown] = useState(false)
+  const [menuOrden, setMenuOrden] = useState('alfabetico') // alfabetico | vendidos | modificado | agregado
+  const [ordenMenuAbierto, setOrdenMenuAbierto] = useState(false)
+  const [menuVista, setMenuVista] = useState('lista') // lista | galeria
   const [tipoCliente, setTipoCliente] = useState('cliente')
   const [pedidosActivos, setPedidosActivos] = useState([])
   const [procesoPendiente, setProcesoPendiente] = useState(null) // datos nuevos esperando a que el empleado los aplique
@@ -694,6 +697,25 @@ function AdminApp({ onVerComoCliente }) {
     return () => { window.removeEventListener('online',onOnline); window.removeEventListener('offline',onOffline) }
   }, [])
 
+  // ---- SINCRONIZAR PENDIENTES AL ABRIR O VOLVER A LA APP ----
+  // La sincronización automática antes solo se disparaba al "presenciar" el
+  // instante exacto en que vuelve la señal (evento 'online'). Si la app se
+  // cerraba sin conexión y se volvía a abrir ya con señal — por ejemplo, al
+  // "actualizar la app" — nunca se detectaba ese instante y los pedidos se
+  // quedaban atascados en el celular sin subir nunca. Ahora se revisa también
+  // apenas la sesión está lista, y cada vez que la app vuelve a primer plano.
+  useEffect(() => {
+    if (user && navigator.onLine) sincronizarPendientes()
+  }, [user])
+
+  useEffect(() => {
+    const onVisible = () => {
+      if (document.visibilityState === 'visible' && navigator.onLine) sincronizarPendientes()
+    }
+    document.addEventListener('visibilitychange', onVisible)
+    return () => document.removeEventListener('visibilitychange', onVisible)
+  }, [])
+
   // Si la pestaña activa deja de estar permitida (el admin le quitó acceso mientras
   // la tenía abierta), volver a Menú en vez de dejarlo en una pantalla bloqueada.
   useEffect(() => {
@@ -764,6 +786,7 @@ function AdminApp({ onVerComoCliente }) {
         }
 
         if (p.estado === 'LISTO') {
+          registrarVentasProductos(p.items)
           registrarEvento('venta_completada', {
             origen: 'admin_mesa', mesa: p.mesa || '',
             items: (p.items||[]).map(x=>({nombre:x.nombre, cantidad:x.cantidad, precio:x.precio})),
@@ -1009,8 +1032,11 @@ function AdminApp({ onVerComoCliente }) {
       cargoParaLlevar: costo,
       modificadoPor: nombreEmpleado
     } : item)
-    const ok = await guardarItemsPedido(pedido, items, 'Producto actualizado para llevar')
-    if (ok) setModalAccionesItem(null)
+    await guardarItemsPedido(pedido, items, 'Costo de llevar guardado')
+    // La ventana se queda abierta para poder seguir gestionando este producto
+    // (ej. pagar por separado) sin tener que volver a entrar. Se refresca con los
+    // datos ya guardados para que el resto de la ventana los refleje.
+    setModalAccionesItem({ ...data, pedido: { ...pedido, items } })
   }
 
   async function quitarProductoPedido() {
@@ -1062,12 +1088,14 @@ function AdminApp({ onVerComoCliente }) {
     const urlFoto = fotoComprobante[id]
     const fotoYaSubida = urlFoto && !urlFoto.startsWith('data:')
     const fotoPendienteSubir = urlFoto && urlFoto.startsWith('data:')
+    // Si nunca se despliega "CLIENTE", por defecto pasa a Historial como
+    // Consumidor Final — solo se registra como "Cliente" si se elige a propósito.
     const updateData = {
       estado:'LISTO',
       formaPago,
-      tipoCliente: dc.tipo==='cliente' ? 'Cliente' : dc.tipo==='final' ? 'Consumidor Final' : 'Pendiente',
+      tipoCliente: dc.tipo==='cliente' ? 'Cliente' : 'Consumidor Final',
       idDocumento: dc.id || '',
-      cliente: dc.tipo==='cliente' ? (dc.nombre||'Sin nombre') : dc.tipo==='final' ? 'Consumidor Final' : 'Pendiente',
+      cliente: dc.tipo==='cliente' ? (dc.nombre||'Sin nombre') : 'Consumidor Final',
       telefono: dc.tel || '',
       email: dc.email || '',
       saldoCobradoAlCerrar: saldoPendiente,
@@ -1098,6 +1126,7 @@ function AdminApp({ onVerComoCliente }) {
     updateDoc(doc(db,'pedidos',id), updateData)
       .then(() => {
         if (pedidoActual) {
+          registrarVentasProductos(pedidoActual.items)
           registrarEvento('venta_completada', {
             origen: 'admin_mesa',
             mesa: pedidoActual.mesa || '',
@@ -1620,7 +1649,14 @@ function AdminApp({ onVerComoCliente }) {
 
   // ---- CATEGORIAS ----
   const cats = ['Todos', ...new Set(menuItems.map(x=>x.categoria))]
-  const menuFiltrado = catActiva==='Todos' ? menuItems : menuItems.filter(x=>x.categoria===catActiva)
+  const menuFiltradoBase = catActiva==='Todos' ? menuItems : menuItems.filter(x=>x.categoria===catActiva)
+  function fechaDe(campo) { return campo?.toDate ? campo.toDate().getTime() : (campo ? new Date(campo).getTime() : 0) }
+  const menuFiltrado = [...menuFiltradoBase].sort((a, b) => {
+    if (menuOrden === 'vendidos') return (b.vecesVendido||0) - (a.vecesVendido||0)
+    if (menuOrden === 'modificado') return fechaDe(b.modificadoEn) - fechaDe(a.modificadoEn)
+    if (menuOrden === 'agregado') return fechaDe(b.creadoEn) - fechaDe(a.creadoEn)
+    return (a.nombre||'').localeCompare(b.nombre||'') // alfabetico
+  })
 
   // ---- RENDER ----
   if (!authReady) return (
@@ -1731,17 +1767,56 @@ function AdminApp({ onVerComoCliente }) {
         {/* ===== MENU ===== */}
         {tab==='menu' && (
           <div style={{animation:'fadeIn 0.3s ease'}}>
-            <div style={{marginBottom:14,paddingBottom:12,borderBottom:'2px solid #e0e0e0',display:'flex',alignItems:'baseline',justifyContent:'space-between'}}>
-              <h2 style={{fontFamily:'Poppins,sans-serif',fontSize:22,fontWeight:600}}>Menu</h2>
-              <p style={{fontSize:11,color:'#999'}}>{menuItems.length} productos {catActiva!=='Todos' && <span style={{color:'#7C9263',fontWeight:600}}>· {catActiva}</span>}</p>
+            <div style={{marginBottom:14,paddingBottom:12,borderBottom:'2px solid #e0e0e0',display:'flex',alignItems:'center',justifyContent:'space-between',gap:10}}>
+              <div>
+                <h2 style={{fontFamily:'Poppins,sans-serif',fontSize:22,fontWeight:600}}>Menu</h2>
+                <p style={{fontSize:11,color:'#999'}}>{menuItems.length} productos {catActiva!=='Todos' && <span style={{color:'#7C9263',fontWeight:600}}>· {catActiva}</span>}</p>
+              </div>
+              <div style={{display:'flex',gap:8,position:'relative',flexShrink:0}}>
+                {/* Ordenar */}
+                <button onClick={()=>setOrdenMenuAbierto(o=>!o)} title="Ordenar" style={{
+                  width:36,height:36,borderRadius:9,border:'1.5px solid '+(ordenMenuAbierto?'#1a1a1a':'#d0d0d0'),
+                  background:ordenMenuAbierto?'#1a1a1a':'#fff',cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center'
+                }}>
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={ordenMenuAbierto?'#fff':'#1a1a1a'} strokeWidth="2.3" strokeLinecap="round" strokeLinejoin="round"><line x1="4" y1="6" x2="14" y2="6"/><line x1="4" y1="12" x2="11" y2="12"/><line x1="4" y1="18" x2="8" y2="18"/><path d="M17 8l3-3 3 3M20 5v14"/></svg>
+                </button>
+                {/* Lista / Galeria */}
+                <button onClick={()=>setMenuVista(v=>v==='lista'?'galeria':'lista')} title={menuVista==='lista'?'Ver en galería':'Ver en lista'} style={{
+                  width:36,height:36,borderRadius:9,border:'1.5px solid #d0d0d0',background:'#fff',cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center'
+                }}>
+                  {menuVista==='lista'
+                    ? <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#1a1a1a" strokeWidth="2.3" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="8" height="8" rx="1.5"/><rect x="13" y="3" width="8" height="8" rx="1.5"/><rect x="3" y="13" width="8" height="8" rx="1.5"/><rect x="13" y="13" width="8" height="8" rx="1.5"/></svg>
+                    : <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#1a1a1a" strokeWidth="2.3" strokeLinecap="round" strokeLinejoin="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+                  }
+                </button>
+                {/* Desplegable de orden */}
+                {ordenMenuAbierto && (
+                  <div style={{position:'absolute',top:'calc(100% + 6px)',right:0,zIndex:20,background:'#fff',border:'1px solid #e0e0e0',borderRadius:11,boxShadow:'0 8px 24px rgba(0,0,0,0.14)',overflow:'hidden',minWidth:190}}>
+                    {[
+                      {key:'alfabetico', label:'Orden alfabético'},
+                      {key:'vendidos', label:'Más vendidos'},
+                      {key:'modificado', label:'Última modificación'},
+                      {key:'agregado', label:'Recién agregados'},
+                    ].map(o => (
+                      <button key={o.key} onClick={()=>{setMenuOrden(o.key);setOrdenMenuAbierto(false)}} style={{
+                        display:'block',width:'100%',textAlign:'left',padding:'11px 14px',border:'none',
+                        background:menuOrden===o.key?'#f4f4f4':'#fff',cursor:'pointer',
+                        fontFamily:'Poppins,sans-serif',fontSize:12,fontWeight:menuOrden===o.key?700:500,
+                        color:menuOrden===o.key?'#7C9263':'#333'
+                      }}>{o.label}</button>
+                    ))}
+                  </div>
+                )}
+              </div>
             </div>
+            {ordenMenuAbierto && <div onClick={()=>setOrdenMenuAbierto(false)} style={{position:'fixed',inset:0,zIndex:15}}/>}
 
-            {/* LISTA DE PRODUCTOS */}
-            {loadingMenu ? <Spinner/> : (
+            {/* PRODUCTOS */}
+            {loadingMenu ? <Spinner/> : !menuFiltrado.length ? (
+              <div style={{background:'#fff',border:'1px solid #e0e0e0',borderRadius:13,padding:40,textAlign:'center',color:'#999',fontSize:12}}>Sin productos en esta categoria</div>
+            ) : menuVista==='lista' ? (
               <div style={{background:'#fff',border:'1px solid #e0e0e0',borderRadius:13,overflow:'hidden',boxShadow:'0 2px 8px rgba(0,0,0,0.05)'}}>
-                {!menuFiltrado.length ? (
-                  <div style={{padding:40,textAlign:'center',color:'#999',fontSize:12}}>Sin productos en esta categoria</div>
-                ) : menuFiltrado.map((item, idx) => (
+                {menuFiltrado.map((item, idx) => (
                   <div key={item.id} style={{
                     display:'flex',alignItems:'center',gap:12,padding:'11px 14px',
                     borderBottom: idx<menuFiltrado.length-1?'1px solid #e0e0e0':'none',
@@ -1773,9 +1848,37 @@ function AdminApp({ onVerComoCliente }) {
                   </div>
                 ))}
               </div>
+            ) : (
+              <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:11}}>
+                {menuFiltrado.map(item => (
+                  <div key={item.id} style={{background:'#fff',border:'1px solid #e0e0e0',borderRadius:13,overflow:'hidden',boxShadow:'0 2px 8px rgba(0,0,0,0.05)'}}>
+                    <div onClick={()=>setModalProducto(item)} style={{width:'100%',aspectRatio:'1/1',background:'#f4f4f4',display:'flex',alignItems:'center',justifyContent:'center',cursor:'pointer'}}>
+                      {item.imagen
+                        ? <img src={item.imagen} alt={item.nombre} style={{width:'100%',height:'100%',objectFit:'cover'}}/>
+                        : <span style={{fontSize:13,fontWeight:700,color:'#999'}}>{item.categoria?.slice(0,2).toUpperCase()}</span>
+                      }
+                    </div>
+                    <div style={{padding:'9px 10px'}}>
+                      <div onClick={()=>setModalProducto(item)} style={{cursor:'pointer'}}>
+                        <div style={{fontSize:12,fontWeight:600,color:'#1a1a1a',lineHeight:1.25,minHeight:30}}>{item.nombre}</div>
+                        <span style={{display:'inline-block',marginTop:5,background:'#1a1a1a',color:'#fff',fontSize:8,fontWeight:700,letterSpacing:0.5,textTransform:'uppercase',padding:'2px 6px',borderRadius:100}}>{item.categoria}</span>
+                      </div>
+                      <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginTop:8}}>
+                        <span style={{fontFamily:'Poppins,sans-serif',fontSize:14,color:'#1a1a1a'}}>${parseFloat(item.precio).toFixed(2)}</span>
+                        <button onClick={()=>addToCart(item)} style={{
+                          width:30,height:30,borderRadius:'50%',background:'#1a1a1a',color:'#fff',
+                          border:'none',fontSize:19,cursor:'pointer',display:'flex',alignItems:'center',
+                          justifyContent:'center',flexShrink:0,fontWeight:300
+                        }}>+</button>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
             )}
           </div>
         )}
+
 
         {/* ===== MI PEDIDO ===== */}
         {tab==='pedido' && (
@@ -1977,7 +2080,7 @@ function AdminApp({ onVerComoCliente }) {
                         borderBottom:dcAbierto[p.id]?'1px solid #e0e0e0':'none'
                       }}>
                         <span style={{fontSize:10,fontWeight:700,letterSpacing:1.5,textTransform:'uppercase',color:'#555'}}>
-                          {(datosCliente[p.id]?.tipo||'cliente')==='cliente' ? 'Cliente' : 'Consumidor Final'}
+                          {(datosCliente[p.id]?.tipo||'final')==='cliente' ? 'Cliente' : 'Consumidor Final'}
                           {datosCliente[p.id]?.nombre && ` — ${datosCliente[p.id].nombre}`}
                         </span>
                         <span style={{fontSize:10,color:'#7C9263',fontWeight:700,display:'inline-block',
@@ -1990,14 +2093,14 @@ function AdminApp({ onVerComoCliente }) {
                           <button key={t} onClick={()=>setDcField(p.id,'tipo',t)} style={{
                             flex:1,padding:'7px 4px',fontSize:10,fontWeight:600,letterSpacing:1,textTransform:'uppercase',
                             cursor:'pointer',border:'none',transition:'0.2s',
-                            borderBottom:(datosCliente[p.id]?.tipo||'cliente')===t?'2px solid #7C9263':'2px solid transparent',
-                            background:(datosCliente[p.id]?.tipo||'cliente')===t?'#fff':'transparent',
-                            color:(datosCliente[p.id]?.tipo||'cliente')===t?'#1a1a1a':'#999'
+                            borderBottom:(datosCliente[p.id]?.tipo||'final')===t?'2px solid #7C9263':'2px solid transparent',
+                            background:(datosCliente[p.id]?.tipo||'final')===t?'#fff':'transparent',
+                            color:(datosCliente[p.id]?.tipo||'final')===t?'#1a1a1a':'#999'
                           }}>{t==='cliente'?'Cliente':'Cons. Final'}</button>
                         ))}
                       </div>
                       <div style={{padding:'10px 13px'}}>
-                        {(datosCliente[p.id]?.tipo||'cliente')==='cliente' ? (
+                        {(datosCliente[p.id]?.tipo||'final')==='cliente' ? (
                           <>
                             <div style={{marginBottom:8}}>
                               <label style={{display:'block',fontSize:9,letterSpacing:2,textTransform:'uppercase',color:'#999',marginBottom:4,fontWeight:600}}>ID / Documento</label>
@@ -2545,7 +2648,15 @@ function AdminApp({ onVerComoCliente }) {
       </main>
 
       {/* ===== BARRA ACCIÓN RÁPIDA ADMIN — solo en tab menú ===== */}
-      {tab === 'menu' && (
+      {tab === 'menu' && (<>
+        {/* Difuminado detrás de la barra flotante, para separarla visualmente de los productos que se ven detrás al hacer scroll */}
+        <div style={{
+          position:'fixed',bottom:0,left:0,right:0,height:'calc(140px + env(safe-area-inset-bottom))',zIndex:998,
+          pointerEvents:'none',backdropFilter:'blur(6px)',WebkitBackdropFilter:'blur(6px)',
+          background:'linear-gradient(to top, rgba(0,0,0,0.32), rgba(0,0,0,0.32) 55%, rgba(0,0,0,0) 100%)',
+          maskImage:'linear-gradient(to top, black, black 60%, transparent 100%)',
+          WebkitMaskImage:'linear-gradient(to top, black, black 60%, transparent 100%)'
+        }}/>
         <div style={{position:'fixed',bottom:'calc(82px + env(safe-area-inset-bottom))',left:'50%',transform:'translateX(-50%)',width:'calc(100% - 32px)',maxWidth:440,zIndex:999,display:'flex',alignItems:'center',justifyContent:'space-between',gap:10}}>
 
           {/* + Agregar producto */}
@@ -2616,7 +2727,7 @@ function AdminApp({ onVerComoCliente }) {
             </button>
           </div>
         </div>
-      )}
+      </>)}
 
       {/* ===== NAV INFERIOR PÍLDORA ADMIN ===== */}
       <div style={{position:'fixed',bottom:'calc(12px + env(safe-area-inset-bottom))',left:'50%',transform:'translateX(-50%)',width:'calc(100% - 32px)',maxWidth:440,zIndex:1000}}>
@@ -3108,6 +3219,15 @@ async function registrarEvento(tipo, datos = {}) {
       timestamp: serverTimestamp()
     })
   } catch(e) { /* silencioso — no interrumpir flujo */ }
+}
+
+// Suma al contador de ventas de cada producto — usado por el ordenamiento
+// "Más vendidos" del Menú. Se llama cada vez que un pedido se marca como listo.
+function registrarVentasProductos(items) {
+  (items || []).forEach(it => {
+    if (!it?.id) return
+    updateDoc(doc(db, 'menu', it.id), { vecesVendido: increment(it.cantidad || 1) }).catch(() => {})
+  })
 }
 
 const IMGS_CATEGORIA = {
