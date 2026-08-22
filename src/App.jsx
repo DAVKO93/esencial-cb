@@ -521,12 +521,12 @@ function AdminApp({ onVerComoCliente }) {
   const [user, setUser] = useState(null)
   const [authReady, setAuthReady] = useState(false)
   const [aprobado, setAprobado] = useState(() => leerCache('aprobado', false))
-  const [tab, setTab] = useState('menu')
+  const [tab, setTab] = useState(() => leerCache('tabActual', 'menu'))
   const [menuItems, setMenuItems] = useState([])
   const [cart, setCart] = useState([])
   const [catActiva, setCatActiva] = useState('Todos')
   const [catDropdown, setCatDropdown] = useState(false)
-  const [menuOrden, setMenuOrden] = useState('alfabetico') // alfabetico | vendidos | modificado | agregado
+  const [menuOrden, setMenuOrden] = useState(() => leerCache('menuOrden', 'alfabetico')) // alfabetico | vendidos | modificado | agregado
   const [ordenMenuAbierto, setOrdenMenuAbierto] = useState(false)
   const [menuVista, setMenuVista] = useState('lista') // lista | galeria
   const [tipoCliente, setTipoCliente] = useState('cliente')
@@ -1259,6 +1259,7 @@ function AdminApp({ onVerComoCliente }) {
         ...(p.urlComprobante ? { urlComprobante: p.urlComprobante } : {})
       })
       // Registrar domicilio entregado
+      registrarVentasProductos(p.items)
       registrarEvento('venta_completada', {
         origen: 'admin_domicilio',
         cliente: p.cliente || '',
@@ -1658,6 +1659,10 @@ function AdminApp({ onVerComoCliente }) {
     return (a.nombre||'').localeCompare(b.nombre||'') // alfabetico
   })
 
+  // Recordar la pestaña activa y el orden del Menú entre recargas de la página.
+  useEffect(() => { guardarCache({ tabActual: tab }) }, [tab])
+  useEffect(() => { guardarCache({ menuOrden }) }, [menuOrden])
+
   // ---- RENDER ----
   if (!authReady) return (
     <div style={{display:'flex',alignItems:'center',justifyContent:'center',height:'100vh'}}>
@@ -1852,7 +1857,7 @@ function AdminApp({ onVerComoCliente }) {
               <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:11}}>
                 {menuFiltrado.map(item => (
                   <div key={item.id} style={{background:'#fff',border:'1px solid #e0e0e0',borderRadius:13,overflow:'hidden',boxShadow:'0 2px 8px rgba(0,0,0,0.05)'}}>
-                    <div onClick={()=>setModalProducto(item)} style={{width:'100%',aspectRatio:'1/1',background:'#f4f4f4',display:'flex',alignItems:'center',justifyContent:'center',cursor:'pointer'}}>
+                    <div onClick={()=>setModalProducto(item)} style={{width:'100%',aspectRatio:'4/3',background:'#f4f4f4',display:'flex',alignItems:'center',justifyContent:'center',cursor:'pointer'}}>
                       {item.imagen
                         ? <img src={item.imagen} alt={item.nombre} style={{width:'100%',height:'100%',objectFit:'cover'}}/>
                         : <span style={{fontSize:13,fontWeight:700,color:'#999'}}>{item.categoria?.slice(0,2).toUpperCase()}</span>
@@ -1860,7 +1865,10 @@ function AdminApp({ onVerComoCliente }) {
                     </div>
                     <div style={{padding:'9px 10px'}}>
                       <div onClick={()=>setModalProducto(item)} style={{cursor:'pointer'}}>
-                        <div style={{fontSize:12,fontWeight:600,color:'#1a1a1a',lineHeight:1.25,minHeight:30}}>{item.nombre}</div>
+                        <div style={{fontSize:12,fontWeight:600,color:'#1a1a1a',lineHeight:1.25}}>{item.nombre}</div>
+                        {item.descripcion && (
+                          <div style={{fontSize:10.5,color:'#999',lineHeight:1.3,marginTop:2,display:'-webkit-box',WebkitLineClamp:2,WebkitBoxOrient:'vertical',overflow:'hidden'}}>{item.descripcion}</div>
+                        )}
                         <span style={{display:'inline-block',marginTop:5,background:'#1a1a1a',color:'#fff',fontSize:8,fontWeight:700,letterSpacing:0.5,textTransform:'uppercase',padding:'2px 6px',borderRadius:100}}>{item.categoria}</span>
                       </div>
                       <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginTop:8}}>
