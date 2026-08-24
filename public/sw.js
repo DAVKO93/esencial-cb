@@ -1,11 +1,15 @@
-const CACHE = 'esencial-fc-v3'
+const CACHE = 'esencial-fc-v4' // Incrementado a v4 para forzar actualización
+
 const ASSETS = [
   '/',
   '/index.html',
-  '/manifest.webmanifest',
-  '/logo.png',
-  '/icon-192x192.png',
-  '/icon-512x512.png'
+  '/site.webmanifest',
+  '/favicon.ico',
+  '/favicon.svg',
+  '/favicon-96x96.png',
+  '/apple-touch-icon.png',
+  '/web-app-manifest-192x192.png',
+  '/web-app-manifest-512x512.png'
 ]
 
 self.addEventListener('install', e => {
