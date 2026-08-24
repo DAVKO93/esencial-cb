@@ -1418,7 +1418,7 @@ function AdminApp({ onVerComoCliente }) {
     try {
       const img = new Image()
       img.crossOrigin = 'anonymous'
-      img.src = '/logo.png'
+      img.src = '/logo-blanco.png'
       await new Promise((res) => { img.onload = res; img.onerror = res; setTimeout(res, 2000) })
       if (img.complete && img.naturalWidth > 0) {
         const canvas = document.createElement('canvas')
@@ -1722,7 +1722,7 @@ function AdminApp({ onVerComoCliente }) {
       <header style={{background:'#1a1a1a',padding:'0 16px',position:'sticky',top:0,zIndex:1000,display:'flex',alignItems:'center',justifyContent:'space-between',height:58}}>
         <div>
           <div style={{display:'flex',alignItems:'center',gap:8}}>
-              <img src='/logo.png' alt='logo' style={{height:30,width:30,objectFit:'contain',borderRadius:4,flexShrink:0}}/>
+              <img src='/logo-blanco.png' alt='logo' style={{height:30,width:30,objectFit:'contain',borderRadius:4,flexShrink:0}}/>
               <span style={{fontFamily:'Poppins,sans-serif',fontSize:15,fontWeight:700,color:'#fff',letterSpacing:2}}>Esencial FC</span>
             </div>
         </div>
@@ -3316,7 +3316,7 @@ function AppSelector({ onSelect }) {
             height: 100%;
           }
         `}</style>
-        <img src='/logo.png' alt='Esencial FC' className='logo-pulse'/>
+        <img src='/logo-blanco.png' alt='Esencial FC' className='logo-pulse'/>
       </div>
 
       <h1 style={{fontFamily:'Poppins,sans-serif',fontWeight:700,fontSize:28,color:'#fff',letterSpacing:2,marginBottom:6}}>Esencial FC</h1>
