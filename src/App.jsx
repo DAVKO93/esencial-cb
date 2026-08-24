@@ -535,6 +535,8 @@ function AdminApp({ onVerComoCliente }) {
   const [pagoSel, setPagoSel] = useState({})
   const [modalEliminar, setModalEliminar] = useState(null)
   const [modalConfirm, setModalConfirm] = useState(null)
+  const [enviandoPedido, setEnviandoPedido] = useState(false)
+  const [entregandoId, setEntregandoId] = useState(null)
   const [modalProducto, setModalProducto] = useState(null) // null | 'nuevo' | {item}
   const [modalPromocion, setModalPromocion] = useState(null) // null | 'nueva' | {item} -- solo admin
   const [modalVerPromociones, setModalVerPromociones] = useState(false) // todos los empleados
@@ -910,9 +912,11 @@ function AdminApp({ onVerComoCliente }) {
 
   // ---- CREAR PEDIDO ----
   async function confirmarPedido() {
-    let datos = {}
+    if (enviandoPedido) return // evita doble toque mientras se procesa
     if (!cMesa) { showToast('err','Selecciona mesa o servicio'); return }
-    datos = { tipoCliente:'Pendiente', idDocumento:'', cliente:'Pendiente', telefono:'', email:'', mesa:cMesa, notas:cNotas }
+    setEnviandoPedido(true) // feedback instantáneo: el botón se deshabilita y avisa "Enviando..."
+
+    let datos = { tipoCliente:'Pendiente', idDocumento:'', cliente:'Pendiente', telefono:'', email:'', mesa:cMesa, notas:cNotas }
     const items = cart.map(x => ({ id:x.id, nombre:x.nombre, precio:x.precio, cantidad:x.cantidad }))
     const total = cartTotal
     const pedido = { ...datos, items, total, estado:'EN PROCESO', empleado: nombreEmpleado, creadoEn: serverTimestamp() }
@@ -923,7 +927,9 @@ function AdminApp({ onVerComoCliente }) {
       pend.push({ ...pedido, _idLocal:idLocal, creadoEn: new Date().toISOString() })
       setPendientesLS(pend)
       setModalConfirm({ idPedido: idLocal, offline:true, datos:{ ...datos, items, total } })
-      setCart([]); limpiarForm(); return
+      setCart([]); limpiarForm()
+      setEnviandoPedido(false)
+      return
     }
 
     try {
@@ -943,6 +949,7 @@ function AdminApp({ onVerComoCliente }) {
       setCart([]); limpiarForm()
       showToast('warn','Guardado offline.')
     }
+    setEnviandoPedido(false)
   }
 
   function limpiarForm() {
@@ -1240,6 +1247,8 @@ function AdminApp({ onVerComoCliente }) {
 
   // ---- DOMICILIO: MARCAR ENTREGADO ----
   async function marcarEntregado(p) {
+    if (entregandoId) return // ya se está procesando una entrega, evita doble toque
+    setEntregandoId(p.id)
     try {
       // Guardar en historial/pedidos como pedido entregado
       await addDoc(collection(db,'pedidos'), {
@@ -1272,6 +1281,7 @@ function AdminApp({ onVerComoCliente }) {
       await deleteDoc(doc(db,'domicilio', p.id))
       showToast('ok','Pedido marcado como entregado')
     } catch(e) { showToast('err','Error al marcar entregado') }
+    setEntregandoId(null)
   }
 
   async function eliminarDomicilio(id) {
@@ -1946,7 +1956,7 @@ function AdminApp({ onVerComoCliente }) {
                   </div>
                 </div>
                 <div style={{padding:'0 16px 16px'}}>
-                  <Btn onClick={confirmarPedido} disabled={!cart.length} style={{width:'100%'}}>Confirmar Pedido</Btn>
+                  <Btn onClick={confirmarPedido} disabled={!cart.length || enviandoPedido} style={{width:'100%'}}>{enviandoPedido ? 'Enviando...' : 'Confirmar Pedido'}</Btn>
                 </div>
               </div>
             </div>
@@ -2294,11 +2304,11 @@ function AdminApp({ onVerComoCliente }) {
                         </div>
                       )}
                       <div style={{display:'flex',gap:8,marginTop:10}}>
-                        <button onClick={()=>marcarEntregado(p)} style={{
+                        <button onClick={()=>marcarEntregado(p)} disabled={!!entregandoId} style={{
                           flex:2,padding:'10px',background:'#1a1a1a',color:'#fff',border:'none',
                           borderRadius:8,fontFamily:'Poppins,sans-serif',fontSize:11,fontWeight:700,
-                          letterSpacing:1,textTransform:'uppercase',cursor:'pointer'
-                        }}>Entregado</button>
+                          letterSpacing:1,textTransform:'uppercase',cursor:entregandoId?'default':'pointer',opacity:entregandoId&&entregandoId!==p.id?0.4:1
+                        }}>{entregandoId===p.id?'Procesando...':'Entregado'}</button>
                         <button onClick={()=>eliminarDomicilio(p.id)} style={{
                           flex:1,padding:'10px',background:'#fff',color:'#c62828',
                           border:'1.5px solid #ffcdd2',borderRadius:8,fontFamily:'Poppins,sans-serif',
@@ -3497,6 +3507,7 @@ function ClienteApp({ onVolver, esPreview }) {
   const comprobanteRef = useRef(null)
   const [modalCancelar, setModalCancelar] = useState(false)
   const [pedidoEnviado, setPedidoEnviado] = useState(false)
+  const [enviandoDomicilio, setEnviandoDomicilio] = useState(false)
   const [modalRegistro, setModalRegistro] = useState(() => {
     const ir = localStorage.getItem('esencial_ir_registro')
     if (ir) { localStorage.removeItem('esencial_ir_registro'); return true }
@@ -3786,6 +3797,8 @@ function ClienteApp({ onVolver, esPreview }) {
   }
 
   async function enviarWhatsApp() {
+    if (enviandoDomicilio) return // evita doble toque mientras se procesa
+    setEnviandoDomicilio(true)
     const n = cliente?.nombre || tmpNombre
     const tel = cliente?.telefono || tmpTel
     const dir = cliente?.direccion || tmpDir
@@ -3847,6 +3860,7 @@ function ClienteApp({ onVolver, esPreview }) {
     setUrlComprobante(null)
     setVistaCliente('menu')
     setPedidoEnviado(true)
+    setEnviandoDomicilio(false)
   }
 
   if (loadingMenu) return (
@@ -4832,14 +4846,14 @@ function ClienteApp({ onVolver, esPreview }) {
                 <div style={{fontSize:10,fontWeight:700,letterSpacing:1.5,textTransform:'uppercase',color:'#aaa',marginBottom:4,fontFamily:'Poppins,sans-serif'}}>Banco Pichincha — Ahorros</div>
                 <div style={{fontFamily:'Poppins,sans-serif',fontSize:18,fontWeight:700,color:'#1a1a1a',letterSpacing:1}}>2207515308</div>
               </div>
-              <button onClick={enviarWhatsApp} style={{
+              <button onClick={enviarWhatsApp} disabled={enviandoDomicilio} style={{
                 width:'100%',padding:'14px',background:'#25d366',color:'#fff',
                 border:'none',borderRadius:12,fontFamily:'Poppins,sans-serif',
-                fontSize:13,fontWeight:700,letterSpacing:0.5,cursor:'pointer',
-                display:'flex',alignItems:'center',justifyContent:'center',gap:8,marginBottom:10
+                fontSize:13,fontWeight:700,letterSpacing:0.5,cursor:enviandoDomicilio?'default':'pointer',
+                display:'flex',alignItems:'center',justifyContent:'center',gap:8,marginBottom:10,opacity:enviandoDomicilio?0.6:1
               }}>
-                <svg width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='currentColor' strokeWidth='2.5' strokeLinecap='round'><path d='M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07A19.5 19.5 0 013.07 9.81 19.79 19.79 0 01.04 1.22 2 2 0 012 .04h3a2 2 0 012 1.72 12.84 12.84 0 00.7 2.81 2 2 0 01-.45 2.11L6.09 7.91a16 16 0 006 6l1.27-1.27a2 2 0 012.11-.45 12.84 12.84 0 002.81.7A2 2 0 0122 14.92z'/></svg>
-                Entendido — Enviar pedido
+                {!enviandoDomicilio && <svg width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='currentColor' strokeWidth='2.5' strokeLinecap='round'><path d='M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07A19.5 19.5 0 013.07 9.81 19.79 19.79 0 01.04 1.22 2 2 0 012 .04h3a2 2 0 012 1.72 12.84 12.84 0 00.7 2.81 2 2 0 01-.45 2.11L6.09 7.91a16 16 0 006 6l1.27-1.27a2 2 0 012.11-.45 12.84 12.84 0 002.81.7A2 2 0 0122 14.92z'/></svg>}
+                {enviandoDomicilio ? 'Enviando...' : 'Entendido — Enviar pedido'}
               </button>
               <button onClick={()=>setModalImportante(false)} style={{
                 width:'100%',padding:'11px',background:'none',color:'#aaa',
