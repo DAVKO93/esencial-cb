@@ -416,8 +416,8 @@ function Login() {
 // ==========================================
 // FORMULARIO PRODUCTO (agregar / editar)
 // ==========================================
-function FormProducto({ item, onClose, onSave }) {
-  const cats = ['Congelados','Dulce','Mixtos','Bebidas','Combos','Acompanantes','Otros']
+function FormProducto({ item, onClose, onSave, categorias }) {
+  const cats = categorias && categorias.length ? categorias : ['Congelados','Dulce','Mixtos','Bebidas','Combos','Acompanantes','Otros']
   const [nombre, setNombre] = useState(item?.nombre||'')
   const [descripcion, setDescripcion] = useState(item?.descripcion||'')
   const [precio, setPrecio] = useState(item?.precio||'')
@@ -526,6 +526,8 @@ function AdminApp({ onVerComoCliente }) {
   const [cart, setCart] = useState([])
   const [catActiva, setCatActiva] = useState('Todos')
   const [catDropdown, setCatDropdown] = useState(false)
+  const [categorias, setCategorias] = useState([])
+  const [nuevaCategoria, setNuevaCategoria] = useState('')
   const [menuOrden, setMenuOrden] = useState(() => leerCache('menuOrden', 'alfabetico')) // alfabetico | vendidos | modificado | agregado
   const [ordenMenuAbierto, setOrdenMenuAbierto] = useState(false)
   const [menuVista, setMenuVista] = useState('lista') // lista | galeria
@@ -858,6 +860,46 @@ function AdminApp({ onVerComoCliente }) {
     }, () => setLoadingMenu(false))
     return unsub
   }, [user, aprobado])
+
+  // ---- CATEGORÍAS (lista independiente, editable) ----
+  // Antes las categorías se armaban solas de lo que ya usaban los productos —
+  // ahora viven en su propia colección para poder agregar o quitar una aunque
+  // ningún producto la use todavía. La primera vez (colección vacía) se siembra
+  // sola con las categorías que ya estaban en uso, para no perder nada.
+  useEffect(() => {
+    if (!user || !aprobado) return
+    const unsub = onSnapshot(collection(db,'categorias'), async (snap) => {
+      if (snap.empty && esAdmin && menuItems.length > 0) {
+        const existentes = [...new Set(menuItems.map(x=>x.categoria).filter(Boolean))]
+        for (const nombre of existentes) {
+          await addDoc(collection(db,'categorias'), { nombre, creadoEn: serverTimestamp() }).catch(()=>{})
+        }
+        return
+      }
+      setCategorias(snap.docs.map(d => ({ id:d.id, ...d.data() })))
+    })
+    return unsub
+  }, [user, aprobado, esAdmin, menuItems.length])
+
+  async function agregarCategoria(nombre) {
+    const limpio = nombre.trim()
+    if (!limpio) return
+    if (categorias.some(c => c.nombre.toLowerCase() === limpio.toLowerCase())) { showToast('err','Esa categoría ya existe'); return }
+    try {
+      await addDoc(collection(db,'categorias'), { nombre: limpio, creadoEn: serverTimestamp() })
+      showToast('ok','Categoría agregada')
+    } catch(e) { showToast('err','No se pudo agregar') }
+  }
+
+  async function eliminarCategoria(cat) {
+    try {
+      const afectados = menuItems.filter(p => p.categoria === cat.nombre)
+      await Promise.all(afectados.map(p => updateDoc(doc(db,'menu',p.id), { categoria:'Sin categoría' })))
+      await deleteDoc(doc(db,'categorias', cat.id))
+      if (catActiva === cat.nombre) setCatActiva('Todos')
+      showToast('ok', afectados.length ? `Categoría eliminada · ${afectados.length} producto(s) pasaron a "Sin categoría"` : 'Categoría eliminada')
+    } catch(e) { showToast('err','No se pudo eliminar') }
+  }
 
   // ---- PEDIDOS EN PROCESO (tiempo real) ----
   // Antes esta consulta combinaba un filtro (estado == 'EN PROCESO') con un orden
@@ -1659,7 +1701,7 @@ function AdminApp({ onVerComoCliente }) {
   useEffect(() => { if (tab==='historial' && user && aprobado) aplicarPeriodo('hoy') }, [tab])
 
   // ---- CATEGORIAS ----
-  const cats = ['Todos', ...new Set(menuItems.map(x=>x.categoria))]
+  const cats = ['Todos', ...categorias.map(c=>c.nombre), ...(menuItems.some(x=>x.categoria==='Sin categoría') ? ['Sin categoría'] : [])]
   const menuFiltradoBase = catActiva==='Todos' ? menuItems : menuItems.filter(x=>x.categoria===catActiva)
   function fechaDe(campo) { return campo?.toDate ? campo.toDate().getTime() : (campo ? new Date(campo).getTime() : 0) }
   const menuFiltrado = [...menuFiltradoBase].sort((a, b) => {
@@ -2667,10 +2709,12 @@ function AdminApp({ onVerComoCliente }) {
 
       {/* ===== BARRA ACCIÓN RÁPIDA ADMIN — solo en tab menú ===== */}
       {tab === 'menu' && (<>
-        {/* Difuminado detrás de la barra flotante, para separarla visualmente de los productos que se ven detrás al hacer scroll */}
-        <div style={{
+        {/* Difuminado detrás de la barra flotante, para separarla visualmente de los productos que se ven detrás al hacer scroll.
+            Mientras el panel de Categoría está abierto, además captura el toque para cerrarlo en vez de dejarlo pasar al producto de atrás. */}
+        <div onClick={()=>{ if (catDropdown) setCatDropdown(false) }} style={{
           position:'fixed',bottom:0,left:0,right:0,height:'calc(140px + env(safe-area-inset-bottom))',zIndex:998,
-          pointerEvents:'none',backdropFilter:'blur(6px)',WebkitBackdropFilter:'blur(6px)',
+          pointerEvents: catDropdown ? 'auto' : 'none',
+          backdropFilter:'blur(6px)',WebkitBackdropFilter:'blur(6px)',
           background:'linear-gradient(to top, rgba(0,0,0,0.32), rgba(0,0,0,0.32) 55%, rgba(0,0,0,0) 100%)',
           maskImage:'linear-gradient(to top, black, black 60%, transparent 100%)',
           WebkitMaskImage:'linear-gradient(to top, black, black 60%, transparent 100%)'
@@ -2718,17 +2762,42 @@ function AdminApp({ onVerComoCliente }) {
                 position:'absolute',bottom:'calc(100% + 10px)',right:0,
                 background:'transparent',borderRadius:16,padding:0,
                 display:'flex',flexDirection:'column',gap:6,
-                minWidth:150,zIndex:10
+                minWidth:190,zIndex:10,maxHeight:'60vh',overflowY:'auto'
               }}>
-                {cats.map(c => (
-                  <button key={c} onClick={()=>{ setCatActiva(c); setCatDropdown(false) }} style={{
-                    padding:'9px 16px',borderRadius:100,border:'none',cursor:'pointer',
-                    fontFamily:'Poppins,sans-serif',fontSize:12,fontWeight:700,letterSpacing:0.3,
-                    background: catActiva===c ? '#7C9263' : '#1a1a1a',
-                    color:'#fff',
-                    textAlign:'left'
-                  }}>{c}</button>
-                ))}
+                {esAdmin && (
+                  <div style={{display:'flex',gap:5,background:'#1a1a1a',borderRadius:100,padding:4}}>
+                    <input
+                      value={nuevaCategoria}
+                      onChange={e=>setNuevaCategoria(e.target.value)}
+                      onKeyDown={e=>{ if(e.key==='Enter'){ agregarCategoria(nuevaCategoria); setNuevaCategoria('') } }}
+                      placeholder='Nueva categoría...'
+                      style={{flex:1,minWidth:0,background:'#2a2a2a',border:'none',borderRadius:100,padding:'8px 12px',color:'#fff',fontFamily:'Poppins,sans-serif',fontSize:11,outline:'none'}}
+                    />
+                    <button onClick={()=>{ agregarCategoria(nuevaCategoria); setNuevaCategoria('') }} style={{
+                      width:30,height:30,borderRadius:'50%',background:'#7C9263',border:'none',color:'#fff',
+                      fontSize:16,fontWeight:700,cursor:'pointer',flexShrink:0,display:'flex',alignItems:'center',justifyContent:'center'
+                    }}>+</button>
+                  </div>
+                )}
+                {cats.map(c => {
+                  const catObj = categorias.find(x=>x.nombre===c)
+                  return (
+                    <div key={c} style={{display:'flex',alignItems:'center',gap:5}}>
+                      <button onClick={()=>{ setCatActiva(c); setCatDropdown(false) }} style={{
+                        flex:1,minWidth:0,padding:'9px 16px',borderRadius:100,border:'none',cursor:'pointer',
+                        fontFamily:'Poppins,sans-serif',fontSize:12,fontWeight:700,letterSpacing:0.3,
+                        background: catActiva===c ? '#7C9263' : '#1a1a1a',
+                        color:'#fff',textAlign:'left',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'
+                      }}>{c}</button>
+                      {esAdmin && catObj && (
+                        <button onClick={()=>eliminarCategoria(catObj)} title='Eliminar categoría' style={{
+                          width:26,height:26,borderRadius:'50%',background:'#2a2a2a',border:'none',color:'#e57373',
+                          fontSize:13,fontWeight:700,cursor:'pointer',flexShrink:0,display:'flex',alignItems:'center',justifyContent:'center'
+                        }}>✕</button>
+                      )}
+                    </div>
+                  )
+                })}
               </div>
             )}
             <button onClick={()=>setCatDropdown(v=>!v)} style={{
@@ -2994,6 +3063,7 @@ function AdminApp({ onVerComoCliente }) {
             item={modalProducto==='nuevo'?null:modalProducto}
             onClose={()=>setModalProducto(null)}
             onSave={()=>setModalProducto(null)}
+            categorias={categorias.map(c=>c.nombre)}
           />
         )}
       </Modal>
