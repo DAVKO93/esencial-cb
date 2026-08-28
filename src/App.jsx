@@ -286,6 +286,68 @@ function Select({ label, value, onChange, options }) {
   )
 }
 
+// Selector de categoría con administración completa (agregar, renombrar, eliminar)
+// integrada ahí mismo — se usa al crear o editar un producto.
+function CategoriaPicker({ value, onChange, categorias, onAgregar, onEditar, onEliminar }) {
+  const [abierta, setAbierta] = useState(false)
+  const [nueva, setNueva] = useState('')
+  const [editandoId, setEditandoId] = useState(null)
+  const [editNombre, setEditNombre] = useState('')
+
+  return (
+    <div style={{marginBottom:13}}>
+      <label style={{display:'block',fontSize:10,letterSpacing:2,textTransform:'uppercase',color:'#999',marginBottom:6,fontWeight:600}}>Categoria *</label>
+      <button type='button' onClick={()=>setAbierta(v=>!v)} style={{
+        width:'100%',display:'flex',alignItems:'center',justifyContent:'space-between',
+        background:'#fff',border:'1.5px solid #d0d0d0',borderRadius:8,color:value?'#1a1a1a':'#999',
+        fontFamily:'Poppins,sans-serif',fontSize:13,padding:'10px 13px',cursor:'pointer'
+      }}>
+        <span>{value || 'Seleccionar...'}</span>
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" style={{transform:abierta?'rotate(180deg)':'none',transition:'transform 0.2s',flexShrink:0}}><polyline points="6 9 12 15 18 9"/></svg>
+      </button>
+      {abierta && (
+        <div style={{border:'1.5px solid #d0d0d0',borderRadius:8,marginTop:6,padding:8,maxHeight:240,overflowY:'auto',background:'#fafafa'}}>
+          <div style={{display:'flex',gap:6,marginBottom:8}}>
+            <input value={nueva} onChange={e=>setNueva(e.target.value)}
+              onKeyDown={e=>{ if(e.key==='Enter'){ e.preventDefault(); onAgregar(nueva); setNueva('') } }}
+              placeholder='Nueva categoría...'
+              style={{flex:1,minWidth:0,border:'1.5px solid #d0d0d0',borderRadius:7,padding:'8px 10px',fontFamily:'Poppins,sans-serif',fontSize:12,outline:'none'}}/>
+            <button type='button' onClick={()=>{ onAgregar(nueva); setNueva('') }} style={{
+              width:32,height:32,borderRadius:'50%',background:'#1a1a1a',border:'none',color:'#fff',
+              fontSize:17,fontWeight:700,cursor:'pointer',flexShrink:0
+            }}>+</button>
+          </div>
+          {categorias.map(c => (
+            <div key={c.id} style={{display:'flex',alignItems:'center',gap:5,marginBottom:5}}>
+              {editandoId === c.id ? (
+                <>
+                  <input value={editNombre} onChange={e=>setEditNombre(e.target.value)}
+                    onKeyDown={e=>{ if(e.key==='Enter'){ e.preventDefault(); onEditar(c, editNombre); setEditandoId(null) } }}
+                    autoFocus
+                    style={{flex:1,minWidth:0,border:'1.5px solid #7C9263',borderRadius:7,padding:'7px 10px',fontFamily:'Poppins,sans-serif',fontSize:12,outline:'none'}}/>
+                  <button type='button' onClick={()=>{ onEditar(c, editNombre); setEditandoId(null) }} style={{width:28,height:28,borderRadius:7,background:'#7C9263',border:'none',color:'#fff',cursor:'pointer',flexShrink:0,fontSize:13}}>✓</button>
+                </>
+              ) : (
+                <>
+                  <button type='button' onClick={()=>{ onChange(c.nombre); setAbierta(false) }} style={{
+                    flex:1,minWidth:0,textAlign:'left',padding:'8px 10px',borderRadius:7,border:'none',cursor:'pointer',
+                    background:value===c.nombre?'#7C9263':'#fff',color:value===c.nombre?'#fff':'#1a1a1a',
+                    fontFamily:'Poppins,sans-serif',fontSize:12,fontWeight:value===c.nombre?700:500,
+                    overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'
+                  }}>{c.nombre}</button>
+                  <button type='button' onClick={()=>{ setEditandoId(c.id); setEditNombre(c.nombre) }} title='Renombrar' style={{width:28,height:28,borderRadius:7,background:'#fff',border:'1.5px solid #d0d0d0',color:'#666',cursor:'pointer',flexShrink:0,fontSize:12}}>✎</button>
+                  <button type='button' onClick={()=>onEliminar(c)} title='Eliminar' style={{width:28,height:28,borderRadius:7,background:'#fff',border:'1.5px solid #ffcdd2',color:'#c62828',cursor:'pointer',flexShrink:0,fontSize:12,fontWeight:700}}>✕</button>
+                </>
+              )}
+            </div>
+          ))}
+          {!categorias.length && <div style={{fontSize:11,color:'#999',padding:'6px 4px'}}>Sin categorías todavía — agrega la primera arriba.</div>}
+        </div>
+      )}
+    </div>
+  )
+}
+
 function Modal({ open, onClose, title, sub, icon, children, footer }) {
   if (!open) return null
   return (
@@ -416,8 +478,7 @@ function Login() {
 // ==========================================
 // FORMULARIO PRODUCTO (agregar / editar)
 // ==========================================
-function FormProducto({ item, onClose, onSave, categorias }) {
-  const cats = categorias && categorias.length ? categorias : ['Congelados','Dulce','Mixtos','Bebidas','Combos','Acompanantes','Otros']
+function FormProducto({ item, onClose, onSave, categorias, onAgregarCategoria, onEditarCategoria, onEliminarCategoria }) {
   const [nombre, setNombre] = useState(item?.nombre||'')
   const [descripcion, setDescripcion] = useState(item?.descripcion||'')
   const [precio, setPrecio] = useState(item?.precio||'')
@@ -460,7 +521,8 @@ function FormProducto({ item, onClose, onSave, categorias }) {
       <Input label='Nombre *' value={nombre} onChange={setNombre} placeholder='Ej: Hamburguesa'/>
       <Input label='Descripcion' value={descripcion} onChange={setDescripcion} placeholder='Ingredientes o detalles'/>
       <Input label='Precio *' type='number' value={precio} onChange={setPrecio} placeholder='0.00'/>
-      <Select label='Categoria *' value={categoria} onChange={setCategoria} options={cats}/>
+      <CategoriaPicker value={categoria} onChange={setCategoria} categorias={categorias||[]}
+        onAgregar={onAgregarCategoria} onEditar={onEditarCategoria} onEliminar={onEliminarCategoria}/>
       <Input label='Imagen (URL)' value={imagen} onChange={setImagen} placeholder='https://...'/>
       {imagen ? <img src={imagen} alt='preview' style={{width:'100%',height:100,objectFit:'contain',borderRadius:8,marginBottom:13,border:'1px solid #e0e0e0'}}/> : null}
       <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:10,padding:'10px 13px',background:'#f4f4f4',borderRadius:8,border:'1px solid #e0e0e0'}}>
@@ -527,7 +589,6 @@ function AdminApp({ onVerComoCliente }) {
   const [catActiva, setCatActiva] = useState('Todos')
   const [catDropdown, setCatDropdown] = useState(false)
   const [categorias, setCategorias] = useState([])
-  const [nuevaCategoria, setNuevaCategoria] = useState('')
   const [menuOrden, setMenuOrden] = useState(() => leerCache('menuOrden', 'alfabetico')) // alfabetico | vendidos | modificado | agregado
   const [ordenMenuAbierto, setOrdenMenuAbierto] = useState(false)
   const [menuVista, setMenuVista] = useState('lista') // lista | galeria
@@ -899,6 +960,19 @@ function AdminApp({ onVerComoCliente }) {
       if (catActiva === cat.nombre) setCatActiva('Todos')
       showToast('ok', afectados.length ? `Categoría eliminada · ${afectados.length} producto(s) pasaron a "Sin categoría"` : 'Categoría eliminada')
     } catch(e) { showToast('err','No se pudo eliminar') }
+  }
+
+  async function editarCategoria(cat, nuevoNombreRaw) {
+    const nuevoNombre = (nuevoNombreRaw||'').trim()
+    if (!nuevoNombre || nuevoNombre === cat.nombre) return
+    if (categorias.some(c => c.id !== cat.id && c.nombre.toLowerCase() === nuevoNombre.toLowerCase())) { showToast('err','Ya existe una categoría con ese nombre'); return }
+    try {
+      const afectados = menuItems.filter(p => p.categoria === cat.nombre)
+      await Promise.all(afectados.map(p => updateDoc(doc(db,'menu',p.id), { categoria: nuevoNombre })))
+      await updateDoc(doc(db,'categorias', cat.id), { nombre: nuevoNombre })
+      if (catActiva === cat.nombre) setCatActiva(nuevoNombre)
+      showToast('ok','Categoría renombrada')
+    } catch(e) { showToast('err','No se pudo renombrar') }
   }
 
   // ---- PEDIDOS EN PROCESO (tiempo real) ----
@@ -2762,42 +2836,16 @@ function AdminApp({ onVerComoCliente }) {
                 position:'absolute',bottom:'calc(100% + 10px)',right:0,
                 background:'transparent',borderRadius:16,padding:0,
                 display:'flex',flexDirection:'column',gap:6,
-                minWidth:190,zIndex:10,maxHeight:'60vh',overflowY:'auto'
+                minWidth:170,zIndex:10,maxHeight:'60vh',overflowY:'auto'
               }}>
-                {esAdmin && (
-                  <div style={{display:'flex',gap:5,background:'#1a1a1a',borderRadius:100,padding:4}}>
-                    <input
-                      value={nuevaCategoria}
-                      onChange={e=>setNuevaCategoria(e.target.value)}
-                      onKeyDown={e=>{ if(e.key==='Enter'){ agregarCategoria(nuevaCategoria); setNuevaCategoria('') } }}
-                      placeholder='Nueva categoría...'
-                      style={{flex:1,minWidth:0,background:'#2a2a2a',border:'none',borderRadius:100,padding:'8px 12px',color:'#fff',fontFamily:'Poppins,sans-serif',fontSize:11,outline:'none'}}
-                    />
-                    <button onClick={()=>{ agregarCategoria(nuevaCategoria); setNuevaCategoria('') }} style={{
-                      width:30,height:30,borderRadius:'50%',background:'#7C9263',border:'none',color:'#fff',
-                      fontSize:16,fontWeight:700,cursor:'pointer',flexShrink:0,display:'flex',alignItems:'center',justifyContent:'center'
-                    }}>+</button>
-                  </div>
-                )}
-                {cats.map(c => {
-                  const catObj = categorias.find(x=>x.nombre===c)
-                  return (
-                    <div key={c} style={{display:'flex',alignItems:'center',gap:5}}>
-                      <button onClick={()=>{ setCatActiva(c); setCatDropdown(false) }} style={{
-                        flex:1,minWidth:0,padding:'9px 16px',borderRadius:100,border:'none',cursor:'pointer',
-                        fontFamily:'Poppins,sans-serif',fontSize:12,fontWeight:700,letterSpacing:0.3,
-                        background: catActiva===c ? '#7C9263' : '#1a1a1a',
-                        color:'#fff',textAlign:'left',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'
-                      }}>{c}</button>
-                      {esAdmin && catObj && (
-                        <button onClick={()=>eliminarCategoria(catObj)} title='Eliminar categoría' style={{
-                          width:26,height:26,borderRadius:'50%',background:'#2a2a2a',border:'none',color:'#e57373',
-                          fontSize:13,fontWeight:700,cursor:'pointer',flexShrink:0,display:'flex',alignItems:'center',justifyContent:'center'
-                        }}>✕</button>
-                      )}
-                    </div>
-                  )
-                })}
+                {cats.map(c => (
+                  <button key={c} onClick={()=>{ setCatActiva(c); setCatDropdown(false) }} style={{
+                    padding:'9px 16px',borderRadius:100,border:'none',cursor:'pointer',
+                    fontFamily:'Poppins,sans-serif',fontSize:12,fontWeight:700,letterSpacing:0.3,
+                    background: catActiva===c ? '#7C9263' : '#1a1a1a',
+                    color:'#fff',textAlign:'left',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'
+                  }}>{c}</button>
+                ))}
               </div>
             )}
             <button onClick={()=>setCatDropdown(v=>!v)} style={{
@@ -3063,7 +3111,10 @@ function AdminApp({ onVerComoCliente }) {
             item={modalProducto==='nuevo'?null:modalProducto}
             onClose={()=>setModalProducto(null)}
             onSave={()=>setModalProducto(null)}
-            categorias={categorias.map(c=>c.nombre)}
+            categorias={categorias}
+            onAgregarCategoria={agregarCategoria}
+            onEditarCategoria={editarCategoria}
+            onEliminarCategoria={eliminarCategoria}
           />
         )}
       </Modal>
