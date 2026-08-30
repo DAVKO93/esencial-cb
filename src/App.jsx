@@ -1,8 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
-import { db, auth, storage } from './firebase'
-import { ref, uploadBytes, getDownloadURL } from 'firebase/storage'
+import { db, auth } from './firebase'
 import {
   collection, addDoc, getDocs, doc, updateDoc, deleteDoc, increment,
   query, where, orderBy, onSnapshot, serverTimestamp, Timestamp
@@ -11,6 +10,40 @@ import {
   signInWithEmailAndPassword, createUserWithEmailAndPassword,
   signOut, onAuthStateChanged, signInAnonymously
 } from 'firebase/auth'
+
+// ---- IMAGEKIT (comprobantes de transferencia) ----
+// Reemplaza a Firebase Storage — evita depender del plan Blaze.
+// IMAGEKIT_PUBLIC_KEY no es secreta (está pensada para ir en el código del
+// navegador), la sacas de imagekit.io → Developer Options.
+const IMAGEKIT_URL_ENDPOINT = 'https://ik.imagekit.io/jj0vr8ous'
+const IMAGEKIT_PUBLIC_KEY = 'public_1JK2iyz0x2tbMg5YJ3VrgwRh3HI='
+
+// Sube una foto (en base64) a ImageKit y devuelve la URL final.
+// Pide primero la firma al endpoint /api/imagekit-auth (donde vive la clave
+// privada, a salvo) y luego sube el archivo directo desde el celular.
+async function subirAImageKit(base64, carpeta, nombreArchivo) {
+  const authRes = await fetch('/api/imagekit-auth')
+  if (!authRes.ok) throw new Error('No se pudo autenticar con ImageKit')
+  const { token, expire, signature } = await authRes.json()
+
+  const res = await fetch(base64)
+  const blob = await res.blob()
+
+  const formData = new FormData()
+  formData.append('file', blob, nombreArchivo)
+  formData.append('fileName', nombreArchivo)
+  formData.append('publicKey', IMAGEKIT_PUBLIC_KEY)
+  formData.append('signature', signature)
+  formData.append('expire', expire)
+  formData.append('token', token)
+  formData.append('folder', carpeta)
+
+  const uploadRes = await fetch('https://upload.imagekit.io/api/v1/files/upload', { method: 'POST', body: formData })
+  if (!uploadRes.ok) throw new Error('Error al subir a ImageKit')
+  const data = await uploadRes.json()
+  if (!data.url) throw new Error('ImageKit no devolvió una URL')
+  return data.url
+}
 
 const G = `
   *{margin:0;padding:0;box-sizing:border-box;}
@@ -843,11 +876,7 @@ function AdminApp({ onVerComoCliente }) {
         // Si se tomó foto del comprobante sin señal, se sube recién ahora.
         if (comprobantePendiente && fotoComprobante[p._idLocal]) {
           try {
-            const res = await fetch(fotoComprobante[p._idLocal])
-            const blob = await res.blob()
-            const storageRef = ref(storage, `comprobantes/mesa_${docRef.id}_${Date.now()}.jpg`)
-            await uploadBytes(storageRef, blob, { contentType: 'image/jpeg' })
-            const url = await getDownloadURL(storageRef)
+            const url = await subirAImageKit(fotoComprobante[p._idLocal], '/comprobantes', `mesa_${docRef.id}_${Date.now()}.jpg`)
             await updateDoc(docRef, { urlComprobante: url })
           } catch(e) {}
           setFotoComprobante(prev => { const n={...prev}; delete n[p._idLocal]; return n })
@@ -1398,13 +1427,7 @@ function AdminApp({ onVerComoCliente }) {
 
       setSubiendoFoto(p => ({...p, [pedidoId]: true}))
       try {
-        // Subir a Firebase Storage
-        const res = await fetch(base64)
-        const blob = await res.blob()
-        const nombre = `comprobantes/mesa_${pedidoId}_${Date.now()}.jpg`
-        const storageRef = ref(storage, nombre)
-        await uploadBytes(storageRef, blob, { contentType: 'image/jpeg' })
-        const url = await getDownloadURL(storageRef)
+        const url = await subirAImageKit(base64, '/comprobantes', `mesa_${pedidoId}_${Date.now()}.jpg`)
         setFotoComprobante(p => ({...p, [pedidoId]: url}))
         // Si el pedido ya se marcó como listo mientras la foto subía (el mesero
         // no esperó), esto la vuelve a adjuntar igual — antes se perdía en
@@ -3971,13 +3994,8 @@ function ClienteApp({ onVolver, esPreview }) {
   async function subirComprobante(base64) {
     setSubiendoComprobante(true)
     try {
-      // 1. Subir a Firebase Storage
-      const res = await fetch(base64)
-      const blob = await res.blob()
-      const nombre = `comprobantes/${Date.now()}_${Math.random().toString(36).slice(2)}.jpg`
-      const storageRef = ref(storage, nombre)
-      await uploadBytes(storageRef, blob, { contentType: 'image/jpeg' })
-      const url = await getDownloadURL(storageRef)
+      const nombre = `${Date.now()}_${Math.random().toString(36).slice(2)}.jpg`
+      const url = await subirAImageKit(base64, '/comprobantes', nombre)
       setUrlComprobante(url)
 
       showToast('ok', 'Comprobante adjunto')
