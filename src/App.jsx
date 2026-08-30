@@ -1406,6 +1406,10 @@ function AdminApp({ onVerComoCliente }) {
         await uploadBytes(storageRef, blob, { contentType: 'image/jpeg' })
         const url = await getDownloadURL(storageRef)
         setFotoComprobante(p => ({...p, [pedidoId]: url}))
+        // Si el pedido ya se marcó como listo mientras la foto subía (el mesero
+        // no esperó), esto la vuelve a adjuntar igual — antes se perdía en
+        // silencio para siempre si la subida terminaba después del toque.
+        updateDoc(doc(db,'pedidos',pedidoId), { urlComprobante: url }).catch(() => {})
 
         showToast('ok', 'Foto guardada')
       } catch(err) {
