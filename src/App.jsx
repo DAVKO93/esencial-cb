@@ -5,7 +5,7 @@ import { db, auth, storage } from './firebase'
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage'
 import {
   collection, addDoc, getDocs, doc, updateDoc, deleteDoc, increment,
-  query, where, orderBy, onSnapshot, serverTimestamp
+  query, where, orderBy, onSnapshot, serverTimestamp, Timestamp
 } from 'firebase/firestore'
 import {
   signInWithEmailAndPassword, createUserWithEmailAndPassword,
@@ -591,12 +591,14 @@ function AdminApp({ onVerComoCliente }) {
   const [categorias, setCategorias] = useState([])
   const [menuOrden, setMenuOrden] = useState(() => leerCache('menuOrden', 'alfabetico')) // alfabetico | vendidos | modificado | agregado
   const [ordenMenuAbierto, setOrdenMenuAbierto] = useState(false)
-  const [menuVista, setMenuVista] = useState('lista') // lista | galeria
+  const [menuVista, setMenuVista] = useState(() => leerCache('menuVista', 'lista')) // lista | galeria
   const [tipoCliente, setTipoCliente] = useState('cliente')
   const [pedidosActivos, setPedidosActivos] = useState([])
   const [procesoPendiente, setProcesoPendiente] = useState(null) // datos nuevos esperando a que el empleado los aplique
   const [pagoSel, setPagoSel] = useState({})
   const [modalEliminar, setModalEliminar] = useState(null)
+  const [modalEditarFecha, setModalEditarFecha] = useState(null)
+  const [editFechaValor, setEditFechaValor] = useState('')
   const [modalConfirm, setModalConfirm] = useState(null)
   const [enviandoPedido, setEnviandoPedido] = useState(false)
   const [entregandoId, setEntregandoId] = useState(null)
@@ -640,6 +642,7 @@ function AdminApp({ onVerComoCliente }) {
   const [modalCobroItem, setModalCobroItem] = useState(null)
   const [confirmarQuitarItem, setConfirmarQuitarItem] = useState(null)
   const [costoParaLlevar, setCostoParaLlevar] = useState('0')
+  const [notaItem, setNotaItem] = useState('')
 
   // Actualizar contadores cada 30s
   useEffect(() => {
@@ -1140,7 +1143,48 @@ function AdminApp({ onVerComoCliente }) {
     const item = pedido.items?.[indice]
     if (!item) return
     setCostoParaLlevar(String(item.paraLlevar ? Number(item.cargoParaLlevar || 0).toFixed(2) : '0.00'))
+    setNotaItem(item.nota || '')
     setModalAccionesItem({ pedido, indice })
+  }
+
+  async function guardarNotaItem() {
+    const data = modalAccionesItem
+    if (!data) return
+    const { pedido, indice } = data
+    const items = (pedido.items || []).map((it, i) => i === indice ? { ...it, nota: notaItem.trim(), modificadoPor: nombreEmpleado } : it)
+    await guardarItemsPedido(pedido, items, 'Nota guardada')
+    setModalAccionesItem({ ...data, pedido: { ...pedido, items } })
+  }
+
+  async function cambiarCantidadItem(delta) {
+    const data = modalAccionesItem
+    if (!data) return
+    const { pedido, indice } = data
+    const item = pedido.items?.[indice]
+    if (!item || item?.pagoSeparado?.estado === 'PAGADO') return
+    const nuevaCantidad = Math.max(1, (item.cantidad||1) + delta)
+    if (nuevaCantidad === item.cantidad) return
+    const items = (pedido.items || []).map((it, i) => i === indice ? { ...it, cantidad: nuevaCantidad, modificadoPor: nombreEmpleado } : it)
+    await guardarItemsPedido(pedido, items, 'Cantidad actualizada')
+    setModalAccionesItem({ ...data, pedido: { ...pedido, items } })
+  }
+
+  // Separa cada línea con cantidad > 1 en varias líneas individuales (cantidad 1
+  // cada una), para poder ponerle una nota distinta a cada unidad (ej. una
+  // hamburguesa sin cebolla y otra normal, dentro del mismo pedido).
+  async function separarProductosParaNota(pedido) {
+    const items = pedido.items || []
+    if (!items.some(it => (it.cantidad||1) > 1)) { showToast('warn','No hay productos con cantidad mayor a 1 para separar'); return }
+    const nuevos = []
+    items.forEach((it, idx) => {
+      const cant = it.cantidad || 1
+      if (cant > 1) {
+        for (let k=0; k<cant; k++) nuevos.push({ ...it, cantidad:1, nota: it.nota||'', lineaId: `${it.id}-${Date.now()}-${idx}-${k}` })
+      } else {
+        nuevos.push({ ...it, nota: it.nota||'', lineaId: it.lineaId || `${it.id}-${Date.now()}-${idx}` })
+      }
+    })
+    await guardarItemsPedido(pedido, nuevos, 'Productos separados — toca cada uno para agregar su nota')
   }
 
   async function guardarParaLlevar() {
@@ -1299,6 +1343,37 @@ function AdminApp({ onVerComoCliente }) {
     deleteDoc(doc(db,'pedidos', idEliminar)).catch(() => {
       showToast('warn','Se eliminó en el celular — se confirmará al reconectar')
     })
+  }
+
+  // ---- EDITAR FECHA DE UN PEDIDO (Historial) ----
+  function abrirEditarFecha(p) {
+    const f = p.creadoEn?.toDate ? p.creadoEn.toDate() : (p.creadoEn ? new Date(p.creadoEn) : new Date())
+    const pad = n => String(n).padStart(2,'0')
+    setEditFechaValor(`${f.getFullYear()}-${pad(f.getMonth()+1)}-${pad(f.getDate())}T${pad(f.getHours())}:${pad(f.getMinutes())}`)
+    setModalEditarFecha(p)
+  }
+
+  function guardarFechaEditada() {
+    const p = modalEditarFecha
+    if (!p || !editFechaValor) return
+    const nuevaFecha = new Date(editFechaValor)
+    if (isNaN(nuevaFecha.getTime())) { showToast('err','Fecha inválida'); return }
+    setModalEditarFecha(null)
+    const esLocal = String(p.id).startsWith('LOCAL-')
+
+    if (esLocal) {
+      // Vive solo en este celular todavía — se actualiza local y se sincroniza
+      // normal cuando regrese la señal, como cualquier otro cambio offline.
+      actualizarPedidoLocal(p.id, { creadoEn: nuevaFecha.toISOString(), editado: true })
+      showToast('ok','Fecha actualizada')
+      return
+    }
+
+    // Actualiza la tarjeta de inmediato; Firestore confirma después en segundo plano.
+    setHistorial(h => h.map(x => x.id === p.id ? { ...x, creadoEn: nuevaFecha, editado:true } : x))
+    showToast('ok','Fecha actualizada')
+    updateDoc(doc(db,'pedidos', p.id), { creadoEn: Timestamp.fromDate(nuevaFecha), editado: true })
+      .catch(() => showToast('warn','Se guardó en el celular — se confirmará al reconectar'))
   }
 
   // ---- CAMARA COMPROBANTE ----
@@ -1788,6 +1863,7 @@ function AdminApp({ onVerComoCliente }) {
   // Recordar la pestaña activa y el orden del Menú entre recargas de la página.
   useEffect(() => { guardarCache({ tabActual: tab }) }, [tab])
   useEffect(() => { guardarCache({ menuOrden }) }, [menuOrden])
+  useEffect(() => { guardarCache({ menuVista }) }, [menuVista])
 
   // ---- RENDER ----
   if (!authReady) return (
@@ -2181,9 +2257,12 @@ function AdminApp({ onVerComoCliente }) {
                       </div>
                     </div>
                     {p.empleado && <div style={{fontSize:10,color:'#888',marginBottom:8,padding:'3px 8px',background:'#f4f4f4',borderRadius:5,display:'inline-block'}}>Tomado por: <strong>{p.empleado}</strong></div>}
-                    <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',margin:'5px 0 2px'}}>
+                    <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',margin:'5px 0 2px',gap:8}}>
                       <span style={{fontSize:10,letterSpacing:1.5,textTransform:'uppercase',fontWeight:700,color:'#999'}}>Productos <small style={{fontSize:9,letterSpacing:0,textTransform:'none',fontWeight:500}}>· toca uno para gestionar</small></span>
-                      <button onClick={()=>setModalAgregarPedido(p)} aria-label='Agregar producto al pedido' style={{width:27,height:27,borderRadius:'50%',border:'none',background:'#1a1a1a',color:'#fff',fontSize:20,lineHeight:1,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center'}}>+</button>
+                      <div style={{display:'flex',gap:6,flexShrink:0}}>
+                        <button onClick={()=>separarProductosParaNota(p)} title='Separar productos repetidos para agregar una nota a cada uno' style={{height:27,padding:'0 10px',borderRadius:100,border:'1.5px solid #d0d0d0',background:'#fff',color:'#555',fontSize:9,fontWeight:700,letterSpacing:0.3,cursor:'pointer',whiteSpace:'nowrap'}}>Agregar nota</button>
+                        <button onClick={()=>setModalAgregarPedido(p)} aria-label='Agregar producto al pedido' style={{width:27,height:27,borderRadius:'50%',border:'none',background:'#1a1a1a',color:'#fff',fontSize:20,lineHeight:1,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>+</button>
+                      </div>
                     </div>
                     {p.items?.map((it,i) => {
                       const valorItem = totalItemPedido(it)
@@ -2192,6 +2271,7 @@ function AdminApp({ onVerComoCliente }) {
                         <span style={{display:'flex',flexDirection:'column',gap:2,minWidth:0}}>
                           <span>{it.cantidad}x {it.nombre}{it.adicional ? <small style={{marginLeft:5,color:'#7C9263',fontWeight:700}}>ADICIONAL</small> : null}</span>
                           {it.paraLlevar && <small style={{color:'#9a6b18'}}>Para llevar +${Number(it.cargoParaLlevar||0).toFixed(2)} c/u</small>}
+                          {it.nota && <small style={{color:'#7C9263'}}>Nota: {it.nota}</small>}
                           {cobrado && <small style={{color:'#7C9263',fontWeight:700}}>Pagado por separado · {it.pagoSeparado.formaPago}</small>}
                         </span>
                         <span style={{display:'flex',alignItems:'center',gap:6,whiteSpace:'nowrap',fontWeight:cobrado?700:400}}>${valorItem.toFixed(2)}<svg width='13' height='13' viewBox='0 0 24 24' fill='none' stroke='currentColor' strokeWidth='2.5' strokeLinecap='round' strokeLinejoin='round'><polyline points='9 18 15 12 9 6'/></svg></span>
@@ -2755,7 +2835,7 @@ function AdminApp({ onVerComoCliente }) {
                     {filtrados.map(p => {
                       const cobrosSeparados = (p.items||[]).filter(it=>it.pagoSeparado?.estado==='PAGADO')
                       const totalSeparado = totalCobradoSeparado(p.items)
-                      const horaPedido = p.creadoEn?.toDate?.() ? p.creadoEn.toDate().toLocaleTimeString('es-EC',{hour:'2-digit',minute:'2-digit'}) : (p.creadoEn ? new Date(p.creadoEn).toLocaleTimeString('es-EC',{hour:'2-digit',minute:'2-digit'}) : '—')
+                      const horaPedido = p.editado ? 'Pedido editado' : (p.creadoEn?.toDate?.() ? p.creadoEn.toDate().toLocaleTimeString('es-EC',{hour:'2-digit',minute:'2-digit'}) : (p.creadoEn ? new Date(p.creadoEn).toLocaleTimeString('es-EC',{hour:'2-digit',minute:'2-digit'}) : '—'))
                       return <div key={p.id} style={{background:'#fff',border:'1px solid #e0e0e0',borderRadius:13,overflow:'hidden',boxShadow:'0 2px 8px rgba(0,0,0,0.05)'}}>
                         <div style={{padding:'11px 14px',background:'#f4f4f4',borderBottom:'1px solid #e5e5e5',display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:8}}>
                           <div><div style={{fontSize:13,fontWeight:700,color:'#1a1a1a'}}>{p.cliente || 'Consumidor final'}</div><div style={{fontSize:11,color:'#888',marginTop:2}}>{horaPedido} · {p.mesa || 'Sin mesa'} · {p.empleado || 'Sin empleado'}</div></div>
@@ -2769,7 +2849,7 @@ function AdminApp({ onVerComoCliente }) {
                           {(p.items||[]).map((it,i)=><div key={it.lineaId || i} style={{display:'flex',justifyContent:'space-between',gap:9,padding:'5px 0',borderBottom:'1px solid #f0f0f0',fontSize:12,color:it.pagoSeparado?.estado==='PAGADO'?'#587043':'#555'}}><span>{it.cantidad}x {it.nombre}{it.paraLlevar ? ` · Para llevar +$${Number(it.cargoParaLlevar||0).toFixed(2)} c/u` : ''}{it.pagoSeparado?.estado==='PAGADO' ? <small style={{display:'block',fontWeight:700,marginTop:2}}>Pagado separado · {it.pagoSeparado.formaPago}</small> : null}</span><strong style={{whiteSpace:'nowrap'}}>${totalItemPedido(it).toFixed(2)}</strong></div>)}
                           <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',paddingTop:10,marginTop:4}}><span style={{fontSize:10,letterSpacing:1.5,textTransform:'uppercase',fontWeight:700,color:'#888'}}>Total</span><strong style={{fontFamily:'Poppins,sans-serif',fontSize:18}}>${Number(p.total||0).toFixed(2)}</strong></div>
                           {cobrosSeparados.length > 0 && <div style={{marginTop:8,padding:'8px 9px',borderRadius:7,background:'#f5f8f1',border:'1px solid #dce8d2',fontSize:11,color:'#587043'}}><div style={{display:'flex',justifyContent:'space-between',fontWeight:700}}><span>Cobrado por separado</span><span>${totalSeparado.toFixed(2)}</span></div>{cobrosSeparados.map((it,i)=><div key={i} style={{marginTop:4}}>{it.nombre}: ${totalItemPedido(it).toFixed(2)} · {it.pagoSeparado.formaPago}</div>)}</div>}
-                          <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:8,marginTop:10,paddingTop:9,borderTop:'1px solid #eee'}}><span style={{fontSize:11,color:'#666'}}>Pago final: <strong>{p.formaPago || '—'}</strong></span><div style={{display:'flex',gap:7}}>{p.urlComprobante && <button onClick={()=>setModalComprobante(p.urlComprobante)} style={{background:'#1a1a1a',border:'none',color:'#fff',padding:'6px 9px',borderRadius:6,fontFamily:'Poppins,sans-serif',fontSize:10,fontWeight:700,cursor:'pointer'}}>Ver transferencia</button>}<button onClick={()=>setModalEliminar(p.id)} style={{background:'#fff',border:'1px solid #ffcdd2',color:'#c62828',padding:'6px 9px',borderRadius:6,fontFamily:'Poppins,sans-serif',fontSize:10,fontWeight:700,cursor:'pointer'}}>Eliminar</button></div></div>
+                          <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:8,marginTop:10,paddingTop:9,borderTop:'1px solid #eee'}}><span style={{fontSize:11,color:'#666'}}>Pago final: <strong>{p.formaPago || '—'}</strong></span><div style={{display:'flex',gap:7,flexWrap:'wrap',justifyContent:'flex-end'}}>{p.urlComprobante && <button onClick={()=>setModalComprobante(p.urlComprobante)} style={{background:'#1a1a1a',border:'none',color:'#fff',padding:'6px 9px',borderRadius:6,fontFamily:'Poppins,sans-serif',fontSize:10,fontWeight:700,cursor:'pointer'}}>Ver transferencia</button>}<button onClick={()=>abrirEditarFecha(p)} style={{background:'#fff',border:'1px solid #d0d0d0',color:'#555',padding:'6px 9px',borderRadius:6,fontFamily:'Poppins,sans-serif',fontSize:10,fontWeight:700,cursor:'pointer'}}>Editar</button><button onClick={()=>setModalEliminar(p.id)} style={{background:'#fff',border:'1px solid #ffcdd2',color:'#c62828',padding:'6px 9px',borderRadius:6,fontFamily:'Poppins,sans-serif',fontSize:10,fontWeight:700,cursor:'pointer'}}>Eliminar</button></div></div>
                         </div>
                       </div>
                     })}
@@ -3142,7 +3222,30 @@ function AdminApp({ onVerComoCliente }) {
           const item = modalAccionesItem.pedido.items?.[modalAccionesItem.indice]
           const bloqueado = item?.pagoSeparado?.estado === 'PAGADO'
           return <>
-            <div style={{padding:'10px 12px',background:'#f7f7f7',border:'1px solid #e5e5e5',borderRadius:9,marginBottom:13,fontSize:12,color:'#555',display:'flex',justifyContent:'space-between'}}><span>{item?.cantidad}x {item?.nombre}</span><strong style={{color:'#1a1a1a'}}>${totalItemPedido(item).toFixed(2)}</strong></div>
+            <div style={{padding:'10px 12px',background:'#f7f7f7',border:'1px solid #e5e5e5',borderRadius:9,marginBottom:13,display:'flex',alignItems:'center',justifyContent:'space-between',gap:10}}>
+              <div style={{display:'flex',alignItems:'center',gap:8}}>
+                <button onClick={()=>cambiarCantidadItem(-1)} disabled={bloqueado || (item?.cantidad||1)<=1} style={{
+                  width:26,height:26,borderRadius:'50%',border:'1.5px solid #d0d0d0',background:'#fff',
+                  color:'#1a1a1a',fontSize:15,fontWeight:700,cursor:(bloqueado||(item?.cantidad||1)<=1)?'default':'pointer',
+                  opacity:(bloqueado||(item?.cantidad||1)<=1)?0.4:1,display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0,lineHeight:1
+                }}>−</button>
+                <span style={{fontSize:13,color:'#555',minWidth:70}}>{item?.cantidad}x {item?.nombre}</span>
+                <button onClick={()=>cambiarCantidadItem(1)} disabled={bloqueado} style={{
+                  width:26,height:26,borderRadius:'50%',border:'1.5px solid #d0d0d0',background:'#fff',
+                  color:'#1a1a1a',fontSize:15,fontWeight:700,cursor:bloqueado?'default':'pointer',
+                  opacity:bloqueado?0.4:1,display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0,lineHeight:1
+                }}>+</button>
+              </div>
+              <strong style={{color:'#1a1a1a',flexShrink:0}}>${totalItemPedido(item).toFixed(2)}</strong>
+            </div>
+            <div style={{padding:'12px',border:'1px solid #e0e0e0',borderRadius:9,marginBottom:10}}>
+              <div style={{fontSize:12,fontWeight:700,color:'#1a1a1a',marginBottom:4}}>Nota</div>
+              <div style={{fontSize:11,color:'#888',lineHeight:1.45,marginBottom:9}}>Ej: sin cebolla, extra salsa...</div>
+              <div style={{display:'flex',gap:8,alignItems:'center',width:'100%'}}>
+                <input value={notaItem} onChange={e=>setNotaItem(e.target.value)} placeholder='Escribe una nota...' style={{minWidth:0,flex:'1 1 90px',border:'1.5px solid #d0d0d0',borderRadius:7,padding:'9px 10px',fontFamily:'Poppins,sans-serif',fontSize:13,outline:'none'}}/>
+                <button onClick={guardarNotaItem} style={{flexShrink:0,padding:'9px 12px',background:'#1a1a1a',color:'#fff',border:'none',borderRadius:7,fontFamily:'Poppins,sans-serif',fontWeight:700,fontSize:11,cursor:'pointer'}}>Guardar</button>
+              </div>
+            </div>
             {bloqueado ? <div style={{padding:'10px 12px',background:'#f5f8f1',border:'1px solid #d7e3cc',borderRadius:9,fontSize:12,color:'#587043'}}>Este producto ya fue pagado por separado mediante {item?.pagoSeparado?.formaPago}. Se mantiene bloqueado para conservar el registro del cobro.</div> : <>
               <div style={{padding:'12px',border:'1px solid #e0e0e0',borderRadius:9,marginBottom:10}}>
                 <div style={{fontSize:12,fontWeight:700,color:'#1a1a1a',marginBottom:4}}>Preparar para llevar</div>
@@ -3233,6 +3336,18 @@ function AdminApp({ onVerComoCliente }) {
           </div>
         </div>
       )}
+
+      {/* MODAL EDITAR FECHA DE PEDIDO */}
+      <Modal open={!!modalEditarFecha} onClose={()=>setModalEditarFecha(null)}
+        title='Editar fecha del pedido' sub={modalEditarFecha?.cliente || 'Consumidor final'} icon='📅'
+        footer={<><Btn variant='sec' onClick={()=>setModalEditarFecha(null)}>Cancelar</Btn><Btn onClick={guardarFechaEditada}>Guardar</Btn></>}>
+        <label style={{display:'block',fontSize:10,letterSpacing:2,textTransform:'uppercase',color:'#999',marginBottom:6,fontWeight:600}}>Fecha y hora</label>
+        <input type='datetime-local' value={editFechaValor} onChange={e=>setEditFechaValor(e.target.value)}
+          style={{width:'100%',background:'#fff',border:'1.5px solid #d0d0d0',borderRadius:8,color:'#1a1a1a',
+            fontFamily:'Poppins,sans-serif',fontSize:13,padding:'10px 13px',outline:'none',boxSizing:'border-box'}}/>
+        <p style={{fontSize:11,color:'#999',marginTop:10,lineHeight:1.5}}>Al guardar, en vez de la hora este pedido va a mostrar "Pedido editado" en Historial.</p>
+      </Modal>
+
 
       {/* MODAL ELIMINAR */}
       <Modal open={!!modalEliminar} onClose={()=>setModalEliminar(null)}
