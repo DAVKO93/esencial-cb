@@ -16,7 +16,7 @@ import {
 // IMAGEKIT_PUBLIC_KEY no es secreta (está pensada para ir en el código del
 // navegador), la sacas de imagekit.io → Developer Options.
 const IMAGEKIT_URL_ENDPOINT = 'https://ik.imagekit.io/jj0vr8ous'
-const IMAGEKIT_PUBLIC_KEY = 'REEMPLAZA_CON_TU_PUBLIC_KEY'
+const IMAGEKIT_PUBLIC_KEY = 'public_1JK2iyz0x2tbMg5YJ3VrgwRh3HI='
 
 // Sube una foto (en base64) a ImageKit y devuelve la URL final.
 // Pide primero la firma al endpoint /api/imagekit-auth (donde vive la clave
