@@ -16,7 +16,7 @@ import {
 // IMAGEKIT_PUBLIC_KEY no es secreta (está pensada para ir en el código del
 // navegador), la sacas de imagekit.io → Developer Options.
 const IMAGEKIT_URL_ENDPOINT = 'https://ik.imagekit.io/jj0vr8ous'
-const IMAGEKIT_PUBLIC_KEY = 'public_1JK2iyz0x2tbMg5YJ3VrgwRh3HI='
+const IMAGEKIT_PUBLIC_KEY = 'REEMPLAZA_CON_TU_PUBLIC_KEY'
 
 // Sube una foto (en base64) a ImageKit y devuelve la URL final.
 // Pide primero la firma al endpoint /api/imagekit-auth (donde vive la clave
@@ -2974,7 +2974,7 @@ function AdminApp({ onVerComoCliente }) {
 
       {/* ===== NAV INFERIOR PÍLDORA ADMIN ===== */}
       <div style={{position:'fixed',bottom:'calc(12px + env(safe-area-inset-bottom))',left:'50%',transform:'translateX(-50%)',width:'calc(100% - 32px)',maxWidth:440,zIndex:1000}}>
-        <nav style={{background:'#1a1a1a',borderRadius:100,padding:'6px 4px',display:'flex',alignItems:'center',boxShadow:'0 8px 28px rgba(0,0,0,0.4)'}}>
+        <nav style={{background:'#1a1a1a',borderRadius:100,padding:'6px',gap:2,display:'flex',alignItems:'center',boxShadow:'0 8px 28px rgba(0,0,0,0.4)'}}>
           {navItems.map(n => {
             const activo = tab === n.key
             const ICONOS = {
@@ -2986,27 +2986,40 @@ function AdminApp({ onVerComoCliente }) {
               stats: <svg width='20' height='20' viewBox='0 0 24 24' fill='none' stroke='currentColor' strokeWidth='2' strokeLinecap='round'><line x1='18' y1='20' x2='18' y2='10'/><line x1='12' y1='20' x2='12' y2='4'/><line x1='6' y1='20' x2='6' y2='14'/></svg>,
             }
             return (
-              <button key={n.key} onClick={()=>{setTab(n.key);if(n.key==='stats')cargarStats(statsPeriodo)}} style={{
-                flex:1,display:'flex',alignItems:'center',justifyContent:'center',
-                border:'none',background:'none',cursor:'pointer',position:'relative',padding:'2px 0'
+              <button key={n.key} aria-label={n.label} aria-current={activo ? 'page' : undefined}
+                onClick={()=>{setTab(n.key);if(n.key==='stats')cargarStats(statsPeriodo)}} style={{
+                flexGrow: activo ? 3.4 : 1, flexShrink:1, flexBasis:0, minWidth:0,
+                display:'flex',alignItems:'center',justifyContent:'center',
+                border:'none',background:'none',cursor:'pointer',position:'relative',padding:0,
+                transition:'flex-grow 0.35s cubic-bezier(0.4,0,0.2,1)',
+                WebkitTapHighlightColor:'transparent'
               }}>
-                {n.badge > 0 && (
-                  <span style={{
-                    position:'absolute',top:-8,right:'calc(50% - 20px)',
-                    background:'#c62828',color:'#fff',borderRadius:100,
-                    minWidth:17,height:17,fontSize:9,fontWeight:700,
-                    display:'flex',alignItems:'center',justifyContent:'center',
-                    padding:'0 4px',zIndex:2,border:'2px solid #1a1a1a'
-                  }}>{n.badge}</span>
-                )}
                 <div style={{
-                  width:42,height:42,borderRadius:'50%',
-                  display:'flex',alignItems:'center',justifyContent:'center',
+                  width:'100%',height:42,borderRadius:100,overflow:'hidden',
+                  display:'flex',alignItems:'center',justifyContent:'center',gap:activo?7:0,
                   background: activo ? '#7C9263' : 'transparent',
                   color: activo ? '#fff' : 'rgba(255,255,255,0.45)',
-                  transition:'background 0.2s, color 0.2s'
+                  transition:'background 0.3s, color 0.3s, gap 0.3s'
                 }}>
-                  {ICONOS[n.key]}
+                  <span style={{position:'relative',display:'flex',flexShrink:0}}>
+                    {ICONOS[n.key]}
+                    {n.badge > 0 && (
+                      <span style={{
+                        position:'absolute',top:-9,right:-11,
+                        background:'#c62828',color:'#fff',borderRadius:100,
+                        minWidth:17,height:17,fontSize:9,fontWeight:700,fontFamily:'Poppins,sans-serif',
+                        display:'flex',alignItems:'center',justifyContent:'center',
+                        padding:'0 4px',zIndex:2,
+                        border:'2px solid ' + (activo ? '#7C9263' : '#1a1a1a'),
+                        boxSizing:'content-box',transition:'border-color 0.3s'
+                      }}>{n.badge}</span>
+                    )}
+                  </span>
+                  <span style={{
+                    fontFamily:'Poppins,sans-serif',fontSize:12,fontWeight:600,whiteSpace:'nowrap',
+                    maxWidth: activo ? 90 : 0, opacity: activo ? 1 : 0,
+                    transition:'max-width 0.35s cubic-bezier(0.4,0,0.2,1), opacity 0.25s'
+                  }}>{n.label}</span>
                 </div>
               </button>
             )
