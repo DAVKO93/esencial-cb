@@ -64,6 +64,32 @@ function fechaLocalISO() {
   return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`
 }
 
+// Trae SOLO los pedidos de un rango de días (YYYY-MM-DD, ambos inclusive, hora local),
+// en vez de descargar todo el historial del restaurante cada vez. Hace dos búsquedas
+// porque los pedidos antiguos que se sincronizaron desde offline guardaron la fecha
+// como texto, y Firestore no mezcla textos y fechas en una misma búsqueda.
+async function pedidosEntreFechas(desde, hasta) {
+  const [a, b, c] = desde.split('-').map(Number)
+  const [x, y, z] = hasta.split('-').map(Number)
+  const inicio = new Date(a, b - 1, c, 0, 0, 0, 0)
+  const fin = new Date(x, y - 1, z, 23, 59, 59, 999)
+  const col = collection(db, 'pedidos')
+  const [porFecha, porTexto] = await Promise.all([
+    getDocs(query(col, where('creadoEn','>=',Timestamp.fromDate(inicio)), where('creadoEn','<=',Timestamp.fromDate(fin)), orderBy('creadoEn','desc'))),
+    getDocs(query(col, where('creadoEn','>=',inicio.toISOString()), where('creadoEn','<=',fin.toISOString()), orderBy('creadoEn','desc')))
+      .catch(() => ({ docs: [] }))
+  ])
+  const vistos = new Set()
+  const lista = []
+  ;[...porFecha.docs, ...porTexto.docs].forEach(d => {
+    if (vistos.has(d.id)) return
+    vistos.add(d.id)
+    lista.push({ id: d.id, ...d.data() })
+  })
+  const ms = v => v?.toDate ? v.toDate().getTime() : (v ? new Date(v).getTime() : 0)
+  return lista.sort((m, n) => ms(n.creadoEn) - ms(m.creadoEn))
+}
+
 // Guarda las fotos de comprobante tomadas sin señal en la base de datos del propio
 // celular (IndexedDB), para que NO se pierdan si la app se cierra o se recarga antes
 // de reconectar. Si IndexedDB no está disponible, simplemente no guarda (nunca rompe la app).
@@ -1957,7 +1983,7 @@ function AdminApp({ onVerComoCliente }) {
       if (periodo === 'hoy') {
         fechaDesde = fechaHasta = fmt(hoy)
       } else if (periodo === 'semana') {
-        const lunes = new Date(hoy); lunes.setDate(hoy.getDate() - hoy.getDay() + 1)
+        const lunes = new Date(hoy); lunes.setDate(hoy.getDate() - (hoy.getDay() || 7) + 1) // el domingo cuenta como día 7 (antes daba una fecha futura)
         fechaDesde = fmt(lunes); fechaHasta = fmt(hoy)
       } else if (periodo === 'mes') {
         fechaDesde = `${hoy.getFullYear()}-${pad(hoy.getMonth()+1)}-01`
@@ -1975,15 +2001,9 @@ function AdminApp({ onVerComoCliente }) {
       // existiendo con estado LISTO — no del registro de eventos, que nunca se
       // limpia cuando se elimina un pedido (por eso antes seguía sumando pedidos
       // de prueba ya borrados).
-      const snapPedidos = await getDocs(query(collection(db,'pedidos'), where('estado','==','LISTO')))
-      const pedidosDelPeriodo = snapPedidos.docs
-        .map(d => ({ id:d.id, ...d.data() }))
-        .filter(p => {
-          if (!p.creadoEn) return false
-          const f = p.creadoEn.toDate ? p.creadoEn.toDate() : new Date(p.creadoEn)
-          const fStr = fmt(f)
-          return fStr >= fechaDesde && fStr <= fechaHasta
-        })
+      // Solo se piden los pedidos del periodo (no todo el historial) y se dejan los LISTO.
+      const pedidosDelPeriodo = (await pedidosEntreFechas(fechaDesde, fechaHasta))
+        .filter(p => p.estado === 'LISTO')
       setStatsPedidos(pedidosDelPeriodo)
     } catch(e) { setStatsRegistros([]); setStatsPedidos([]) }
     setLoadingStats(false)
@@ -1997,17 +2017,16 @@ function AdminApp({ onVerComoCliente }) {
   async function loadHistorial(desde, hasta) {
     setLoadingHist(true)
     try {
-      const snap = await getDocs(query(collection(db,'pedidos'), orderBy('creadoEn','desc')))
-      let pedidos = snap.docs.map(d => ({ id:d.id, ...d.data() }))
       const d = desde || fDesde
       const h = hasta || fHasta
+      let pedidos
       if (d && h) {
-        pedidos = pedidos.filter(p => {
-          if (!p.creadoEn) return false
-          const f = p.creadoEn.toDate ? p.creadoEn.toDate() : new Date(p.creadoEn)
-          const fechaLocal = `${f.getFullYear()}-${String(f.getMonth()+1).padStart(2,'0')}-${String(f.getDate()).padStart(2,'0')}`
-          return fechaLocal >= d && fechaLocal <= h
-        })
+        // Solo el rango pedido: rápido aunque el restaurante lleve años de pedidos
+        pedidos = await pedidosEntreFechas(d, h)
+      } else {
+        // Sin fechas elegidas: se muestra todo
+        const snap = await getDocs(query(collection(db,'pedidos'), orderBy('creadoEn','desc')))
+        pedidos = snap.docs.map(x => ({ id:x.id, ...x.data() }))
       }
       setHistorial(pedidos)
     } catch(e) { showToast('err','Error al cargar historial') }
