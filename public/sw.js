@@ -1,4 +1,4 @@
-const CACHE = 'esencial-fc-v5' // Subido a v5 para limpiar cualquier copia vieja atascada en los celulares
+const CACHE = 'esencial-fc-v6' // Subido a v6: la apertura de la app ya no se cuelga con señal débil
 
 const ASSETS = [
   '/',
@@ -44,18 +44,26 @@ self.addEventListener('fetch', e => {
   // causa de la pantalla en blanco). Solo si de verdad no hay señal se usa la
   // copia guardada como respaldo.
   if (e.request.mode === 'navigate') {
-    e.respondWith(
-      fetch(e.request)
-        .then(response => {
-          const clone = response.clone()
-          caches.open(CACHE).then(c => c.put(e.request, clone))
-          return response
-        })
-        .catch(async () => {
-          const cached = await caches.match(e.request)
-          return cached || (await caches.match('/index.html')) || new Response('Sin conexión', { status: 503 })
-        })
-    )
+    e.respondWith((async () => {
+      const red = fetch(e.request)
+      try {
+        // Con señal débil o "falsa" (wifi sin internet) la red puede no responder nunca.
+        // Si en 4 segundos no hay respuesta, se abre la copia guardada para no dejar
+        // la pantalla colgada.
+        const response = await Promise.race([
+          red,
+          new Promise((_, rechazar) => setTimeout(() => rechazar(new Error('lento')), 4000))
+        ])
+        const clone = response.clone()
+        caches.open(CACHE).then(c => c.put(e.request, clone))
+        return response
+      } catch (err) {
+        const guardada = (await caches.match(e.request)) || (await caches.match('/index.html'))
+        if (guardada) return guardada
+        // Sin copia guardada todavía (primera vez): se espera la red lo que haga falta.
+        try { return await red } catch (e2) { return new Response('Sin conexión', { status: 503 }) }
+      }
+    })())
     return
   }
 

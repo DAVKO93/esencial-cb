@@ -3,8 +3,9 @@ import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
 import { db, auth } from './firebase'
 import {
-  collection, addDoc, getDocs, doc, updateDoc, deleteDoc, increment,
-  query, where, orderBy, onSnapshot, serverTimestamp, Timestamp
+  collection, addDoc, setDoc, getDocs, doc, updateDoc, deleteDoc, increment,
+  query, where, orderBy, onSnapshot, serverTimestamp, Timestamp,
+  runTransaction, writeBatch
 } from 'firebase/firestore'
 import {
   signInWithEmailAndPassword, createUserWithEmailAndPassword,
@@ -44,6 +45,69 @@ async function subirAImageKit(base64, carpeta, nombreArchivo) {
   if (!data.url) throw new Error('ImageKit no devolvió una URL')
   return data.url
 }
+
+// ---- UTILIDADES OFFLINE ----
+// Espera una promesa, pero no más de "ms" milisegundos. Con señal "falsa" (wifi sin
+// internet) Firestore puede quedarse esperando para siempre; esto evita que la app
+// se quede colgada.
+function conTimeout(promesa, ms) {
+  return new Promise((resolve, reject) => {
+    const t = setTimeout(() => reject(new Error('timeout')), ms)
+    promesa.then(v => { clearTimeout(t); resolve(v) }, e => { clearTimeout(t); reject(e) })
+  })
+}
+
+// Fecha local (YYYY-MM-DD) en la zona horaria del celular — no la de Londres (UTC).
+function fechaLocalISO() {
+  const d = new Date()
+  const pad = n => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`
+}
+
+// Guarda las fotos de comprobante tomadas sin señal en la base de datos del propio
+// celular (IndexedDB), para que NO se pierdan si la app se cierra o se recarga antes
+// de reconectar. Si IndexedDB no está disponible, simplemente no guarda (nunca rompe la app).
+const fotoOffline = (() => {
+  const NOMBRE = 'esencial_fotos', TABLA = 'fotos'
+  const abrir = () => new Promise((resolve, reject) => {
+    try {
+      const r = indexedDB.open(NOMBRE, 1)
+      r.onupgradeneeded = () => r.result.createObjectStore(TABLA)
+      r.onsuccess = () => resolve(r.result)
+      r.onerror = () => reject(r.error)
+    } catch (e) { reject(e) }
+  })
+  const operar = async (modo, fn) => {
+    try {
+      const bd = await abrir()
+      return await new Promise((resolve, reject) => {
+        const tx = bd.transaction(TABLA, modo)
+        const req = fn(tx.objectStore(TABLA))
+        tx.oncomplete = () => resolve(req ? req.result : undefined)
+        tx.onerror = () => reject(tx.error)
+      })
+    } catch (e) { return undefined }
+  }
+  return {
+    guardar: (clave, valor) => operar('readwrite', st => st.put(valor, clave)),
+    leer: (clave) => operar('readonly', st => st.get(clave)),
+    borrar: (clave) => operar('readwrite', st => st.delete(clave)),
+    todas: async () => {
+      const salida = {}
+      try {
+        const bd = await abrir()
+        await new Promise(resolve => {
+          const tx = bd.transaction(TABLA, 'readonly')
+          const cur = tx.objectStore(TABLA).openCursor()
+          cur.onsuccess = () => { const c = cur.result; if (c) { salida[c.key] = c.value; c.continue() } }
+          tx.oncomplete = resolve
+          tx.onerror = resolve
+        })
+      } catch (e) {}
+      return salida
+    }
+  }
+})()
 
 const G = `
   *{margin:0;padding:0;box-sizing:border-box;}
@@ -668,7 +732,6 @@ function AdminApp({ onVerComoCliente }) {
   const [modalComprobante, setModalComprobante] = useState(null) // url de imagen
   const [datosCliente, setDatosCliente] = useState({})
   const [dcAbierto, setDcAbierto] = useState({}) // acordeon datos cliente
-  const [tiemposPedido, setTiemposPedido] = useState({}) // {id: minutos transcurridos}
   // Gestión de productos dentro de pedidos ya creados.
   const [modalAgregarPedido, setModalAgregarPedido] = useState(null)
   const [modalAccionesItem, setModalAccionesItem] = useState(null)
@@ -677,23 +740,21 @@ function AdminApp({ onVerComoCliente }) {
   const [costoParaLlevar, setCostoParaLlevar] = useState('0')
   const [notaItem, setNotaItem] = useState('')
   const [subiendoFoto, setSubiendoFoto] = useState({})
-
-  // Actualizar contadores cada 30s
+  // Candados y espejos que evitan envíos repetidos y datos viejos dentro de las funciones
+  const sincronizandoRef = useRef(false)   // hay una sincronización en curso
+  const enviandoRef = useRef(false)        // hay un pedido enviándose (doble toque)
+  const entregadosRef = useRef(new Set())  // domicilios ya marcados como entregados
+  const fotoComprobanteRef = useRef({})    // copia siempre actual de fotoComprobante
+  useEffect(() => { fotoComprobanteRef.current = fotoComprobante }, [fotoComprobante])
+  // Recuperar fotos de comprobante guardadas sin señal (sobreviven a recargas)
   useEffect(() => {
-    function calcular() {
-      const ahora = Date.now()
-      const nuevos = {}
-      const locales = pendientesSync.filter(p => p.estado !== 'LISTO').map(p => ({ ...p, id: p._idLocal }))
-      ;[...pedidosActivos, ...locales, ...(pedidosDomicilioHoy||[])].forEach(p => {
-        const ts = p.creadoEn?.toDate?.() ? p.creadoEn.toDate().getTime() : (p.creadoEn ? new Date(p.creadoEn).getTime() : null)
-        if (ts) nuevos[p.id] = Math.floor((ahora - ts) / 60000)
-      })
-      setTiemposPedido(nuevos)
-    }
-    calcular()
-    const interval = setInterval(calcular, 30000)
-    return () => clearInterval(interval)
-  }, [pedidosActivos, pendientesSync, pedidosDomicilioHoy]) // {pedidoId: {tipo,id,nombre,tel,email}}
+    fotoOffline.todas().then(todas => {
+      const locales = {}
+      Object.entries(todas).forEach(([clave, valor]) => { if (!clave.startsWith('DOC-')) locales[clave] = valor })
+      if (Object.keys(locales).length) setFotoComprobante(prev => ({ ...locales, ...prev }))
+    })
+  }, [])
+
   const cameraRefs = useRef({})
 
   // Form cliente
@@ -864,37 +925,112 @@ function AdminApp({ onVerComoCliente }) {
     } catch(e) {}
   }
 
-  async function sincronizarPendientes() {
-    const pend = getPendientes()
-    if (!pend.length) return
-    const exitos = []
-    for (const p of pend) {
-      try {
-        const { comprobantePendiente, _idLocal, ...datosPedido } = p
-        const docRef = await addDoc(collection(db,'pedidos'), { ...datosPedido, sincronizado: true, sincronizadoEn: serverTimestamp() })
-        exitos.push(p._idLocal)
+  // Quita un pedido de la lista del celular SOLO cuando ya está confirmado en Firestore.
+  // Lee la lista fresca (no una copia vieja), así un pedido nuevo o un cambio hecho
+  // mientras se sincronizaba nunca se pierde. Si el pedido cambió durante el envío,
+  // se deja en la lista para el siguiente ciclo.
+  function quitarPendiente(idLocal, versionEnviada) {
+    const actual = getPendientes()
+    const item = actual.find(x => x._idLocal === idLocal)
+    if (!item) return
+    if (versionEnviada && JSON.stringify(item) !== versionEnviada) return
+    setPendientesLS(actual.filter(x => x._idLocal !== idLocal))
+  }
 
-        // Si se tomó foto del comprobante sin señal, se sube recién ahora.
-        if (comprobantePendiente && fotoComprobante[p._idLocal]) {
-          try {
-            const url = await subirAImageKit(fotoComprobante[p._idLocal], '/comprobantes', `mesa_${docRef.id}_${Date.now()}.jpg`)
-            await updateDoc(docRef, { urlComprobante: url })
-          } catch(e) {}
-          setFotoComprobante(prev => { const n={...prev}; delete n[p._idLocal]; return n })
+  // Sube a ImageKit las fotos de comprobante que quedaron guardadas sin señal.
+  async function subirFotosPendientes() {
+    const todas = await fotoOffline.todas()
+    for (const [clave, base64] of Object.entries(todas)) {
+      if (!clave.startsWith('DOC-')) continue
+      const docId = clave.slice(4)
+      try {
+        const url = await subirAImageKit(base64, '/comprobantes', `mesa_${docId}_${Date.now()}.jpg`)
+        await conTimeout(updateDoc(doc(db,'pedidos',docId), { urlComprobante: url }), 15000)
+        await fotoOffline.borrar(clave)
+      } catch(e) {
+        // El pedido ya no existe: no tiene caso seguir intentando.
+        if (e && e.code === 'not-found') await fotoOffline.borrar(clave)
+        // Cualquier otro error: se reintenta en la próxima sincronización.
+      }
+    }
+  }
+
+  async function sincronizarPendientes() {
+    // Candado: solo una sincronización a la vez. Antes cada aviso de "volvió la señal",
+    // "abriste la app" o "volviste a la app" lanzaba su propio envío de los MISMOS
+    // pedidos y eso creaba copias repetidas.
+    if (sincronizandoRef.current) return
+    if (!navigator.onLine || !auth.currentUser) return
+    sincronizandoRef.current = true
+    let enviados = 0
+    try {
+      // Cada pedido lleva su propio identificador de Firestore. Enviar el mismo pedido
+      // dos veces (o cinco) siempre apunta al MISMO documento, nunca crea otro.
+      const inicial = getPendientes()
+      if (inicial.some(p => !p._docId)) {
+        setPendientesLS(inicial.map(p => p._docId ? p : { ...p, _docId: doc(collection(db,'pedidos')).id }))
+      }
+      const ids = getPendientes().map(p => p._idLocal)
+
+      for (const idLocal of ids) {
+        const p = getPendientes().find(x => x._idLocal === idLocal)
+        if (!p) continue
+        const versionEnviada = JSON.stringify(p)
+        const { comprobantePendiente, _idLocal, _docId, ...datosPedido } = p
+        const ref = doc(db,'pedidos',_docId)
+        const f = new Date(datosPedido.creadoEn)
+        // La fecha se guarda como fecha real de Firestore (antes quedaba como texto)
+        const creadoEn = isNaN(f.getTime()) ? serverTimestamp() : Timestamp.fromDate(f)
+
+        let resultado
+        try {
+          // Una transacción NO entra en la cola offline de Firestore: si no hay señal
+          // real, falla rápido y no deja copias escondidas esperando para salir juntas.
+          resultado = await conTimeout(runTransaction(db, async (tx) => {
+            const snap = await tx.get(ref)
+            if (!snap.exists()) {
+              tx.set(ref, { ...datosPedido, creadoEn, sincronizado: true, sincronizadoEn: serverTimestamp() })
+              return 'creado'
+            }
+            // Ya existe (un envío anterior sí llegó): no se duplica. Solo se actualiza
+            // si en el servidor sigue en proceso y aquí hubo cambios (por ejemplo, se marcó listo).
+            if (snap.data().estado === 'EN PROCESO') {
+              tx.update(ref, { ...datosPedido, creadoEn })
+              return 'actualizado'
+            }
+            return 'omitido'
+          }), 20000)
+        } catch(e) {
+          break // sin señal real: se detiene y se reintenta en el siguiente aviso
         }
 
-        if (p.estado === 'LISTO') {
+        // Foto del comprobante tomada sin señal: pasa a la cola de fotos y se sube enseguida
+        if (comprobantePendiente) {
+          const foto = fotoComprobanteRef.current[_idLocal] || await fotoOffline.leer(_idLocal)
+          if (foto && String(foto).startsWith('data:')) await fotoOffline.guardar('DOC-' + _docId, foto)
+          await fotoOffline.borrar(_idLocal)
+          setFotoComprobante(prev => { const n={...prev}; delete n[_idLocal]; return n })
+        }
+
+        // Ventas: una sola vez por pedido (el evento usa un identificador fijo)
+        if (p.estado === 'LISTO' && resultado !== 'omitido') {
           registrarVentasProductos(p.items)
           registrarEvento('venta_completada', {
             origen: 'admin_mesa', mesa: p.mesa || '',
             items: (p.items||[]).map(x=>({nombre:x.nombre, cantidad:x.cantidad, precio:x.precio})),
             total: p.total || 0, formaPago: p.formaPago
-          })
+          }, 'venta_' + _docId)
         }
-      } catch(e) {}
+
+        quitarPendiente(idLocal, versionEnviada)
+        enviados++
+      }
+
+      await subirFotosPendientes()
+    } finally {
+      sincronizandoRef.current = false
     }
-    setPendientesLS(pend.filter(p => !exitos.includes(p._idLocal)))
-    if (exitos.length) showToast('ok', `${exitos.length} pedido(s) sincronizados`)
+    if (enviados) showToast('ok', `${enviados} pedido(s) sincronizados`)
   }
 
   useEffect(() => { setPendientesSync(getPendientes()) }, [])
@@ -1061,44 +1197,58 @@ function AdminApp({ onVerComoCliente }) {
 
   // ---- CREAR PEDIDO ----
   async function confirmarPedido() {
-    if (enviandoPedido) return // evita doble toque mientras se procesa
+    if (enviandoRef.current || enviandoPedido) return // doble toque: se ignora
     if (!cMesa) { showToast('err','Selecciona mesa o servicio'); return }
+    enviandoRef.current = true
     setEnviandoPedido(true) // feedback instantáneo: el botón se deshabilita y avisa "Enviando..."
 
-    let datos = { tipoCliente:'Pendiente', idDocumento:'', cliente:'Pendiente', telefono:'', email:'', mesa:cMesa, notas:cNotas }
+    const datos = { tipoCliente:'Pendiente', idDocumento:'', cliente:'Pendiente', telefono:'', email:'', mesa:cMesa, notas:cNotas }
     const items = cart.map(x => ({ id:x.id, nombre:x.nombre, precio:x.precio, cantidad:x.cantidad }))
     const total = cartTotal
+    // El pedido recibe su identificador desde YA, en el celular. Así, aunque se intente
+    // enviar varias veces, siempre es el mismo pedido y nunca se duplica.
+    const pedidoRef = doc(collection(db,'pedidos'))
     const pedido = { ...datos, items, total, estado:'EN PROCESO', empleado: nombreEmpleado, creadoEn: serverTimestamp() }
 
-    if (!isOnline) {
-      const idLocal = 'LOCAL-' + Date.now()
-      const pend = getPendientes()
-      pend.push({ ...pedido, _idLocal:idLocal, creadoEn: new Date().toISOString() })
-      setPendientesLS(pend)
+    const guardarLocal = (aviso) => {
+      const idLocal = 'LOCAL-' + Date.now() + '-' + Math.random().toString(36).slice(2, 6)
+      setPendientesLS([...getPendientes(), { ...pedido, _idLocal:idLocal, _docId:pedidoRef.id, creadoEn: new Date().toISOString() }])
       setModalConfirm({ idPedido: idLocal, offline:true, datos:{ ...datos, items, total } })
       setCart([]); limpiarForm()
-      setEnviandoPedido(false)
-      return
+      if (aviso) showToast('warn', aviso)
     }
 
     try {
-      const ref = await addDoc(collection(db,'pedidos'), pedido)
-      const nuevoPedido = { id: ref.id, ...datos, items, total, estado:'EN PROCESO', empleado: nombreEmpleado, creadoEn: { toDate: () => new Date() } }
+      if (!navigator.onLine) {
+        guardarLocal()
+      } else {
+        const envio = setDoc(pedidoRef, pedido)
+        // Si en 6 segundos Firestore no confirma (señal falsa o muy lenta), no se deja
+        // al mesero esperando: el pedido ya quedó guardado en el celular por Firestore y
+        // sale solo cuando haya señal real.
+        const respuesta = await Promise.race([
+          envio.then(() => 'ok', () => 'error'),
+          new Promise(r => setTimeout(() => r('lento'), 6000))
+        ])
+        if (respuesta === 'error') throw new Error('envio')
+
+        const nuevoPedido = { id: pedidoRef.id, ...datos, items, total, estado:'EN PROCESO', empleado: nombreEmpleado, creadoEn: { toDate: () => new Date() } }
         try{Sound.play('notify')}catch(e){}
-      setPedidosActivos(prev => [nuevoPedido, ...prev])
-      setProcesoPendiente(null)
-      setModalConfirm({ idPedido: ref.id, offline:false, datos:{ ...datos, items, total } })
-      setCart([]); limpiarForm()
+        setPedidosActivos(prev => [nuevoPedido, ...prev])
+        setProcesoPendiente(null)
+        setModalConfirm({ idPedido: pedidoRef.id, offline: respuesta === 'lento', datos:{ ...datos, items, total } })
+        setCart([]); limpiarForm()
+        if (respuesta === 'lento') {
+          showToast('warn','Señal lenta: el pedido quedó guardado y se enviará solo.')
+          envio.catch(() => showToast('err','Un pedido no pudo enviarse. Revisa En Proceso.'))
+        }
+      }
     } catch(e) {
-      const idLocal = 'LOCAL-' + Date.now()
-      const pend = getPendientes()
-      pend.push({ ...pedido, _idLocal:idLocal, creadoEn: new Date().toISOString() })
-      setPendientesLS(pend)
-      setModalConfirm({ idPedido: idLocal, offline:true, datos:{ ...datos, items, total } })
-      setCart([]); limpiarForm()
-      showToast('warn','Guardado offline.')
+      guardarLocal('Guardado en el celular.')
+    } finally {
+      enviandoRef.current = false
+      setEnviandoPedido(false)
     }
-    setEnviandoPedido(false)
   }
 
   function limpiarForm() {
@@ -1320,20 +1470,29 @@ function AdminApp({ onVerComoCliente }) {
     try{Sound.play('success')}catch(e){}
     showToast('ok','Pedido marcado como listo')
 
+    // Foto tomada sin señal: pasa a la cola de fotos y se sube apenas haya conexión
+    if (fotoPendienteSubir) {
+      fotoOffline.guardar('DOC-' + id, urlFoto)
+      fotoOffline.borrar(id)
+    }
+
     updateDoc(doc(db,'pedidos',id), updateData)
-      .then(() => {
-        if (pedidoActual) {
-          registrarVentasProductos(pedidoActual.items)
-          registrarEvento('venta_completada', {
-            origen: 'admin_mesa',
-            mesa: pedidoActual.mesa || '',
-            items: (pedidoActual.items||[]).map(x=>({nombre:x.nombre, cantidad:x.cantidad, precio:x.precio})),
-            total: pedidoActual.total || 0,
-            formaPago
-          })
-        }
-      })
-      .catch(() => { showToast('warn','Se guardó en el celular — se confirmará al reconectar') })
+      .catch(() => { showToast('warn','No se pudo guardar el cambio. Revisa el pedido.') })
+
+    // La venta se registra YA (no al confirmar el servidor) para que no se pierda si
+    // la app se cierra. Firestore la guarda en el celular y la envía cuando hay señal.
+    // El evento lleva identificador fijo: aunque se repita, no se duplica.
+    if (pedidoActual) {
+      registrarVentasProductos(pedidoActual.items)
+      registrarEvento('venta_completada', {
+        origen: 'admin_mesa',
+        mesa: pedidoActual.mesa || '',
+        items: (pedidoActual.items||[]).map(x=>({nombre:x.nombre, cantidad:x.cantidad, precio:x.precio})),
+        total: pedidoActual.total || 0,
+        formaPago
+      }, 'venta_' + id)
+    }
+    if (fotoPendienteSubir && navigator.onLine) subirFotosPendientes().catch(() => {})
   }
 
   function setDcField(pedidoId, field, value) {
@@ -1354,6 +1513,7 @@ function AdminApp({ onVerComoCliente }) {
       // Nunca existió en Firestore — basta con quitarlo del celular.
       setPendientesLS(getPendientes().filter(p => p._idLocal !== idEliminar))
       setFotoComprobante(p => { const n={...p}; delete n[idEliminar]; return n })
+      fotoOffline.borrar(idEliminar)
       showToast('ok','Pedido eliminado')
       return
     }
@@ -1422,6 +1582,7 @@ function AdminApp({ onVerComoCliente }) {
       // Sin señal: se queda la foto guardada en el celular y se sube sola al marcar
       // listo el pedido y reconectar — no tiene caso intentar subirla ahora.
       if (!navigator.onLine) {
+        fotoOffline.guardar(pedidoId, base64) // sobrevive aunque se cierre la app
         showToast('warn', 'Sin señal — la foto se subirá al reconectar')
         return
       }
@@ -1430,13 +1591,16 @@ function AdminApp({ onVerComoCliente }) {
       try {
         const url = await subirAImageKit(base64, '/comprobantes', `mesa_${pedidoId}_${Date.now()}.jpg`)
         setFotoComprobante(p => ({...p, [pedidoId]: url}))
+        fotoOffline.borrar(pedidoId)
         // Si el pedido ya se marcó como listo mientras la foto subía (el mesero
         // no esperó), esto la vuelve a adjuntar igual — antes se perdía en
         // silencio para siempre si la subida terminaba después del toque.
-        updateDoc(doc(db,'pedidos',pedidoId), { urlComprobante: url }).catch(() => {})
+        // (Un pedido local aún no existe en Firestore: su URL se adjunta al marcarlo listo.)
+        if (!String(pedidoId).startsWith('LOCAL-')) updateDoc(doc(db,'pedidos',pedidoId), { urlComprobante: url }).catch(() => {})
 
         showToast('ok', 'Foto guardada')
       } catch(err) {
+        fotoOffline.guardar(pedidoId, base64)
         showToast('warn', 'La foto quedó guardada en el celular — se subirá al reconectar')
       }
       setSubiendoFoto(p => ({...p, [pedidoId]: false}))
@@ -1465,12 +1629,16 @@ function AdminApp({ onVerComoCliente }) {
   }
 
   // ---- DOMICILIO: MARCAR ENTREGADO ----
-  async function marcarEntregado(p) {
-    if (entregandoId) return // ya se está procesando una entrega, evita doble toque
+  function marcarEntregado(p) {
+    if (entregandoId || entregadosRef.current.has(p.id)) return // ya se está procesando, evita doble toque
+    entregadosRef.current.add(p.id)
     setEntregandoId(p.id)
     try {
-      // Guardar en historial/pedidos como pedido entregado
-      await addDoc(collection(db,'pedidos'), {
+      // Las dos operaciones (crear el pedido entregado en Historial y quitarlo de
+      // Domicilio) van en UN solo paquete: o se hacen las dos, o ninguna. El pedido
+      // entregado lleva un identificador fijo, así nunca se duplica en Historial.
+      const lote = writeBatch(db)
+      lote.set(doc(db,'pedidos','dom_' + p.id), {
         cliente: p.cliente || 'Cliente',
         telefono: p.telefono || '',
         direccion: p.direccion || '',
@@ -1486,7 +1654,13 @@ function AdminApp({ onVerComoCliente }) {
         creadoEn: p.creadoEn || serverTimestamp(),
         ...(p.urlComprobante ? { urlComprobante: p.urlComprobante } : {})
       })
-      // Registrar domicilio entregado
+      lote.delete(doc(db,'domicilio', p.id))
+      // No se espera la respuesta del servidor: la pantalla se actualiza al instante y
+      // Firestore envía el cambio cuando haya señal.
+      lote.commit().catch(() => {
+        entregadosRef.current.delete(p.id)
+        showToast('err','No se pudo marcar como entregado')
+      })
       registrarVentasProductos(p.items)
       registrarEvento('venta_completada', {
         origen: 'admin_domicilio',
@@ -1495,11 +1669,12 @@ function AdminApp({ onVerComoCliente }) {
         items: (p.items||[]).map(x=>({nombre:x.nombre, cantidad:x.cantidad, precio:x.precio})),
         total: p.total || 0,
         formaPago: 'Transferencia'
-      })
-      // Eliminar de domicilio
-      await deleteDoc(doc(db,'domicilio', p.id))
+      }, 'venta_dom_' + p.id)
       showToast('ok','Pedido marcado como entregado')
-    } catch(e) { showToast('err','Error al marcar entregado') }
+    } catch(e) {
+      entregadosRef.current.delete(p.id)
+      showToast('err','Error al marcar entregado')
+    }
     setEntregandoId(null)
   }
 
@@ -2257,31 +2432,6 @@ function AdminApp({ onVerComoCliente }) {
                             {p.mesa}
                           </div>
                         )}
-                        {/* CONTADOR DE TIEMPO */}
-                        {(() => {
-                          const mins = tiemposPedido[p.id] ?? null
-                          if (mins === null) return null
-                          const tarde = mins >= 30
-                          return (
-                            <div style={{
-                              display:'flex',alignItems:'center',gap:4,
-                              padding:'3px 8px',borderRadius:100,
-                              background: tarde ? '#fff0f0' : '#f5f8f1',
-                              border: `1.5px solid ${tarde ? '#e53935' : '#7C9263'}`,
-                              fontSize:10,fontWeight:700,fontFamily:'Poppins,sans-serif',
-                              color: tarde ? '#e53935' : '#7C9263',
-                              whiteSpace:'nowrap'
-                            }}>
-                              <svg width='10' height='10' viewBox='0 0 24 24' fill='none' stroke='currentColor' strokeWidth='2.5' strokeLinecap='round'>
-                                <circle cx='12' cy='12' r='10'/><polyline points='12 6 12 12 16 14'/>
-                              </svg>
-                              {mins < 60
-                                ? `${mins} min`
-                                : `${Math.floor(mins/60)}h ${mins%60}m`}
-                              {tarde && ' ⚠️'}
-                            </div>
-                          )
-                        })()}
                       </div>
                     </div>
                     {p.empleado && <div style={{fontSize:10,color:'#888',marginBottom:8,padding:'3px 8px',background:'#f4f4f4',borderRadius:5,display:'inline-block'}}>Tomado por: <strong>{p.empleado}</strong></div>}
@@ -2474,28 +2624,6 @@ function AdminApp({ onVerComoCliente }) {
                       </div>
                       <div style={{display:'flex',flexDirection:'column',alignItems:'flex-end',gap:5}}>
                         <span style={{background:'#7C9263',color:'#fff',padding:'3px 9px',borderRadius:100,fontSize:9,fontWeight:700}}>A DOMICILIO</span>
-                        {(() => {
-                          const mins = tiemposPedido[p.id] ?? null
-                          if (mins === null) return null
-                          const tarde = mins >= 30
-                          return (
-                            <div style={{
-                              display:'flex',alignItems:'center',gap:4,
-                              padding:'3px 8px',borderRadius:100,
-                              background: tarde ? '#fff0f0' : '#f5f8f1',
-                              border: `1.5px solid ${tarde ? '#e53935' : '#7C9263'}`,
-                              fontSize:10,fontWeight:700,fontFamily:'Poppins,sans-serif',
-                              color: tarde ? '#e53935' : '#7C9263',
-                              whiteSpace:'nowrap'
-                            }}>
-                              <svg width='10' height='10' viewBox='0 0 24 24' fill='none' stroke='currentColor' strokeWidth='2.5' strokeLinecap='round'>
-                                <circle cx='12' cy='12' r='10'/><polyline points='12 6 12 12 16 14'/>
-                              </svg>
-                              {mins < 60 ? `${mins} min` : `${Math.floor(mins/60)}h ${mins%60}m`}
-                              {tarde && ' ⚠️'}
-                            </div>
-                          )
-                        })()}
                       </div>
                     </div>
                     <div style={{padding:'12px 15px'}}>
@@ -3505,14 +3633,17 @@ function FormPromocion({ initial, promocionesHoy, onClose }) {
 // ==========================================
 // ANALYTICS — registrar eventos en Firestore
 // ==========================================
-async function registrarEvento(tipo, datos = {}) {
+async function registrarEvento(tipo, datos = {}, idFijo) {
   try {
-    await addDoc(collection(db, 'registros'), {
+    const registro = {
       tipo,
       ...datos,
-      fecha: new Date().toISOString().slice(0,10), // YYYY-MM-DD
+      fecha: fechaLocalISO(), // fecha local (antes era UTC y las ventas de la noche caían al día siguiente)
       timestamp: serverTimestamp()
-    })
+    }
+    // Con identificador fijo, repetir el mismo evento nunca lo duplica.
+    if (idFijo) await setDoc(doc(db, 'registros', idFijo), registro)
+    else await addDoc(collection(db, 'registros'), registro)
   } catch(e) { /* silencioso — no interrumpir flujo */ }
 }
 
@@ -4086,7 +4217,10 @@ function ClienteApp({ onVolver, esPreview }) {
         creadoEn: serverTimestamp()
       }
       if (urlComprobante) domData.urlComprobante = urlComprobante
-      await addDoc(collection(db,'domicilio'), domData)
+      // No se espera la respuesta del servidor: con mala señal antes la app se quedaba
+      // esperando y WhatsApp nunca se abría. Firestore guarda el pedido en el celular
+      // y lo envía solo cuando hay conexión. El identificador propio evita duplicados.
+      setDoc(doc(collection(db,'domicilio')), domData).catch(() => {})
     } catch(e) {}
 
     const lineas = carrito.map(x=>`  • ${x.cantidad}x ${x.nombre} — $${(parseFloat(x.precio)*x.cantidad).toFixed(2)}`).join('%0A')
