@@ -347,7 +347,8 @@ function Toast() {
     if (type === 'ok') try{Sound.play('success')}catch(e){}
     else if (type === 'err') try{Sound.play('error')}catch(e){}
     setToasts(p => [...p, { id, type, msg }])
-    setTimeout(() => setToasts(p => p.filter(t => t.id !== id)), 3500)
+    // Los avisos largos se quedan más tiempo en pantalla para poder leerlos
+    setTimeout(() => setToasts(p => p.filter(t => t.id !== id)), Math.min(7000, 3000 + String(msg).length * 45))
   }
   const colors = { ok:'#22c55e', warn:'#f59e0b', err:'#ef4444' }
   return (
@@ -355,21 +356,39 @@ function Toast() {
       {toasts.map(t => (
         <div key={t.id} style={{
           background:'#1a1a1a',
-          borderRadius:100,
+          borderRadius:t.msg && String(t.msg).length > 38 ? 18 : 100,
           padding:'10px 20px',
           display:'flex',alignItems:'center',justifyContent:'center',
           boxShadow:'0 6px 24px rgba(0,0,0,0.3)',
           animation:'toastIn 0.28s cubic-bezier(0.34,1.4,0.64,1)',
           border:`1.5px solid ${colors[t.type]}33`,
-          whiteSpace:'nowrap'
+          maxWidth:'100%'
         }}>
-          <span style={{fontSize:12,color:'#fff',fontFamily:'Poppins,sans-serif',fontWeight:600,letterSpacing:0.3}}>{t.msg}</span>
+          <span style={{fontSize:12,color:'#fff',fontFamily:'Poppins,sans-serif',fontWeight:600,letterSpacing:0.3,textAlign:'center',lineHeight:1.4}}>{t.msg}</span>
         </div>
       ))}
     </div>
   )
 }
 const showToast = (type, msg) => toastFn && toastFn(type, msg)
+
+// Traduce el error técnico de Firebase a un motivo corto y entendible, para que el aviso
+// diga POR QUÉ falló y no solo "Error". Si no se reconoce el motivo, queda el texto de siempre.
+function mensajeError(e, porDefecto = 'Error') {
+  const codigo = (e && (e.code || e.message)) || ''
+  const motivos = [
+    ['permission-denied', 'sin permiso'],
+    ['unauthenticated', 'sesión vencida, vuelve a entrar'],
+    ['unavailable', 'sin conexión'],
+    ['network', 'sin conexión'],
+    ['timeout', 'señal muy lenta'],
+    ['not-found', 'ya no existe'],
+    ['resource-exhausted', 'límite del servidor alcanzado'],
+    ['deadline-exceeded', 'señal muy lenta'],
+  ]
+  const hallado = motivos.find(([clave]) => String(codigo).includes(clave))
+  return hallado ? `${porDefecto} · ${hallado[1]}` : porDefecto
+}
 
 function Spinner() {
   return (
@@ -654,7 +673,7 @@ function FormProducto({ item, onClose, onSave, categorias, onAgregarCategoria, o
         showToast('ok','Producto agregado al menu')
       }
       onSave()
-    } catch(e) { showToast('err','Error al guardar') }
+    } catch(e) { showToast('err', mensajeError(e,'Error al guardar')) }
     setLoading(false)
   }
 
@@ -665,7 +684,7 @@ function FormProducto({ item, onClose, onSave, categorias, onAgregarCategoria, o
       await deleteDoc(doc(db,'menu',item.id))
       showToast('ok','Producto eliminado')
       onSave()
-    } catch(e) { showToast('err','Error al eliminar') }
+    } catch(e) { showToast('err', mensajeError(e,'Error al eliminar')) }
     setLoading(false)
   }
 
@@ -1178,7 +1197,7 @@ function AdminApp({ onVerComoCliente }) {
     try {
       await addDoc(collection(db,'categorias'), { nombre: limpio, creadoEn: serverTimestamp() })
       showToast('ok','Categoría agregada')
-    } catch(e) { showToast('err','No se pudo agregar') }
+    } catch(e) { showToast('err', mensajeError(e,'No se pudo agregar')) }
   }
 
   async function eliminarCategoria(cat) {
@@ -1188,7 +1207,7 @@ function AdminApp({ onVerComoCliente }) {
       await deleteDoc(doc(db,'categorias', cat.id))
       if (catActiva === cat.nombre) setCatActiva('Todos')
       showToast('ok', afectados.length ? `Categoría eliminada · ${afectados.length} producto(s) pasaron a "Sin categoría"` : 'Categoría eliminada')
-    } catch(e) { showToast('err','No se pudo eliminar') }
+    } catch(e) { showToast('err', mensajeError(e,'No se pudo eliminar')) }
   }
 
   async function editarCategoria(cat, nuevoNombreRaw) {
@@ -1201,7 +1220,7 @@ function AdminApp({ onVerComoCliente }) {
       await updateDoc(doc(db,'categorias', cat.id), { nombre: nuevoNombre })
       if (catActiva === cat.nombre) setCatActiva(nuevoNombre)
       showToast('ok','Categoría renombrada')
-    } catch(e) { showToast('err','No se pudo renombrar') }
+    } catch(e) { showToast('err', mensajeError(e,'No se pudo renombrar')) }
   }
 
   // ---- PEDIDOS EN PROCESO (tiempo real) ----
@@ -1300,7 +1319,7 @@ function AdminApp({ onVerComoCliente }) {
         setCart([]); limpiarForm()
         if (respuesta === 'lento') {
           showToast('warn','Señal lenta: el pedido quedó guardado y se enviará solo.')
-          envio.catch(() => showToast('err','Un pedido no pudo enviarse. Revisa En Proceso.'))
+          envio.catch((e) => showToast('err', mensajeError(e,'Un pedido no pudo enviarse')))
         }
       }
     } catch(e) {
@@ -1357,7 +1376,7 @@ function AdminApp({ onVerComoCliente }) {
       total,
       modificadoEn: serverTimestamp(),
       modificadoPor: nombreEmpleado
-    }).catch(() => { showToast('warn', 'Se guardó en el celular — se confirmará al reconectar') })
+    }).catch((e) => { showToast('err', mensajeError(e,'No se pudo guardar el cambio')) })
     showToast('ok', mensaje)
     return true
   }
@@ -1537,7 +1556,7 @@ function AdminApp({ onVerComoCliente }) {
     }
 
     updateDoc(doc(db,'pedidos',id), updateData)
-      .catch(() => { showToast('warn','No se pudo guardar el cambio. Revisa el pedido.') })
+      .catch((e) => { showToast('err', mensajeError(e,'No se pudo guardar el cambio')) })
 
     // La venta se registra YA (no al confirmar el servidor) para que no se pierda si
     // la app se cierra. Firestore la guarda en el celular y la envía cuando hay señal.
@@ -1590,8 +1609,8 @@ function AdminApp({ onVerComoCliente }) {
       items: (pedidoElim?.items||[]).map(x=>({nombre:x.nombre, cantidad:x.cantidad})),
       total: pedidoElim?.total || 0
     })
-    deleteDoc(doc(db,'pedidos', idEliminar)).catch(() => {
-      showToast('warn','Se eliminó en el celular — se confirmará al reconectar')
+    deleteDoc(doc(db,'pedidos', idEliminar)).catch((e) => {
+      showToast('err', mensajeError(e,'No se pudo eliminar el pedido'))
     })
   }
 
@@ -1623,7 +1642,7 @@ function AdminApp({ onVerComoCliente }) {
     setHistorial(h => h.map(x => x.id === p.id ? { ...x, creadoEn: nuevaFecha, editado:true } : x))
     showToast('ok','Fecha actualizada')
     updateDoc(doc(db,'pedidos', p.id), { creadoEn: Timestamp.fromDate(nuevaFecha), editado: true })
-      .catch(() => showToast('warn','Se guardó en el celular — se confirmará al reconectar'))
+      .catch((e) => showToast('err', mensajeError(e,'No se pudo guardar la fecha')))
   }
 
   // ---- CAMARA COMPROBANTE ----
@@ -1718,9 +1737,9 @@ function AdminApp({ onVerComoCliente }) {
       lote.delete(doc(db,'domicilio', p.id))
       // No se espera la respuesta del servidor: la pantalla se actualiza al instante y
       // Firestore envía el cambio cuando haya señal.
-      lote.commit().catch(() => {
+      lote.commit().catch((e) => {
         entregadosRef.current.delete(p.id)
-        showToast('err','No se pudo marcar como entregado')
+        showToast('err', mensajeError(e,'No se pudo marcar como entregado'))
       })
       registrarVentasProductos(p.items)
       registrarEvento('venta_completada', {
@@ -1734,7 +1753,7 @@ function AdminApp({ onVerComoCliente }) {
       showToast('ok','Pedido marcado como entregado')
     } catch(e) {
       entregadosRef.current.delete(p.id)
-      showToast('err','Error al marcar entregado')
+      showToast('err', mensajeError(e,'Error al marcar entregado'))
     }
     setEntregandoId(null)
   }
@@ -1751,7 +1770,7 @@ function AdminApp({ onVerComoCliente }) {
       })
       await deleteDoc(doc(db,'domicilio', id))
       showToast('ok','Pedido eliminado')
-    } catch(e) { showToast('err','Error al eliminar') }
+    } catch(e) { showToast('err', mensajeError(e,'Error al eliminar')) }
   }
 
   // ---- PERFIL ----
@@ -1769,7 +1788,7 @@ function AdminApp({ onVerComoCliente }) {
       if (editFoto) setFotoPerfil(editFoto)
       showToast('ok','Perfil actualizado')
       setModalPerfil(false)
-    } catch(e) { showToast('err','Error al guardar') }
+    } catch(e) { showToast('err', mensajeError(e,'Error al guardar')) }
     setLoadingPerfil(false)
   }
 
@@ -1803,7 +1822,7 @@ function AdminApp({ onVerComoCliente }) {
       const q = query(collection(db,'usuarios'), where('estado','==','APROBADO'))
       const snap = await getDocs(q)
       setEmpleadosActivos(snap.docs.map(d => ({ id:d.id, ...d.data() })).filter(e => e.email !== ADMIN_EMAIL))
-    } catch(e) { showToast('err','Error al cargar empleados') }
+    } catch(e) { showToast('err', mensajeError(e,'Error al cargar empleados')) }
   }
 
   async function desvincularEmpleado(docId) {
@@ -1811,7 +1830,7 @@ function AdminApp({ onVerComoCliente }) {
       await updateDoc(doc(db,'usuarios', docId), { estado:'DESVINCULADO' })
       setEmpleadosActivos(p => p.filter(x => x.id !== docId))
       showToast('ok','Empleado desvinculado')
-    } catch(e) { showToast('err','Error al desvincular') }
+    } catch(e) { showToast('err', mensajeError(e,'Error al desvincular')) }
   }
 
   function abrirPermisos(emp) {
@@ -1829,7 +1848,7 @@ function AdminApp({ onVerComoCliente }) {
       setEmpleadosActivos(p => p.map(e => e.id === modalPermisos.id ? { ...e, secciones: permisosEdit } : e))
       showToast('ok','Accesos actualizados')
       setModalPermisos(null)
-    } catch(e) { showToast('err','No se pudo guardar') }
+    } catch(e) { showToast('err', mensajeError(e,'No se pudo guardar')) }
     setGuardandoPermisos(false)
   }
 
@@ -1839,7 +1858,7 @@ function AdminApp({ onVerComoCliente }) {
       const q = query(collection(db,'usuarios'), where('estado','==','PENDIENTE'))
       const snap = await getDocs(q)
       setEmpleadosPendientes(snap.docs.map(d => ({ id:d.id, ...d.data() })))
-    } catch(e) { showToast('err','Error al cargar empleados') }
+    } catch(e) { showToast('err', mensajeError(e,'Error al cargar empleados')) }
   }
 
   async function aprobarEmpleado(docId) {
@@ -1847,7 +1866,7 @@ function AdminApp({ onVerComoCliente }) {
       await updateDoc(doc(db,'usuarios', docId), { estado:'APROBADO' })
       setEmpleadosPendientes(p => p.filter(x => x.id !== docId))
       showToast('ok','Empleado aprobado')
-    } catch(e) { showToast('err','Error al aprobar') }
+    } catch(e) { showToast('err', mensajeError(e,'Error al aprobar')) }
   }
 
   async function rechazarEmpleado(docId) {
@@ -1855,7 +1874,7 @@ function AdminApp({ onVerComoCliente }) {
       await deleteDoc(doc(db,'usuarios', docId))
       setEmpleadosPendientes(p => p.filter(x => x.id !== docId))
       showToast('ok','Solicitud rechazada')
-    } catch(e) { showToast('err','Error al rechazar') }
+    } catch(e) { showToast('err', mensajeError(e,'Error al rechazar')) }
   }
 
   // ---- GENERAR PDF ----
@@ -2075,7 +2094,7 @@ function AdminApp({ onVerComoCliente }) {
         pedidos = snap.docs.map(x => ({ id:x.id, ...x.data() }))
       }
       setHistorial(pedidos)
-    } catch(e) { showToast('err','Error al cargar historial') }
+    } catch(e) { showToast('err', mensajeError(e,'Error al cargar historial')) }
     setLoadingHist(false)
   }
 
@@ -2192,10 +2211,21 @@ function AdminApp({ onVerComoCliente }) {
               Instalar
             </button>
           )}
-          {pendientesSync.length > 0 && (
-            <span style={{background:'#b8860b',color:'#fff',borderRadius:100,padding:'2px 8px',fontSize:9,fontWeight:700}}>
-              {pendientesSync.length} offline
-            </span>
+          {/* ESTADO DE CONEXIÓN: siempre se ve si hay señal y cuántos pedidos faltan por enviar */}
+          {(!isOnline || pendientesSync.length > 0) && (
+            <button
+              onClick={() => { if (isOnline && pendientesSync.length > 0) { showToast('ok','Enviando pedidos...'); sincronizarPendientes() } }}
+              aria-label={isOnline ? 'Pedidos por enviar' : 'Sin conexión'}
+              style={{
+                display:'flex',alignItems:'center',gap:5,border:'none',cursor: isOnline && pendientesSync.length > 0 ? 'pointer' : 'default',
+                background: isOnline ? '#b8860b' : '#555',color:'#fff',borderRadius:100,padding:'3px 9px',
+                fontFamily:'Poppins,sans-serif',fontSize:9,fontWeight:700,letterSpacing:0.3
+              }}>
+              <span style={{width:6,height:6,borderRadius:'50%',background: isOnline ? '#ffe9a8' : '#ef4444',flexShrink:0}}/>
+              {!isOnline
+                ? (pendientesSync.length > 0 ? `Sin conexión · ${pendientesSync.length} por enviar` : 'Sin conexión')
+                : `${pendientesSync.length} por enviar · toca`}
+            </button>
           )}
           {/* BOTON ADMIN - solo para admin */}
           {esAdmin && (
@@ -3618,13 +3648,13 @@ function FormPromocion({ initial, promocionesHoy, onClose }) {
       showToast('ok', initial?.id ? 'Promocion actualizada' : 'Promocion creada')
       setVista('lista')
       if (!initial?.id) { setNombre(''); setPrecio(''); setDescripcion(''); setImagen('') }
-    } catch(e) { showToast('err','Error al guardar') }
+    } catch(e) { showToast('err', mensajeError(e,'Error al guardar')) }
     setSaving(false)
   }
 
   async function eliminar(id) {
     try { await deleteDoc(doc(db,'promociones',id)); showToast('ok','Eliminada') }
-    catch(e) { showToast('err','Error') }
+    catch(e) { showToast('err', mensajeError(e,'Error')) }
   }
 
   return (
@@ -5195,9 +5225,13 @@ function ClienteApp({ onVolver, esPreview }) {
                       if(!editNombre||!editTelefono||!editDireccion){showToast('err','Nombre, teléfono y dirección son obligatorios');return}
                       setGuardandoPerfil(true)
                       const perfilActualizado = {...cliente,nombre:editNombre,telefono:editTelefono,direccion:editDireccion,cedula:editCedula,referencia:editReferencia}
-                      try {
-                        if (cliente._id && auth.currentUser) await updateDoc(doc(db,'clientes',cliente._id),{nombre:editNombre,telefono:editTelefono,direccion:editDireccion,cedula:editCedula,referencia:editReferencia,uid:auth.currentUser.uid})
-                      } catch(e){}
+                      // No se espera al servidor (sin señal quedaría "Guardando..." para siempre):
+                      // los cambios quedan en este celular y se envían solos al haber conexión.
+                      // Si el servidor los rechaza, se avisa.
+                      if (cliente._id && auth.currentUser) {
+                        updateDoc(doc(db,'clientes',cliente._id),{nombre:editNombre,telefono:editTelefono,direccion:editDireccion,cedula:editCedula,referencia:editReferencia,uid:auth.currentUser.uid})
+                          .catch((e) => showToast('err', mensajeError(e,'No se pudo guardar tu perfil')))
+                      }
                       localStorage.setItem('esencial_cliente', JSON.stringify(perfilActualizado))
                       setCliente(perfilActualizado)
                       setEditandoPerfil(false)
