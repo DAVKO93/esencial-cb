@@ -3,7 +3,7 @@ import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
 import { db, auth } from './firebase'
 import {
-  collection, addDoc, setDoc, getDocs, doc, updateDoc, deleteDoc, increment,
+  collection, addDoc, setDoc, getDoc, getDocFromServer, getDocs, doc, updateDoc, deleteDoc, increment,
   query, where, orderBy, onSnapshot, serverTimestamp, Timestamp,
   runTransaction, writeBatch
 } from 'firebase/firestore'
@@ -62,6 +62,39 @@ function fechaLocalISO() {
   const d = new Date()
   const pad = n => String(n).padStart(2, '0')
   return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`
+}
+
+// ---- USUARIOS (empleados) ----
+// Cada empleado se guarda ahora con su identificador de cuenta (uid) como nombre del
+// documento. Así las reglas de Firebase pueden comprobar, en el servidor, si quien
+// escribe es un empleado APROBADO — antes eso solo se verificaba dentro de la app.
+// Busca primero el documento nuevo y, si aún no existe, el antiguo (por el campo uid).
+async function leerPerfilUsuario(uid) {
+  const directo = await getDoc(doc(db, 'usuarios', uid))
+  if (directo.exists()) return { id: directo.id, ...directo.data() }
+  const snap = await getDocs(query(collection(db, 'usuarios'), where('uid', '==', uid)))
+  return snap.empty ? null : { id: snap.docs[0].id, ...snap.docs[0].data() }
+}
+
+// Solo la ejecuta el admin: pasa los empleados antiguos (documento con nombre al azar)
+// al formato nuevo (documento = uid). Es segura de repetir: no duplica ni borra nada
+// que no haya copiado antes.
+async function migrarUsuariosAUid() {
+  if (!navigator.onLine) return false
+  try {
+    const snap = await getDocs(collection(db, 'usuarios'))
+    for (const d of snap.docs) {
+      const data = d.data()
+      if (!data.uid || d.id === data.uid) continue
+      try {
+        const destino = doc(db, 'usuarios', data.uid)
+        const ya = await getDocFromServer(destino)
+        if (!ya.exists()) await setDoc(destino, data)
+        await deleteDoc(d.ref)
+      } catch (e) { /* ese empleado se reintenta la próxima vez */ }
+    }
+    return true
+  } catch (e) { return false }
 }
 
 // Trae SOLO los pedidos de un rango de días (YYYY-MM-DD, ambos inclusive, hora local),
@@ -530,7 +563,7 @@ function Login() {
     setLoading(true); setMsg(null)
     try {
       const cred = await createUserWithEmailAndPassword(auth, email, passReg)
-      await addDoc(collection(db, 'usuarios'), {
+      await setDoc(doc(db, 'usuarios', cred.user.uid), {
         uid: cred.user.uid, nombre, email, estado: 'PENDIENTE', creadoEn: serverTimestamp()
       })
       setMsg({ type:'ok', txt:'Solicitud enviada. Espera aprobacion.' })
@@ -771,6 +804,13 @@ function AdminApp({ onVerComoCliente }) {
   const enviandoRef = useRef(false)        // hay un pedido enviándose (doble toque)
   const entregadosRef = useRef(new Set())  // domicilios ya marcados como entregados
   const fotoComprobanteRef = useRef({})    // copia siempre actual de fotoComprobante
+  const migracionRef = useRef(null)        // migración de empleados al formato nuevo (solo admin)
+  const asegurarMigracion = () => {
+    if (!migracionRef.current) {
+      migracionRef.current = migrarUsuariosAUid().then(ok => { if (!ok) migracionRef.current = null; return ok })
+    }
+    return migracionRef.current
+  }
   useEffect(() => { fotoComprobanteRef.current = fotoComprobante }, [fotoComprobante])
   // Recuperar fotos de comprobante guardadas sin señal (sobreviven a recargas)
   useEffect(() => {
@@ -834,20 +874,18 @@ function AdminApp({ onVerComoCliente }) {
           guardarCache({ aprobado:true, esAdmin:true, nombreEmpleado:'Admin', secciones:null })
           // Cargar foto del admin desde Firestore si existe
           try {
-            const qa = query(collection(db,'usuarios'), where('uid','==',u.uid))
-            const sa = await getDocs(qa)
-            if (!sa.empty && sa.docs[0].data().foto) {
-              setFotoPerfil(sa.docs[0].data().foto)
-              guardarCache({ fotoPerfil: sa.docs[0].data().foto })
+            asegurarMigracion() // en segundo plano: empleados antiguos pasan al formato nuevo
+            const pa = await leerPerfilUsuario(u.uid)
+            if (pa && pa.foto) {
+              setFotoPerfil(pa.foto)
+              guardarCache({ fotoPerfil: pa.foto })
             }
           } catch(e) {}
           return
         }
         try {
-          const q = query(collection(db,'usuarios'), where('uid','==',u.uid))
-          const snap = await getDocs(q)
-          if (!snap.empty) {
-            const userData = snap.docs[0].data()
+          const userData = await leerPerfilUsuario(u.uid)
+          if (userData) {
             const nuevoAprobado = userData.estado === 'APROBADO'
             const nuevoNombre = userData.nombre || u.email
             const nuevaFoto = userData.foto || null
@@ -859,10 +897,19 @@ function AdminApp({ onVerComoCliente }) {
             setSeccionesPermitidas(nuevasSecciones)
             guardarCache({ aprobado:nuevoAprobado, esAdmin:false, nombreEmpleado:nuevoNombre, fotoPerfil:nuevaFoto, secciones:nuevasSecciones })
           } else {
-            setAprobado(true)
-            setNombreEmpleado(u.email)
-            setEditNombre(u.email)
-            guardarCache({ aprobado:true, esAdmin:false, nombreEmpleado:u.email, secciones:null })
+            // Cuenta sin solicitud registrada. Solo se concluye esto si el SERVIDOR confirma
+            // que no existe (sin señal, una búsqueda vacía no prueba nada). En ese caso se
+            // crea la solicitud pendiente para que el admin la apruebe, en vez de dejar
+            // pasar a una cuenta que no aprobó nadie.
+            const enServidor = await getDocFromServer(doc(db,'usuarios',u.uid))
+            const antiguos = await getDocs(query(collection(db,'usuarios'), where('uid','==',u.uid)))
+            if (!enServidor.exists() && antiguos.empty && !antiguos.metadata.fromCache) {
+              await setDoc(doc(db,'usuarios',u.uid), { uid:u.uid, nombre:u.email, email:u.email, estado:'PENDIENTE', creadoEn: serverTimestamp() })
+              setAprobado(false)
+              setNombreEmpleado(u.email)
+              setEditNombre(u.email)
+              guardarCache({ aprobado:false, esAdmin:false, nombreEmpleado:u.email, secciones:null })
+            }
           }
         } catch(e) {
           // Sin señal y sin nada en caché todavía: se queda con lo que ya había
@@ -1678,6 +1725,7 @@ function AdminApp({ onVerComoCliente }) {
         formaPago: 'Transferencia',
         empleado: nombreEmpleado,
         creadoEn: p.creadoEn || serverTimestamp(),
+        ...(p.clienteUid ? { clienteUid: p.clienteUid } : {}), // el cliente sigue viendo su pedido en su historial
         ...(p.urlComprobante ? { urlComprobante: p.urlComprobante } : {})
       })
       lote.delete(doc(db,'domicilio', p.id))
@@ -1724,12 +1772,11 @@ function AdminApp({ onVerComoCliente }) {
     setLoadingPerfil(true)
     try {
       // Guardar nombre y foto en Firestore (foto comprimida a ~20KB, bien bajo el límite)
-      const q = query(collection(db,'usuarios'), where('uid','==',user.uid))
-      const snap = await getDocs(q)
+      const perfilActual = await leerPerfilUsuario(user.uid)
       const datos = { nombre: editNombre }
       if (editFoto) datos.foto = editFoto
-      if (!snap.empty) {
-        await updateDoc(doc(db,'usuarios', snap.docs[0].id), datos)
+      if (perfilActual) {
+        await updateDoc(doc(db,'usuarios', perfilActual.id), datos)
       }
       setNombreEmpleado(editNombre)
       if (editFoto) setFotoPerfil(editFoto)
@@ -1765,6 +1812,7 @@ function AdminApp({ onVerComoCliente }) {
   // ---- ADMIN: CARGAR PENDIENTES ----
   async function cargarEmpleadosActivos() {
     try {
+      await conTimeout(asegurarMigracion(), 8000).catch(() => {})
       const q = query(collection(db,'usuarios'), where('estado','==','APROBADO'))
       const snap = await getDocs(q)
       setEmpleadosActivos(snap.docs.map(d => ({ id:d.id, ...d.data() })).filter(e => e.email !== ADMIN_EMAIL))
@@ -1800,6 +1848,7 @@ function AdminApp({ onVerComoCliente }) {
 
   async function cargarEmpleadosPendientes() {
     try {
+      await conTimeout(asegurarMigracion(), 8000).catch(() => {})
       const q = query(collection(db,'usuarios'), where('estado','==','PENDIENTE'))
       const snap = await getDocs(q)
       setEmpleadosPendientes(snap.docs.map(d => ({ id:d.id, ...d.data() })))
@@ -3836,6 +3885,7 @@ function ClienteRegistro({ onRegistrado, onSinRegistro, onVolver }) {
     try {
       // Asegurar autenticacion anonima antes de escribir en Firestore
       if (!auth.currentUser || auth.currentUser.isAnonymous) await signInAnonymously(auth)
+      perfil.uid = auth.currentUser.uid // el perfil queda a nombre de este cliente: nadie más puede verlo ni editarlo
       const docRef = await addDoc(collection(db,'clientes'), perfil)
       const perfilConId = {...perfil, _id: docRef.id}
       localStorage.setItem('esencial_cliente', JSON.stringify(perfilConId))
@@ -4174,10 +4224,13 @@ function ClienteApp({ onVolver, esPreview }) {
     if (!cliente) return
     setLoadingHistorial(true)
     try {
-      // Buscar en domicilio (activos) y pedidos (entregados)
+      // Cada cliente ve SOLO sus pedidos: se buscan por su identificador de cuenta, no por
+      // teléfono (con el teléfono cualquiera podía ver los pedidos de otra persona).
+      const uid = auth.currentUser?.uid
+      if (!uid) { setHistorialPedidos([]); setLoadingHistorial(false); return }
       const [snapDom, snapPed] = await Promise.all([
-        getDocs(query(collection(db,'domicilio'), where('telefono','==', cliente.telefono))),
-        getDocs(query(collection(db,'pedidos'), where('telefono','==', cliente.telefono), where('tipoCliente','==','Domicilio')))
+        getDocs(query(collection(db,'domicilio'), where('clienteUid','==', uid))),
+        getDocs(query(collection(db,'pedidos'), where('clienteUid','==', uid)))
       ])
       const activos = snapDom.docs.map(d => ({id:d.id, ...d.data(), _coleccion:'domicilio'}))
       const entregados = snapPed.docs.map(d => ({id:d.id, ...d.data(), _coleccion:'pedidos'}))
@@ -4185,10 +4238,7 @@ function ClienteApp({ onVolver, esPreview }) {
       todos.sort((a,b) => (b.creadoEn?.seconds||0) - (a.creadoEn?.seconds||0))
       setHistorialPedidos(todos)
     } catch(e) {
-      try {
-        const snap = await getDocs(query(collection(db,'domicilio'), where('telefono','==', cliente.telefono)))
-        setHistorialPedidos(snap.docs.map(d => ({id:d.id, ...d.data()})))
-      } catch(e2) { setHistorialPedidos([]) }
+      setHistorialPedidos([])
     }
     setLoadingHistorial(false)
   }
@@ -4233,6 +4283,7 @@ function ClienteApp({ onVolver, esPreview }) {
         referencia: cliente?.referencia||'',
         items: itemsData, subtotal, total,
         estado: 'A DOMICILIO',
+        clienteUid: auth.currentUser ? auth.currentUser.uid : null,
         creadoEn: serverTimestamp()
       }
       if (urlComprobante) domData.urlComprobante = urlComprobante
@@ -5100,7 +5151,7 @@ function ClienteApp({ onVolver, esPreview }) {
                       setGuardandoPerfil(true)
                       const perfilActualizado = {...cliente,nombre:editNombre,telefono:editTelefono,direccion:editDireccion,cedula:editCedula,referencia:editReferencia}
                       try {
-                        if (cliente._id) await updateDoc(doc(db,'clientes',cliente._id),{nombre:editNombre,telefono:editTelefono,direccion:editDireccion,cedula:editCedula,referencia:editReferencia})
+                        if (cliente._id && auth.currentUser) await updateDoc(doc(db,'clientes',cliente._id),{nombre:editNombre,telefono:editTelefono,direccion:editDireccion,cedula:editCedula,referencia:editReferencia,uid:auth.currentUser.uid})
                       } catch(e){}
                       localStorage.setItem('esencial_cliente', JSON.stringify(perfilActualizado))
                       setCliente(perfilActualizado)
