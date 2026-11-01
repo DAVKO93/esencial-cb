@@ -1,6 +1,4 @@
 import { useState, useEffect, useRef } from 'react'
-import jsPDF from 'jspdf'
-import autoTable from 'jspdf-autotable'
 import { db, auth } from './firebase'
 import {
   collection, addDoc, setDoc, getDoc, getDocFromServer, getDocs, doc, updateDoc, deleteDoc, increment,
@@ -16,7 +14,6 @@ import {
 // Reemplaza a Firebase Storage — evita depender del plan Blaze.
 // IMAGEKIT_PUBLIC_KEY no es secreta (está pensada para ir en el código del
 // navegador), la sacas de imagekit.io → Developer Options.
-const IMAGEKIT_URL_ENDPOINT = 'https://ik.imagekit.io/jj0vr8ous'
 const IMAGEKIT_PUBLIC_KEY = 'REEMPLAZA_CON_TU_PUBLIC_KEY'
 
 // Sube una foto (en base64) a ImageKit y devuelve la URL final.
@@ -719,22 +716,6 @@ function FormProducto({ item, onClose, onSave, categorias, onAgregarCategoria, o
 // ==========================================
 // APP PRINCIPAL
 // ==========================================
-function comprimirImagen(base64, maxWidth=800) {
-  return new Promise((resolve) => {
-    const img = new Image()
-    img.onload = () => {
-      const canvas = document.createElement('canvas')
-      const ratio = Math.min(1, maxWidth / img.width)
-      canvas.width = img.width * ratio
-      canvas.height = img.height * ratio
-      const ctx = canvas.getContext('2d')
-      ctx.drawImage(img, 0, 0, canvas.width, canvas.height)
-      resolve(canvas.toDataURL('image/jpeg', 0.7))
-    }
-    img.src = base64
-  })
-}
-
 function AdminApp({ onVerComoCliente }) {
   const [user, setUser] = useState(null)
   const [authReady, setAuthReady] = useState(false)
@@ -748,7 +729,6 @@ function AdminApp({ onVerComoCliente }) {
   const [menuOrden, setMenuOrden] = useState(() => leerCache('menuOrden', 'alfabetico')) // alfabetico | vendidos | modificado | agregado
   const [ordenMenuAbierto, setOrdenMenuAbierto] = useState(false)
   const [menuVista, setMenuVista] = useState(() => leerCache('menuVista', 'lista')) // lista | galeria
-  const [tipoCliente, setTipoCliente] = useState('cliente')
   const [pedidosActivos, setPedidosActivos] = useState([])
   const [procesoPendiente, setProcesoPendiente] = useState(null) // datos nuevos esperando a que el empleado los aplique
   const [pagoSel, setPagoSel] = useState({})
@@ -805,6 +785,13 @@ function AdminApp({ onVerComoCliente }) {
   const entregadosRef = useRef(new Set())  // domicilios ya marcados como entregados
   const fotoComprobanteRef = useRef({})    // copia siempre actual de fotoComprobante
   const migracionRef = useRef(null)        // migración de empleados al formato nuevo (solo admin)
+  // Descarga en segundo plano las librerías de PDF para que también funcionen sin señal
+  useEffect(() => {
+    const t = setTimeout(() => {
+      if (navigator.onLine) { import('jspdf').catch(() => {}); import('jspdf-autotable').catch(() => {}) }
+    }, 4000)
+    return () => clearTimeout(t)
+  }, [])
   const asegurarMigracion = () => {
     if (!migracionRef.current) {
       migracionRef.current = migrarUsuariosAUid().then(ok => { if (!ok) migracionRef.current = null; return ok })
@@ -1873,6 +1860,16 @@ function AdminApp({ onVerComoCliente }) {
 
   // ---- GENERAR PDF ----
   async function generarPDF(filtrados, periodoLabel, totalSum) {
+    // Las librerías de PDF pesan bastante: se cargan solo al generar un PDF (y se
+    // adelantan en segundo plano al abrir la app), para que la app abra más rápido.
+    let jsPDF, autoTable
+    try {
+      const [m1, m2] = await Promise.all([import('jspdf'), import('jspdf-autotable')])
+      jsPDF = m1.default; autoTable = m2.default
+    } catch(e) {
+      showToast('err','No se pudo preparar el PDF. Conéctate a internet e inténtalo de nuevo.')
+      return
+    }
     const doc = new jsPDF({ orientation:'portrait', unit:'mm', format:'a4' })
     const pageW = doc.internal.pageSize.getWidth()
     const pageH = doc.internal.pageSize.getHeight()
@@ -3724,15 +3721,17 @@ function registrarVentasProductos(items) {
   })
 }
 
-const IMGS_CATEGORIA = {
-  'Congelados': 'https://images.unsplash.com/photo-1497034825429-c343d7c6a68f?w=800&q=80',
-  'Dulce':      'https://images.unsplash.com/photo-1551024506-0bccd828d307?w=800&q=80',
-  'Mixtos':     'https://images.unsplash.com/photo-1568901346375-23c9450c58cd?w=800&q=80',
-  'Bebidas':    'https://images.unsplash.com/photo-1544145945-f90425340c7e?w=800&q=80',
-  'Combos':     'https://images.unsplash.com/photo-1555396273-367ea4eb4db5?w=800&q=80',
-  'Acompanantes':'https://images.unsplash.com/photo-1541557435984-1c79685a082b?w=800&q=80',
-  'default':    'https://images.unsplash.com/photo-1504674900247-0877df9cc836?w=800&q=80',
-}
+// Imagen de respaldo para productos sin foto. Es propia (no depende de internet ni de
+// servicios externos), carga al instante, funciona sin señal y usa los colores de la app.
+const IMG_SIN_FOTO = 'data:image/svg+xml;utf8,' + encodeURIComponent(
+  "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 400 400'>" +
+  "<rect width='400' height='400' fill='#f1f1ee'/>" +
+  "<g fill='none' stroke='#7C9263' stroke-width='10' stroke-linecap='round' stroke-linejoin='round' opacity='0.85'>" +
+  "<path d='M148 128v46a16 16 0 0016 16h0a16 16 0 0016-16v-46'/><path d='M164 128v50M164 190v82'/>" +
+  "<path d='M248 128c26 20 26 74 0 96'/><path d='M248 128v144'/>" +
+  "</g></svg>"
+)
+const IMGS_CATEGORIA = new Proxy({}, { get: () => IMG_SIN_FOTO })
 
 function getImgProducto(item) {
   if (item.imagenCliente) return item.imagenCliente
@@ -3974,7 +3973,6 @@ function ClienteApp({ onVolver, esPreview }) {
   const [promociones, setPromociones] = useState([])
   const [loadingMenu, setLoadingMenu] = useState(true)
   const [indice, setIndice] = useState(0)
-  const [catActiva, setCatActiva] = useState('Todos')
   const [cantidades, setCantidades] = useState({})
   const [modalPedido, setModalPedido] = useState(false)
   const [vistaCliente, setVistaCliente] = useState('menu') // 'menu' | 'pedido'
@@ -5050,6 +5048,53 @@ function ClienteApp({ onVolver, esPreview }) {
             border:'none',borderRadius:12,fontFamily:'Poppins,sans-serif',
             fontSize:13,fontWeight:700,cursor:'pointer'
           }}>Volver al menú</button>
+        </div>
+      )}
+
+      {/* MODAL MIS PEDIDOS (cliente) */}
+      {modalHistorial && (
+        <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.55)',zIndex:2100,display:'flex',alignItems:'flex-end'}}
+          onClick={e=>{if(e.target===e.currentTarget)setModalHistorial(false)}}>
+          <div style={{background:'#fff',borderRadius:'20px 20px 0 0',width:'100%',maxWidth:480,margin:'0 auto',padding:'24px 20px 36px',maxHeight:'85vh',overflowY:'auto'}}>
+            <div style={{width:36,height:4,background:'#e0e0e0',borderRadius:2,margin:'0 auto 16px'}}/>
+            <div style={{fontFamily:'Poppins,sans-serif',fontSize:17,fontWeight:700,marginBottom:14,color:'#1a1a1a'}}>Mis Pedidos</div>
+            {loadingHistorial ? (
+              <div style={{display:'flex',justifyContent:'center',padding:'30px 0'}}>
+                <div style={{width:26,height:26,border:'2px solid #e0e0e0',borderTopColor:'#1a1a1a',borderRadius:'50%',animation:'spin 0.8s linear infinite'}}/>
+              </div>
+            ) : historialPedidos.length === 0 ? (
+              <div style={{textAlign:'center',padding:'26px 10px 14px'}}>
+                <div style={{fontFamily:'Poppins,sans-serif',fontSize:14,fontWeight:600,color:'#1a1a1a',marginBottom:6}}>Aún no tienes pedidos</div>
+                <div style={{fontSize:12,color:'#aaa',fontFamily:'Poppins,sans-serif',lineHeight:1.5}}>Aquí verás los pedidos a domicilio que hagas desde esta app.</div>
+              </div>
+            ) : historialPedidos.map(ped => {
+              const f = ped.creadoEn?.toDate ? ped.creadoEn.toDate() : null
+              const entregado = ped._coleccion === 'pedidos'
+              return (
+                <div key={ped._coleccion + ped.id} style={{border:'1px solid #ececec',borderRadius:12,padding:'12px 14px',marginBottom:10}}>
+                  <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:8}}>
+                    <span style={{fontSize:11,color:'#999',fontFamily:'Poppins,sans-serif'}}>
+                      {f ? `${f.toLocaleDateString('es-EC',{day:'2-digit',month:'short'})} · ${f.toLocaleTimeString('es-EC',{hour:'2-digit',minute:'2-digit'})}` : ''}
+                    </span>
+                    <span style={{padding:'3px 9px',borderRadius:100,fontSize:9,fontWeight:700,fontFamily:'Poppins,sans-serif',
+                      background: entregado ? '#eef3e8' : '#fff8e1', color: entregado ? '#7C9263' : '#b8860b'}}>
+                      {entregado ? 'ENTREGADO' : 'EN CAMINO'}
+                    </span>
+                  </div>
+                  {(ped.items||[]).map((it,i) => (
+                    <div key={i} style={{fontSize:12,color:'#555',fontFamily:'Poppins,sans-serif',padding:'2px 0'}}>{it.cantidad}x {it.nombre}</div>
+                  ))}
+                  <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginTop:10}}>
+                    <span style={{fontFamily:'Poppins,sans-serif',fontSize:14,fontWeight:700,color:'#1a1a1a'}}>${parseFloat(ped.total||0).toFixed(2)}</span>
+                    <button onClick={()=>agregarDelHistorial(ped)} style={{
+                      padding:'7px 14px',background:'#1a1a1a',color:'#fff',border:'none',borderRadius:100,
+                      fontFamily:'Poppins,sans-serif',fontSize:11,fontWeight:600,cursor:'pointer'
+                    }}>Pedir de nuevo</button>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
         </div>
       )}
 
