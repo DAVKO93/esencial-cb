@@ -754,7 +754,6 @@ function AdminApp({ onVerComoCliente }) {
   const [modalEliminar, setModalEliminar] = useState(null)
   const [modalEditarFecha, setModalEditarFecha] = useState(null)
   const [editFechaValor, setEditFechaValor] = useState('')
-  const [modalConfirm, setModalConfirm] = useState(null)
   const [enviandoPedido, setEnviandoPedido] = useState(false)
   const [entregandoId, setEntregandoId] = useState(null)
   const [modalProducto, setModalProducto] = useState(null) // null | 'nuevo' | {item}
@@ -1240,11 +1239,16 @@ function AdminApp({ onVerComoCliente }) {
 
   useEffect(() => {
     if (!user || !aprobado) return
-    const q = query(collection(db,'pedidos'), orderBy('creadoEn','desc'))
+    // Solo se escuchan los pedidos EN PROCESO (antes se escuchaba TODO el historial en vivo,
+    // lo que se volvía más lento y caro con cada pedido nuevo). Con un solo filtro de igualdad
+    // no hace falta ningún índice; el orden se aplica aquí.
+    const q = query(collection(db,'pedidos'), where('estado','==','EN PROCESO'))
     const unsub = onSnapshot(q, (snap) => {
+      const ms = v => v?.toDate ? v.toDate().getTime() : (v ? new Date(v).getTime() : Date.now())
       const datos = snap.docs
         .map(d => ({ id:d.id, ...d.data() }))
         .filter(p => p.estado === 'EN PROCESO')
+        .sort((a, b) => ms(b.creadoEn) - ms(a.creadoEn))
       const firma = arr => arr.map(p=>p.id+':'+p.estado).sort().join(',')
       if (firma(datos) === firma(pedidosActivosRef.current)) {
         setProcesoPendiente(null) // ya coincide con lo que se ve en pantalla
@@ -1254,6 +1258,27 @@ function AdminApp({ onVerComoCliente }) {
     })
     return unsub
   }, [user, aprobado])
+
+  // ---- PEDIDOS LISTOS DE HOY (burbuja de Historial) ----
+  // Se actualiza sola al crear o cerrar pedidos, sin tener que abrir Historial.
+  const [diaClave, setDiaClave] = useState(() => fechaLocalISO())
+  const [pedidosHoyIds, setPedidosHoyIds] = useState([])
+  useEffect(() => {
+    // Si la app queda abierta pasada la medianoche, el contador pasa al día nuevo.
+    const t = setInterval(() => setDiaClave(prev => { const n = fechaLocalISO(); return n === prev ? prev : n }), 60000)
+    return () => clearInterval(t)
+  }, [])
+  useEffect(() => {
+    if (!user || !aprobado) return
+    const [a, b, c] = diaClave.split('-').map(Number)
+    const inicio = new Date(a, b - 1, c, 0, 0, 0, 0)
+    const fin = new Date(a, b - 1, c, 23, 59, 59, 999)
+    const q = query(collection(db,'pedidos'), where('creadoEn','>=',Timestamp.fromDate(inicio)), where('creadoEn','<=',Timestamp.fromDate(fin)))
+    const unsub = onSnapshot(q, (snap) => {
+      setPedidosHoyIds(snap.docs.filter(d => d.data().estado === 'LISTO').map(d => d.id))
+    }, () => {})
+    return unsub
+  }, [user, aprobado, diaClave])
 
 
   // ---- CARRITO ----
@@ -1289,12 +1314,15 @@ function AdminApp({ onVerComoCliente }) {
     const pedidoRef = doc(collection(db,'pedidos'))
     const pedido = { ...datos, items, total, estado:'EN PROCESO', empleado: nombreEmpleado, creadoEn: serverTimestamp() }
 
+    // Al confirmar, se va directo a En Proceso (vista "Tus Pedidos") para ver el pedido nuevo.
+    const irAProceso = () => { setVistaProceso('tuyos'); setTab('proceso') }
+
     const guardarLocal = (aviso) => {
       const idLocal = 'LOCAL-' + Date.now() + '-' + Math.random().toString(36).slice(2, 6)
       setPendientesLS([...getPendientes(), { ...pedido, _idLocal:idLocal, _docId:pedidoRef.id, creadoEn: new Date().toISOString() }])
-      setModalConfirm({ idPedido: idLocal, offline:true, datos:{ ...datos, items, total } })
       setCart([]); limpiarForm()
-      if (aviso) showToast('warn', aviso)
+      irAProceso()
+      showToast('warn', aviso || 'Sin conexión: pedido guardado, se enviará al reconectar')
     }
 
     try {
@@ -1315,11 +1343,13 @@ function AdminApp({ onVerComoCliente }) {
         try{Sound.play('notify')}catch(e){}
         setPedidosActivos(prev => [nuevoPedido, ...prev])
         setProcesoPendiente(null)
-        setModalConfirm({ idPedido: pedidoRef.id, offline: respuesta === 'lento', datos:{ ...datos, items, total } })
         setCart([]); limpiarForm()
+        irAProceso()
         if (respuesta === 'lento') {
           showToast('warn','Señal lenta: el pedido quedó guardado y se enviará solo.')
           envio.catch((e) => showToast('err', mensajeError(e,'Un pedido no pudo enviarse')))
+        } else {
+          showToast('ok','Pedido enviado')
         }
       }
     } catch(e) {
@@ -2178,11 +2208,18 @@ function AdminApp({ onVerComoCliente }) {
   const mesaOpts = ['Mesa 1','Mesa 2','Mesa 3','Mesa 4','Mesa 5','A Domicilio']
 
   // Iconos nav
+  // Pedidos de hoy ya cerrados: los de Firestore más los marcados listos sin señal (aún sin subir)
+  const idsHoy = new Set(pedidosHoyIds)
+  const pedidosHoyCount = pedidosHoyIds.length + pendientesSync.filter(p => {
+    if (p.estado !== 'LISTO' || (p._docId && idsHoy.has(p._docId))) return false
+    const f = new Date(p.creadoEn)
+    return !isNaN(f.getTime()) && fechaLocalISO() === `${f.getFullYear()}-${String(f.getMonth()+1).padStart(2,'0')}-${String(f.getDate()).padStart(2,'0')}`
+  }).length
   const navItemsTodos = [
     { key:'menu', label:'Menu' },
-    { key:'pedido', label:'Pedido', badge: cartCount },
+    { key:'pedido', label:'Pedido' }, // sin burbuja
     { key:'proceso', label:'En Proceso', badge: (procesoPendiente ? procesoPendiente.length : pedidosActivos.length) + pendientesSync.filter(p=>p.estado!=='LISTO').length },
-    { key:'historial', label:'Historial' },
+    { key:'historial', label:'Historial', badge: pedidosHoyCount },
     { key:'stats', label:'Stats' },
     { key:'domicilio', label:'Delivery', badge: pedidosDomicilioHoy.length },
   ]
@@ -3100,7 +3137,12 @@ function AdminApp({ onVerComoCliente }) {
                           {(p.items||[]).map((it,i)=><div key={it.lineaId || i} style={{display:'flex',justifyContent:'space-between',gap:9,padding:'5px 0',borderBottom:'1px solid #f0f0f0',fontSize:12,color:it.pagoSeparado?.estado==='PAGADO'?'#587043':'#555'}}><span>{it.cantidad}x {it.nombre}{it.paraLlevar ? ` · Para llevar +$${Number(it.cargoParaLlevar||0).toFixed(2)} c/u` : ''}{it.pagoSeparado?.estado==='PAGADO' ? <small style={{display:'block',fontWeight:700,marginTop:2}}>Pagado separado · {it.pagoSeparado.formaPago}</small> : null}</span><strong style={{whiteSpace:'nowrap'}}>${totalItemPedido(it).toFixed(2)}</strong></div>)}
                           <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',paddingTop:10,marginTop:4}}><span style={{fontSize:10,letterSpacing:1.5,textTransform:'uppercase',fontWeight:700,color:'#888'}}>Total</span><strong style={{fontFamily:'Poppins,sans-serif',fontSize:18}}>${Number(p.total||0).toFixed(2)}</strong></div>
                           {cobrosSeparados.length > 0 && <div style={{marginTop:8,padding:'8px 9px',borderRadius:7,background:'#f5f8f1',border:'1px solid #dce8d2',fontSize:11,color:'#587043'}}><div style={{display:'flex',justifyContent:'space-between',fontWeight:700}}><span>Cobrado por separado</span><span>${totalSeparado.toFixed(2)}</span></div>{cobrosSeparados.map((it,i)=><div key={i} style={{marginTop:4}}>{it.nombre}: ${totalItemPedido(it).toFixed(2)} · {it.pagoSeparado.formaPago}</div>)}</div>}
-                          <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:8,marginTop:10,paddingTop:9,borderTop:'1px solid #eee'}}><span style={{fontSize:11,color:'#666'}}>Pago final: <strong>{p.formaPago || '—'}</strong></span><div style={{display:'flex',gap:7,flexWrap:'wrap',justifyContent:'flex-end'}}>{p.urlComprobante && <button onClick={()=>setModalComprobante(p.urlComprobante)} style={{background:'#1a1a1a',border:'none',color:'#fff',padding:'6px 9px',borderRadius:6,fontFamily:'Poppins,sans-serif',fontSize:10,fontWeight:700,cursor:'pointer'}}>Ver transferencia</button>}<button onClick={()=>abrirEditarFecha(p)} style={{background:'#fff',border:'1px solid #d0d0d0',color:'#555',padding:'6px 9px',borderRadius:6,fontFamily:'Poppins,sans-serif',fontSize:10,fontWeight:700,cursor:'pointer'}}>Editar</button><button onClick={()=>setModalEliminar(p.id)} style={{background:'#fff',border:'1px solid #ffcdd2',color:'#c62828',padding:'6px 9px',borderRadius:6,fontFamily:'Poppins,sans-serif',fontSize:10,fontWeight:700,cursor:'pointer'}}>Eliminar</button></div></div>
+                          <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:8,marginTop:10,paddingTop:9,borderTop:'1px solid #eee'}}><span style={{fontSize:11,color:'#666'}}>Pago final: <strong>{p.formaPago || '—'}</strong></span><div style={{display:'flex',gap:7,flexWrap:'wrap',justifyContent:'flex-end'}}>{(() => {
+                            const foto = p.urlComprobante || (p._local ? fotoComprobante[p.id] : null)
+                            if (foto) return <button onClick={()=>setModalComprobante(foto)} style={{background:'#1a1a1a',border:'none',color:'#fff',padding:'6px 9px',borderRadius:6,fontFamily:'Poppins,sans-serif',fontSize:10,fontWeight:700,cursor:'pointer'}}>Ver transferencia</button>
+                            if (p.formaPago === 'Transferencia') return <button disabled title='Este pedido no tiene foto de comprobante' style={{background:'#f4f4f4',border:'1px solid #e0e0e0',color:'#aaa',padding:'6px 9px',borderRadius:6,fontFamily:'Poppins,sans-serif',fontSize:10,fontWeight:700,cursor:'not-allowed'}}>Sin comprobante</button>
+                            return null
+                          })()}<button onClick={()=>abrirEditarFecha(p)} style={{background:'#fff',border:'1px solid #d0d0d0',color:'#555',padding:'6px 9px',borderRadius:6,fontFamily:'Poppins,sans-serif',fontSize:10,fontWeight:700,cursor:'pointer'}}>Editar</button><button onClick={()=>setModalEliminar(p.id)} style={{background:'#fff',border:'1px solid #ffcdd2',color:'#c62828',padding:'6px 9px',borderRadius:6,fontFamily:'Poppins,sans-serif',fontSize:10,fontWeight:700,cursor:'pointer'}}>Eliminar</button></div></div>
                         </div>
                       </div>
                     })}
@@ -3197,7 +3239,7 @@ function AdminApp({ onVerComoCliente }) {
 
       {/* ===== NAV INFERIOR PÍLDORA ADMIN ===== */}
       <div style={{position:'fixed',bottom:'calc(12px + env(safe-area-inset-bottom))',left:'50%',transform:'translateX(-50%)',width:'calc(100% - 32px)',maxWidth:440,zIndex:1000}}>
-        <nav style={{background:'#1a1a1a',borderRadius:100,padding:'6px',gap:2,display:'flex',alignItems:'center',boxShadow:'0 8px 28px rgba(0,0,0,0.4)'}}>
+        <nav style={{background:'#1a1a1a',borderRadius:100,padding:'6px 5px',gap:1,display:'flex',alignItems:'center',boxShadow:'0 8px 28px rgba(0,0,0,0.4)'}}>
           {navItems.map(n => {
             const activo = tab === n.key
             const ICONOS = {
@@ -3208,10 +3250,21 @@ function AdminApp({ onVerComoCliente }) {
               historial: <svg width='20' height='20' viewBox='0 0 24 24' fill='none' stroke='currentColor' strokeWidth='2' strokeLinecap='round' strokeLinejoin='round'><path d='M4 4h16v16H4z'/><path d='M7 4v5h10V4'/><path d='M7 15h10'/><path d='M8 18h2'/><path d='M14 18h2'/></svg>,
               stats: <svg width='20' height='20' viewBox='0 0 24 24' fill='none' stroke='currentColor' strokeWidth='2' strokeLinecap='round'><line x1='18' y1='20' x2='18' y2='10'/><line x1='12' y1='20' x2='12' y2='4'/><line x1='6' y1='20' x2='6' y2='14'/></svg>,
             }
+            // Burbuja de cantidad: fondo blanco, número negro. En la sección activa va ANTES del
+            // icono; en las demás, AL LADO del icono. Si la cantidad es 0, no aparece.
+            const burbuja = n.badge > 0 ? (
+              <span style={{
+                background:'#fff',color:'#1a1a1a',borderRadius:100,
+                minWidth:17,height:17,padding:'0 4px',boxSizing:'border-box',
+                fontSize:9.5,fontWeight:700,fontFamily:'Poppins,sans-serif',lineHeight:1,
+                display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0,
+                margin: activo ? '0 6px 0 0' : '0 0 0 3px'
+              }}>{n.badge > 99 ? '99+' : n.badge}</span>
+            ) : null
             return (
-              <button key={n.key} aria-label={n.label} aria-current={activo ? 'page' : undefined}
+              <button key={n.key} aria-label={n.badge > 0 ? `${n.label}, ${n.badge}` : n.label} aria-current={activo ? 'page' : undefined}
                 onClick={()=>{setTab(n.key);if(n.key==='stats')cargarStats(statsPeriodo)}} style={{
-                flexGrow: activo ? 3.4 : 1, flexShrink:1, flexBasis:0, minWidth:0,
+                flexGrow: activo ? 4.8 : (n.badge > 0 ? 1.7 : 1), flexShrink:1, flexBasis:0, minWidth:0,
                 display:'flex',alignItems:'center',justifyContent:'center',
                 border:'none',background:'none',cursor:'pointer',position:'relative',padding:0,
                 transition:'flex-grow 0.35s cubic-bezier(0.4,0,0.2,1)',
@@ -3219,29 +3272,18 @@ function AdminApp({ onVerComoCliente }) {
               }}>
                 <div style={{
                   width:'100%',height:42,borderRadius:100,overflow:'hidden',
-                  display:'flex',alignItems:'center',justifyContent:'center',gap:activo?7:0,
+                  display:'flex',alignItems:'center',justifyContent:'center',
                   background: activo ? '#7C9263' : 'transparent',
                   color: activo ? '#fff' : 'rgba(255,255,255,0.45)',
-                  transition:'background 0.3s, color 0.3s, gap 0.3s'
+                  transition:'background 0.3s, color 0.3s'
                 }}>
-                  <span style={{position:'relative',display:'flex',flexShrink:0}}>
-                    {ICONOS[n.key]}
-                    {n.badge > 0 && (
-                      <span style={{
-                        position:'absolute',top:-9,right:-11,
-                        background:'#c62828',color:'#fff',borderRadius:100,
-                        minWidth:17,height:17,fontSize:9,fontWeight:700,fontFamily:'Poppins,sans-serif',
-                        display:'flex',alignItems:'center',justifyContent:'center',
-                        padding:'0 4px',zIndex:2,
-                        border:'2px solid ' + (activo ? '#7C9263' : '#1a1a1a'),
-                        boxSizing:'content-box',transition:'border-color 0.3s'
-                      }}>{n.badge}</span>
-                    )}
-                  </span>
+                  {activo && burbuja}
+                  <span style={{display:'flex',flexShrink:0}}>{ICONOS[n.key]}</span>
+                  {!activo && burbuja}
                   <span style={{
-                    fontFamily:'Poppins,sans-serif',fontSize:12,fontWeight:600,whiteSpace:'nowrap',
-                    maxWidth: activo ? 90 : 0, opacity: activo ? 1 : 0,
-                    transition:'max-width 0.35s cubic-bezier(0.4,0,0.2,1), opacity 0.25s'
+                    fontFamily:'Poppins,sans-serif',fontSize:'clamp(10px, 3.3vw, 12px)',fontWeight:600,whiteSpace:'nowrap',
+                    maxWidth: activo ? 90 : 0, opacity: activo ? 1 : 0, marginLeft: activo ? 6 : 0,
+                    transition:'max-width 0.35s cubic-bezier(0.4,0,0.2,1), opacity 0.25s, margin 0.3s'
                   }}>{n.label}</span>
                 </div>
               </button>
@@ -3552,31 +3594,6 @@ function AdminApp({ onVerComoCliente }) {
             <div style={{display:'flex',gap:8}}><button onClick={()=>cobrarProductoSeparado('Efectivo')} style={{flex:1,padding:'12px 8px',background:'#1a1a1a',color:'#fff',border:'none',borderRadius:8,fontFamily:'Poppins,sans-serif',fontSize:11,fontWeight:700,letterSpacing:1,cursor:'pointer'}}>Efectivo</button><button onClick={()=>cobrarProductoSeparado('Transferencia')} style={{flex:1,padding:'12px 8px',background:'#fff',color:'#1a1a1a',border:'1.5px solid #1a1a1a',borderRadius:8,fontFamily:'Poppins,sans-serif',fontSize:11,fontWeight:700,letterSpacing:1,cursor:'pointer'}}>Transferencia</button></div>
           </>
         })()}
-      </Modal>
-
-      {/* MODAL CONFIRMAR PEDIDO */}
-      <Modal open={!!modalConfirm} onClose={()=>setModalConfirm(null)}
-        title={modalConfirm?.offline?'Pedido Guardado Offline':'Pedido Confirmado'}
-        sub={modalConfirm?.offline?'Se enviará al reconectar':'Registrado exitosamente'}
-        icon='OK'
-        footer={<Btn onClick={()=>setModalConfirm(null)}>Aceptar</Btn>}>
-        {modalConfirm && (
-          <>
-            {modalConfirm.offline && <div style={{background:'#fff8e1',border:'1px solid #e8d88a',borderRadius:8,padding:'9px 13px',marginBottom:12,fontSize:12,color:'#b8860b',fontWeight:600}}>Sin conexión — Guardado localmente</div>}
-            <div style={{background:'#f4f4f4',borderRadius:8,padding:12,border:'1px solid #e0e0e0'}}>
-              <div style={{fontSize:11,color:'#666',marginBottom:7,fontWeight:600}}>{modalConfirm.datos?.tipoCliente} — {modalConfirm.datos?.mesa}</div>
-              {modalConfirm.datos?.items?.map((it,i) => (
-                <div key={i} style={{display:'flex',justifyContent:'space-between',fontSize:12,color:'#666',padding:'3px 0',borderBottom:'1px solid #e0e0e0'}}>
-                  <span>{it.cantidad}x {it.nombre}</span><span>${(it.precio*it.cantidad).toFixed(2)}</span>
-                </div>
-              ))}
-              <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',paddingTop:9,borderTop:'1.5px solid #d0d0d0',marginTop:4}}>
-                <span style={{fontSize:10,letterSpacing:2,textTransform:'uppercase',color:'#999',fontWeight:600}}>Total</span>
-                <span style={{fontFamily:'Poppins,sans-serif',fontSize:22}}>${parseFloat(modalConfirm.datos?.total||0).toFixed(2)}</span>
-              </div>
-            </div>
-          </>
-        )}
       </Modal>
 
       {/* Modal Ver Comprobante */}
