@@ -2217,7 +2217,7 @@ function AdminApp({ onVerComoCliente }) {
   }).length
   const navItemsTodos = [
     { key:'menu', label:'Menu' },
-    { key:'pedido', label:'Pedido' }, // sin burbuja
+    { key:'pedido', label:'Pedido', badge: cartCount },
     { key:'proceso', label:'En Proceso', badge: (procesoPendiente ? procesoPendiente.length : pedidosActivos.length) + pendientesSync.filter(p=>p.estado!=='LISTO').length },
     { key:'historial', label:'Historial', badge: pedidosHoyCount },
     { key:'stats', label:'Stats' },
